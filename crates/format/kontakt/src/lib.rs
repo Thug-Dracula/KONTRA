@@ -9,6 +9,7 @@ mod delays;
 mod drive;
 mod dynamics;
 mod effects;
+mod engine_pars;
 mod external;
 mod fastlz;
 mod impulse;
@@ -32,10 +33,9 @@ mod versatile;
 mod wavetable;
 
 pub use container::chunks;
-pub use readouts::readouts;
+pub use engine_pars::engine_pars;
 pub use resources::Resources;
 pub use reverb::{reverb, reverb_laws, reverb_networks};
-pub use script_knobs::script_knobs;
 
 use std::fmt::Display;
 use std::path::{Path, PathBuf};

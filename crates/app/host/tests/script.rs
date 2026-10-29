@@ -2967,3 +2967,24 @@ fn get_folder_factory_returns_prepared_path_or_empty() {
         assert_eq!(engine.stats().actions_unhandled, 0);
     }
 }
+
+/// A known parameter on a target the instrument lacks: the set is dropped,
+/// the read is 0, the text is "" and the script runs on, every call
+/// answered (Kontakt 8.13.1, its getter's miss path and an oracle probe).
+#[test]
+fn a_parameter_on_a_missing_target_reads_zero_and_shows_nothing() {
+    let source = "on init
+            declare @t
+            set_engine_par($ENGINE_PAR_CUTOFF, 300000, 9999, 0, -1)
+            @t := get_engine_par($ENGINE_PAR_CUTOFF, 9999, 0, -1) & \"|\"
+            @t := @t & get_engine_par_disp($ENGINE_PAR_CUTOFF, 9999, 0, -1) & \"|on\"
+        end on
+        on note
+            message(@t)
+        end on";
+    let store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut e = engine(&store, Vec::new(), source);
+    level(&mut e, &[on(60)]);
+    assert_eq!(e.last_message(), "0||on");
+    assert_eq!(e.unhandled_actions(), []);
+}
