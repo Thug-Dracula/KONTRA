@@ -531,7 +531,7 @@ impl Engine {
                 continue;
             }
             let channel = n.host.channel;
-            // `%KEY_DOWN` reads 0 in the key's own `on release` (Pacific).
+            // `%KEY_DOWN` reads 0 in the key's own `on release`.
             n.key_up = true;
             if let Some(slot) = self.release_callbacks(note) {
                 // The key is up whatever the script does with its event:
@@ -622,12 +622,7 @@ impl Engine {
         let fade = self.fade_frames();
         let mut hits = std::mem::take(&mut self.hits);
         self.notes.matching(pattern, &mut hits);
-        for &note in &hits {
-            if let Some(n) = self.notes.get_mut(note) {
-                n.released = true;
-            }
-            self.fade_where(fade, |s| s.note == Some(note));
-        }
+        self.fade_notes(&hits, fade, 0.0, true);
         self.hits = hits;
     }
 
