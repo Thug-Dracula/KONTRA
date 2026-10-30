@@ -107,6 +107,14 @@ Layers 1–3 protect (3); layer 0 protects (1) and (2); layer 4 protects (4).
 
 ---
 
+## Build isolation (learned the hard way)
+
+Four worktrees sharing one `CARGO_TARGET_DIR` can link each other's rlibs when their sources
+diverge: a lane here saw `kontra-ui-model` from another branch (`Kind::LevelMeter` with a `bus`
+field) and `kontra-ir` without `Mod::invert`. A lane can then report a pass that belongs to a
+different tree. **Every lane gets its own target directory, and the integration tree is built
+clean** before `tools/verify.sh` is trusted.
+
 ## Order of work
 
 1. Layer 1 for the UI: the hit-test unit test, at three scales. It is small, it
