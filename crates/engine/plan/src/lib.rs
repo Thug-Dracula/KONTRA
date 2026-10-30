@@ -33,6 +33,17 @@ pub enum Trigger {
     Legato,
 }
 
+/// Who starts [`Trigger::Release`] zones.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReleaseZones {
+    /// The engine, when a note is released.
+    #[default]
+    AtRelease,
+    /// A script, by playing a note into their groups: they start and end
+    /// with that note, as other zones do.
+    WithNote,
+}
+
 /// Which counter a round robin steps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RrCounter {
@@ -396,6 +407,7 @@ pub struct Plan {
     pub route_pitch: ir::Exp2,
     /// [`ir::Instrument::steal_whole_groups`].
     pub steal_whole_groups: bool,
+    pub release_zones: ReleaseZones,
     /// Convolution responses at the engine's rate, by [`ir::Instrument::impulses`]
     /// index; `None` when unreadable.
     pub impulses: Vec<Option<Response>>,
@@ -457,6 +469,7 @@ impl Plan {
             output: ir::Output::UNITY,
             route_pitch: ir::Exp2::Exact,
             steal_whole_groups: false,
+            release_zones: ReleaseZones::AtRelease,
             impulses: Vec::new(),
             impulse_laws: Vec::new(),
             responses: Vec::new(),
