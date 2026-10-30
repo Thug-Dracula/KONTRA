@@ -351,3 +351,45 @@ fn a_value_edit_arrow_steps_one_shown_unit_a_press() {
     assert_eq!(held.len(), 6, "{held:?}");
     assert_eq!(f.value(3), 100.);
 }
+
+/// The window can report a fractional scale factor (`Ui::set_scale`, set from
+/// baseview's). Hit-testing must not move because of it: a control is under the
+/// pointer at the point it is drawn at, at every scale.
+#[test]
+fn a_control_is_hit_where_it_is_drawn_at_any_ui_scale() {
+    for scale in [1.0, 1.25, 1.5, 2.0] {
+        let mut f = Face::new();
+        f.ui.set_scale(Some(scale));
+        f.frame(Input::default());
+        let knob = input::surface(0, 0);
+        let p = f.at(&knob);
+        let mut edits = f.pointer(p, true, Mods::default());
+        edits.extend(f.pointer(Point::new(p.x, p.y - 20.), true, Mods::default()));
+        edits.extend(f.pointer(Point::new(p.x, p.y - 20.), false, Mods::default()));
+        edits.extend(f.frame(Input::default()));
+        assert!(
+            edits.iter().any(|e| e.widget.0 == 0),
+            "scale {scale}: a drag from the knob's centre ({:?}) selected nothing",
+            p
+        );
+    }
+}
+
+/// The reported failure: the wrench opens its menu, but a menu item cannot be
+/// picked. That path is the menu popup's own hit test, which floats over the
+/// page in a separate element — so it is checked at every scale too.
+#[test]
+fn a_menu_item_is_picked_at_any_ui_scale() {
+    for scale in [1.0, 1.25, 1.5, 2.0] {
+        let mut f = Face::new();
+        f.ui.set_scale(Some(scale));
+        f.frame(Input::default());
+        let menu = input::surface(0, 2);
+        f.click(&menu, Mods::default());
+        assert_eq!(f.gesture.menu, Some(2), "scale {scale}: the menu did not open");
+        let item = format!("{menu}-2");
+        f.click(&item, Mods::default());
+        assert_eq!(f.value(2), 2., "scale {scale}: the item did not set the value");
+        assert_eq!(f.gesture.menu, None, "scale {scale}: the menu did not close");
+    }
+}
