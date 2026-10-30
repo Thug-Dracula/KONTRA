@@ -17,3 +17,6 @@
 
 /.github/scripts/__pycache__/
 __pycache__/
+
+# Trail Code: the linked context cache is local, the learnings are shared
+.trail/cache/
