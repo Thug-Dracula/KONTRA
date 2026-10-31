@@ -31,7 +31,7 @@ use kontra_ir as ir;
 
 /// The record's eight floats and two flags (reader 0x140d01b50, v0x10).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Saved {
+pub struct Saved {
     pub prenormal: f32,
     pub preoverdrive: f32,
     pub master: f32,
@@ -48,7 +48,7 @@ pub(crate) struct Saved {
 
 impl Saved {
     /// The saved record, or none when it is shorter than its reader needs.
-    pub(crate) fn read(public: &[u8]) -> Option<Self> {
+    pub fn read(public: &[u8]) -> Option<Self> {
         let f = |n: usize| {
             let bytes = public.get(n..n + 4)?.try_into().ok()?;
             Some(f32::from_le_bytes(bytes)).filter(|v| v.is_finite())
@@ -71,7 +71,7 @@ impl Saved {
 /// The record the bands were measured at: Electric Mint's insert slot 3, as the
 /// file stores it (the bits are the record's own; two knobs near 0.603 differ in
 /// the last places, which is why comparisons below carry a tolerance).
-pub(crate) const MEASURED: Saved = Saved {
+pub const MEASURED: Saved = Saved {
     prenormal: f32::from_bits(0x3eaa_8ae7),
     preoverdrive: f32::from_bits(0x3ef0_eb46),
     master: f32::from_bits(0x3ed7_485e),
@@ -89,7 +89,7 @@ pub(crate) const MEASURED: Saved = Saved {
 ///
 /// Least squares of the model below against the ablated-in-Kontakt curve
 /// (`tools/dsp-research/hot_solo_fit.py` prints them); residual 0.40 dB RMS.
-pub(crate) const BANDS: [ir::Bell; 4] = [
+pub const BANDS: [ir::Bell; 4] = [
     ir::Bell {
         shape: ir::Shape::LowShelf,
         hz: 43.61,
@@ -113,16 +113,58 @@ pub(crate) const BANDS: [ir::Bell; 4] = [
 
 /// The stage's own gain at [`MEASURED`], linear (+5.51 dB): the record's
 /// prenormal and master make up more than they take away.
-const MEASURED_GAIN: f32 = 1.885_888;
+pub const MEASURED_GAIN: f32 = 1.885_888;
+
+/// Hot Solo's measured response at [`MEASURED`], 1/3-octave centres and dB
+/// (`docs/re/engine/k-hotsolo.md`): Kontakt with insert slot 3 active minus
+/// Kontakt with it bypassed, so it is the stage alone and its level is
+/// absolute. The 40 Hz band is absent — neither signal has energy there, so it
+/// measures silence rather than response.
+///
+/// [`BANDS`] is a least-squares fit to this curve,
+/// `tools/dsp-research/hot_solo_fit.py`.
+pub const MEASURED_CURVE: [(f32, f32); 25] = [
+    (50.0, 3.01),
+    (63.0, 4.97),
+    (80.0, 4.34),
+    (101.0, 5.17),
+    (127.0, 6.07),
+    (160.0, 6.49),
+    (202.0, 6.81),
+    (254.0, 7.25),
+    (320.0, 8.12),
+    (403.0, 8.46),
+    (508.0, 9.05),
+    (640.0, 11.00),
+    (806.0, 12.74),
+    (1016.0, 14.38),
+    (1280.0, 15.79),
+    (1613.0, 18.78),
+    (2032.0, 19.65),
+    (2560.0, 20.39),
+    (3225.0, 21.79),
+    (4064.0, 21.97),
+    (5120.0, 22.16),
+    (6451.0, 21.15),
+    (8127.0, 19.83),
+    (10240.0, 18.02),
+    (12902.0, 14.80),
+];
 
 /// The record as the engine's amp. `lost` names what the record asks for and
 /// this model does not carry.
-pub(crate) fn amp(saved: Saved, at: &str) -> (ir::Amp, Option<String>) {
+pub fn amp(saved: Saved, at: &str) -> (ir::Amp, Option<String>) {
     // Prenormal and master are gains, and the record's own run through them is
     // in the measured bands: their law is the ratio to the measured point.
     // Native evidence: master 0.5 -> 1.0 raised level 5 dB, where a
     // proportional law predicts 6 (that render clipped at 1.0); both mute the
     // output at 0.
+    //
+    // No test re-states this ratio. Beyond the measured point and the two
+    // mutes it is unmeasured, and the one native pair argues the law is not
+    // strictly proportional, so a test that pinned the arithmetic would block
+    // the correction a taper needs. The measured point itself is pinned by
+    // `the_measured_record_is_the_engine_amp_with_no_note`.
     let gain = if saved.prenormal > 0.0 && saved.master > 0.0 {
         MEASURED_GAIN * (saved.prenormal / MEASURED.prenormal) * (saved.master / MEASURED.master)
     } else {
@@ -256,14 +298,5 @@ mod tests {
         ] {
             assert_eq!(amp(saved, "rack").0.gain(), 0.0);
         }
-    }
-
-    #[test]
-    fn the_gain_follows_the_record_through_the_measured_point() {
-        let louder = Saved {
-            master: 2.0 * MEASURED.master,
-            ..MEASURED
-        };
-        assert!((amp(louder, "rack").0.gain() - 2.0 * MEASURED_GAIN).abs() < 1e-5);
     }
 }

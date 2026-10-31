@@ -13,3 +13,9 @@ kontra-dsp = { path = "../../dsp/registry" }
 kontra-ir = { path = "../../model/ir" }
 kontra-stream = { path = "../stream" }
 kontra-voice = { path = "../voice" }
+
+[dev-dependencies]
+# Hot Solo's measured stage is built where its record is read (serial 0x54):
+# the response test runs the translator's own amp through these stages, so a
+# change to its gain fails here instead of leaving a copy green.
+kontra-format-kontakt = { path = "../../format/kontakt" }

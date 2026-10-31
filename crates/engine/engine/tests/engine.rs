@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use kontra_engine::{Engine, Plan, Timed, Zone};
 use kontra_events::{Event, HostNote, HostPattern};
+use kontra_ir as ir;
 use kontra_stream::{BlobKey, Encoding, MemSource, SampleFmt, Store, StoreConfig};
 use kontra_time::SampleTime;
 use kontra_voice::Region;
@@ -356,4 +357,50 @@ fn the_note_table_follows_the_instruments_voice_limit() {
         "{stats:?}"
     );
     assert_eq!(engine.playing_voices(), 300);
+}
+
+/// A Choral in a group insert is the group's own wet path, so the group
+/// renders sound. Folded into each voice's gain matrix it was a zero matrix —
+/// its saved dry level is 0 — and the whole group came out silent with
+/// nothing said about it.
+#[test]
+fn a_group_chorus_insert_is_heard() {
+    let choral = ir::Effect {
+        kind: ir::EffectKind::Chorus(ir::Chorus {
+            mode: 0,
+            amount: 0.5,
+            rate: 0.5,
+            delay: 0.3,
+            voices: 0.7,
+            width: 0.5,
+            feedback: 0.0,
+            mix: 1.0,
+            scatter: true,
+            invert: false,
+        }),
+        bypass: false,
+        output: 1.0,
+        dry: 0.0,
+    };
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let plain = region(&mut store, "a", 20_000).unwrap();
+    let inserted = region(&mut store, "b", 20_000).unwrap();
+    let dry = {
+        let plan = Plan::new(vec![zone(plain, 0.0)], 16);
+        let mut engine = Engine::new(Arc::new(plan), store.client(), RATE);
+        render(&mut engine, &[on(0, 60)], 8_000, 128)
+    };
+    let wet = {
+        let mut plan = Plan::new(vec![zone(inserted, 0.0)], 16);
+        for g in &mut plan.groups {
+            g.inserts = vec![Some(choral)];
+        }
+        let mut engine = Engine::new(Arc::new(plan), store.client(), RATE);
+        render(&mut engine, &[on(0, 60)], 8_000, 128)
+    };
+    assert!(
+        wet.iter().flatten().any(|s| s.abs() > 1e-3),
+        "a group chorus renders silence"
+    );
+    assert_ne!(wet, dry, "the insert is heard, not passed through");
 }

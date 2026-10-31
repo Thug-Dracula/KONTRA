@@ -180,38 +180,6 @@ pub fn run(stages: &mut [Stage], io: &mut [[f32; 2]]) {
 mod tests {
     use super::*;
 
-    /// Hot Solo's measured response at Electric Mint's saved record, 1/3-octave,
-    /// dB (docs/re/engine/k-hotsolo.md): Kontakt with insert slot 3 active minus
-    /// Kontakt with it bypassed. The 40 Hz band is absent — neither signal has
-    /// energy there, so it measures silence rather than response.
-    const MEASURED: [(f32, f32); 25] = [
-        (50.0, 3.01),
-        (63.0, 4.97),
-        (80.0, 4.34),
-        (101.0, 5.17),
-        (127.0, 6.07),
-        (160.0, 6.49),
-        (202.0, 6.81),
-        (254.0, 7.25),
-        (320.0, 8.12),
-        (403.0, 8.46),
-        (508.0, 9.05),
-        (640.0, 11.00),
-        (806.0, 12.74),
-        (1016.0, 14.38),
-        (1280.0, 15.79),
-        (1613.0, 18.78),
-        (2032.0, 19.65),
-        (2560.0, 20.39),
-        (3225.0, 21.79),
-        (4064.0, 21.97),
-        (5120.0, 22.16),
-        (6451.0, 21.15),
-        (8127.0, 19.83),
-        (10240.0, 18.02),
-        (12902.0, 14.80),
-    ];
-
     /// The stage's magnitude at `hz`, from its impulse response.
     fn magnitude(stages: &mut [Stage], hz: f32) -> f32 {
         let mut io = vec![[0.0f32; 2]; 16_384];
@@ -240,62 +208,49 @@ mod tests {
         (10.0 * (power / f64::from(points)).log10()) as f32
     }
 
+    /// How far the modelled stage's level may sit from the measured curve. The
+    /// measurement's own floor is 0.06 dB and the fit lands at 0.01 dB; the
+    /// stage gain that was shipped wrong is 3.9 dB of error.
+    const LEVEL_TOLERANCE_DB: f32 = 0.35;
+
+    /// Hot Solo's measured response, against the amp the Kontakt translator
+    /// builds for it (`crates/format/kontakt/src/hot_solo.rs`): the translator's
+    /// own stage, not a copy, so its gain is what this test prices.
     #[test]
     fn an_amp_stage_reproduces_hot_solos_measured_response() {
-        // The bands the Kontakt translator builds (crates/format/kontakt/src/hot_solo.rs).
-        let amp = ir::Amp {
-            input: 1.0,
-            bands: [
-                ir::Bell {
-                    shape: ir::Shape::LowShelf,
-                    hz: 43.61,
-                    q: 1.0,
-                    gain_db: -6.569_262,
-                },
-                ir::Bell {
-                    shape: ir::Shape::Peak,
-                    hz: 3_654.338,
-                    q: 0.260_086,
-                    gain_db: 16.101_653,
-                },
-                ir::Bell {
-                    shape: ir::Shape::HighShelf,
-                    hz: 5_150.529,
-                    q: 1.0,
-                    gain_db: 2.546_798,
-                },
-                ir::Bell::FLAT,
-            ],
-            output: 1.885_888,
-        };
+        let (amp, lost) =
+            kontra_format_kontakt::hot_solo::amp(kontra_format_kontakt::hot_solo::MEASURED, "rack");
+        assert_eq!(lost, None, "the measured record is the modelled one");
         let mut stages = stages(&[ir::EffectKind::Amp(amp)], 48_000);
-        let ach: Vec<f32> = MEASURED
+        let curve = kontra_format_kontakt::hot_solo::MEASURED_CURVE;
+        let ach: Vec<f32> = curve
             .iter()
             .map(|&(hz, _)| response(&mut stages, hz))
             .collect();
-        // The level is asserted, not absorbed. An earlier version subtracted
-        // this offset before checking the shape, which meant the stage gain --
-        // the number that was miscalibrated twice against the wrong reference,
-        // and the whole reason this curve exists -- could move by decibels with
-        // the suite green. Measured today: +0.0101 dB.
-        let offset = MEASURED
+        // The curve is the stage alone — Kontakt with the slot active minus
+        // Kontakt with it bypassed — so its level is absolute: the model has to
+        // sit on the curve, not on a shifted copy of it. A gain error moves
+        // every band together, and the stage gain is the number that has been
+        // wrong twice; a free offset (the mean error) used to absorb exactly
+        // that. Both this level and the parity render's price (+6.963 dB here
+        // against Kontakt's +7.002, docs/re/electric-mint-base-gain-2026-10-31.md)
+        // move one for one with it.
+        let level = ach.iter().sum::<f32>() / ach.len() as f32
+            - curve.iter().map(|&(_, db)| db).sum::<f32>() / curve.len() as f32;
+        assert!(
+            level.abs() < LEVEL_TOLERANCE_DB,
+            "the stage's level is {level:+.2} dB off the measured curve (tolerance {LEVEL_TOLERANCE_DB})"
+        );
+        // The shape, its level removed: what the fit fixes. Measured residual
+        // of the fit: 0.40 dB RMS, 0.98 worst band.
+        let worst = curve
             .iter()
             .zip(&ach)
-            .map(|((_, want), got)| got - want)
-            .sum::<f32>()
-            / ach.len() as f32;
-        let worst = MEASURED
-            .iter()
-            .zip(&ach)
-            .map(|((_, want), got)| (got - want - offset).abs())
+            .map(|((_, want), got)| (got - want - level).abs())
             .fold(0.0f32, f32::max);
         assert!(
-            offset.abs() < 0.2,
-            "the stage's level is {offset:+.2} dB off Kontakt's curve; the gain is not a free parameter"
-        );
-        assert!(
             worst < 1.2,
-            "worst band error {worst:.2} dB (offset {offset:+.2} dB)"
+            "worst band error {worst:.2} dB (level {level:+.2} dB)"
         );
     }
 

@@ -2134,6 +2134,7 @@ name = "kontra-effects"
 version = "0.0.0"
 dependencies = [
  "kontra-dsp",
+ "kontra-format-kontakt",
  "kontra-ir",
  "kontra-stream",
  "kontra-voice",

@@ -70,41 +70,40 @@ pub fn slots(group: &Group, from: usize) -> Vec<Option<ir::Effect>> {
 mod tests {
     use super::*;
 
-    fn chorus() -> ir::EffectKind {
-        ir::EffectKind::Chorus(ir::Chorus {
-            mode: 0,
-            amount: 0.4,
-            rate: 0.2,
-            delay: 0.3,
-            voices: 0.3,
-            width: 0.9,
-            feedback: 0.0,
-            mix: 0.4,
-            scatter: true,
-            invert: false,
-        })
+    /// Choral as its record reads: the saved dry level is ignored (0x5d is not
+    /// a parallel module), so the slot is fully wet.
+    fn choral() -> ir::Effect {
+        ir::Effect {
+            kind: ir::EffectKind::Chorus(ir::Chorus {
+                mode: 0,
+                amount: 0.5,
+                rate: 0.5,
+                delay: 0.3,
+                voices: 0.7,
+                width: 0.5,
+                feedback: 0.0,
+                mix: 1.0,
+                scatter: true,
+                invert: false,
+            }),
+            bypass: false,
+            output: 1.0,
+            dry: 0.0,
+        }
     }
 
-    /// A group rack cannot carry a wet effect: its voices sum through a gain
-    /// matrix, so a slot whose dry is 0 would multiply every voice by zero.
-    /// Choral was missing from both lists and a Choral in a group insert
-    /// rendered that group as silence with a clean diagnostic list.
+    /// A Choral in a group is that group's own wet path, so the group's sum
+    /// runs it: without this the slot is neither folded (its dry is 0, which
+    /// silences the group — `matrix::rack_only`) nor built as a rack.
     #[test]
-    fn a_wet_kind_is_kept_out_of_the_voice_matrix() {
-        assert!(wet(chorus()), "the group rack must run it, not fold it");
-        assert!(
-            kontra_effects::matrix::rack_only(chorus()),
-            "the translator must pass it unprocessed and report that"
-        );
-        assert_eq!(
-            kontra_effects::matrix::rack(&[Some(ir::Effect {
-                kind: chorus(),
-                bypass: false,
-                output: 1.0,
-                dry: 0.0,
-            })]),
-            kontra_effects::matrix::IDENTITY,
-            "with both fixed the matrix stays identity; before the fix it was [[0,0],[0,0]]"
-        );
+    fn a_group_chorus_splits_out_to_the_group_rack() {
+        let chorus = choral();
+        assert!(wet(chorus.kind), "a Choral is a wet slot");
+        let group = Group {
+            inserts: vec![Some(chorus)],
+            ..Group::standard()
+        };
+        assert_eq!(split(&group, &[]), Some(0), "the group's own rack runs it");
+        assert_eq!(slots(&group, 0), vec![Some(chorus)]);
     }
 }

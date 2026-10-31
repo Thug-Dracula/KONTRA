@@ -43,9 +43,6 @@ pub fn rack_only(kind: ir::EffectKind) -> bool {
             | ir::EffectKind::Limiter(_)
             | ir::EffectKind::Delay(_)
             | ir::EffectKind::Phaser(_)
-            // Chorus has a wet path like the others here, and a group rack
-            // cannot carry it: its dry is 0, so leaving it in a voice matrix
-            // would fold zeros into every voice and silence the group.
             | ir::EffectKind::Chorus(_)
             | ir::EffectKind::Diffusion(_)
             | ir::EffectKind::Transient(_)
@@ -151,5 +148,30 @@ mod tests {
             e.bypass = true;
         }
         assert_eq!(rack(&[off]), IDENTITY);
+    }
+
+    /// A Choral slot in a group rack is the group's own wet path, not the
+    /// voice matrix: its saved dry level is 0, so folding it would multiply
+    /// every voice of the group by zero — silence with no diagnostic.
+    #[test]
+    fn a_group_chorus_is_passed_not_folded() {
+        let kind = ir::EffectKind::Chorus(ir::Chorus {
+            mode: 0,
+            amount: 0.5,
+            rate: 0.5,
+            delay: 0.3,
+            voices: 0.7,
+            width: 0.5,
+            feedback: 0.0,
+            mix: 1.0,
+            scatter: true,
+            invert: false,
+        });
+        assert!(rack_only(kind), "the group rack runs it, not the matrix");
+        assert_eq!(
+            rack(&[fx(kind)]),
+            IDENTITY,
+            "the group's gain is not multiplied by zero"
+        );
     }
 }
