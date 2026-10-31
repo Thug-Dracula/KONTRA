@@ -1,0 +1,1773 @@
+{
+ "measured": "2026-10-31",
+ "question": "does Kontakt run Electric Mint's instrument insert slot 6 (Choral) and slot 4 (Replika Diffusion), and at what gain",
+ "kontakt": "Kontakt 8.14.1 portable under wine-staging 11.16, oracle Xvfb, PipeWire null sink kontra_ref",
+ "instrument": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
+ "kontra_tip": "b3cd8bb (feat/integration)",
+ "insert_rack_as_parsed": [
+  null,
+  {
+   "kind": "Eq",
+   "bypass": false,
+   "output": 1.0,
+   "dry": 0.0
+  },
+  {
+   "kind": "Other",
+   "bypass": false,
+   "output": 0.7035764,
+   "dry": 0.0
+  },
+  {
+   "kind": "Amp",
+   "bypass": false,
+   "output": 1.0,
+   "dry": 0.0
+  },
+  {
+   "kind": "OtherWet",
+   "bypass": false,
+   "output": 0.29891846,
+   "dry": 0.9999979
+  },
+  null,
+  {
+   "kind": "Other",
+   "bypass": false,
+   "output": 1.0,
+   "dry": 0.0
+  },
+  {
+   "kind": "Convolution { impulse: 0 }",
+   "bypass": false,
+   "output": 0.37546974,
+   "dry": 0.9999979
+  }
+ ],
+ "ksp_slot_to_ir_slot": {
+  "0": [],
+  "1": [
+   1
+  ],
+  "2": [
+   2
+  ],
+  "3": [
+   3
+  ],
+  "4": [
+   4
+  ],
+  "5": [],
+  "6": [
+   6
+  ],
+  "7": [
+   7
+  ]
+ },
+ "variants": {
+  "control": [
+   {
+    "slot": 0,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 1,
+    "kind": "Eq",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 2,
+    "kind": "Other",
+    "bypass": false,
+    "output": 0.7035764,
+    "dry": 0.0
+   },
+   {
+    "slot": 3,
+    "kind": "Amp",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 4,
+    "kind": "OtherWet",
+    "bypass": false,
+    "output": 0.29891846,
+    "dry": 0.9999979
+   },
+   {
+    "slot": 5,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 6,
+    "kind": "Other",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 7,
+    "kind": "Convolution { impulse: 0 }",
+    "bypass": false,
+    "output": 0.37546974,
+    "dry": 0.9999979
+   }
+  ],
+  "sup2": [
+   {
+    "slot": 0,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 1,
+    "kind": "Eq",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 2,
+    "kind": "Other",
+    "bypass": true,
+    "output": 0.7035764,
+    "dry": 0.0
+   },
+   {
+    "slot": 3,
+    "kind": "Amp",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 4,
+    "kind": "OtherWet",
+    "bypass": false,
+    "output": 0.29891846,
+    "dry": 0.9999979
+   },
+   {
+    "slot": 5,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 6,
+    "kind": "Other",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 7,
+    "kind": "Convolution { impulse: 0 }",
+    "bypass": false,
+    "output": 0.37546974,
+    "dry": 0.9999979
+   }
+  ],
+  "chor6": [
+   {
+    "slot": 0,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 1,
+    "kind": "Eq",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 2,
+    "kind": "Other",
+    "bypass": false,
+    "output": 0.7035764,
+    "dry": 0.0
+   },
+   {
+    "slot": 3,
+    "kind": "Amp",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 4,
+    "kind": "OtherWet",
+    "bypass": false,
+    "output": 0.29891846,
+    "dry": 0.9999979
+   },
+   {
+    "slot": 5,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 6,
+    "kind": "Other",
+    "bypass": true,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 7,
+    "kind": "Convolution { impulse: 0 }",
+    "bypass": false,
+    "output": 0.37546974,
+    "dry": 0.9999979
+   }
+  ],
+  "diff4": [
+   {
+    "slot": 0,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 1,
+    "kind": "Eq",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 2,
+    "kind": "Other",
+    "bypass": false,
+    "output": 0.7035764,
+    "dry": 0.0
+   },
+   {
+    "slot": 3,
+    "kind": "Amp",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 4,
+    "kind": "OtherWet",
+    "bypass": true,
+    "output": 0.29891846,
+    "dry": 0.9999979
+   },
+   {
+    "slot": 5,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 6,
+    "kind": "Other",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 7,
+    "kind": "Convolution { impulse: 0 }",
+    "bypass": false,
+    "output": 0.37546974,
+    "dry": 0.9999979
+   }
+  ],
+  "both46": [
+   {
+    "slot": 0,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 1,
+    "kind": "Eq",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 2,
+    "kind": "Other",
+    "bypass": false,
+    "output": 0.7035764,
+    "dry": 0.0
+   },
+   {
+    "slot": 3,
+    "kind": "Amp",
+    "bypass": false,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 4,
+    "kind": "OtherWet",
+    "bypass": true,
+    "output": 0.29891846,
+    "dry": 0.9999979
+   },
+   {
+    "slot": 5,
+    "kind": null,
+    "bypass": null,
+    "output": null,
+    "dry": null
+   },
+   {
+    "slot": 6,
+    "kind": "Other",
+    "bypass": true,
+    "output": 1.0,
+    "dry": 0.0
+   },
+   {
+    "slot": 7,
+    "kind": "Convolution { impulse: 0 }",
+    "bypass": false,
+    "output": 0.37546974,
+    "dry": 0.9999979
+   }
+  ]
+ },
+ "captures": {
+  "method": "one fresh Kontakt 8.14.1 session per capture; first render only (round robin 0)",
+  "midi": "key 60, velocity 100, 1.5 s, from the note-on at 0",
+  "burst_limit_db": 20.0,
+  "configs": {
+   "orig": {
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
+    "clean": 6,
+    "attempts": 7,
+    "rejected": [
+     {
+      "attempt": 4,
+      "burst_db": 24.3,
+      "peak_dbfs": -11.3,
+      "rms_dbfs": -23.304,
+      "onset_s": 0.05,
+      "duration_s": 2.2,
+      "sha256": "f2cb109e3773940acca1e697324fef5c860169072c507294830af7a83fedbb0f",
+      "seconds": 23.3,
+      "rejected": "HF burst"
+     }
+    ],
+    "kept": [
+     {
+      "attempt": 1,
+      "burst_db": 9.3,
+      "peak_dbfs": -10.968,
+      "onset_s": 0.05,
+      "sha256": "c2bc5fed3f5fff168bd47a87bd13a398a74ae030be5219a50781d7b7a01c8054",
+      "wav": "/var/tmp/live/cap/orig/clean-1.wav"
+     },
+     {
+      "attempt": 2,
+      "burst_db": 11.5,
+      "peak_dbfs": -11.214,
+      "onset_s": 0.05,
+      "sha256": "244cd604283026e8738ce1f50de2f504635e7cf842e35818dff915b9b200f0c9",
+      "wav": "/var/tmp/live/cap/orig/clean-2.wav"
+     },
+     {
+      "attempt": 3,
+      "burst_db": 8.9,
+      "peak_dbfs": -10.953,
+      "onset_s": 0.05,
+      "sha256": "26a6cadb33a249ae784fab5ec5d9f30fbc365d7f8532d3c6cf9063c3631978f9",
+      "wav": "/var/tmp/live/cap/orig/clean-3.wav"
+     },
+     {
+      "attempt": 5,
+      "burst_db": 8.3,
+      "peak_dbfs": -11.207,
+      "onset_s": 0.05,
+      "sha256": "c97ad4d0dbceb1c740e3354abbadbe0b333fd25156068f02f05216a9d21fbb9b",
+      "wav": "/var/tmp/live/cap/orig/clean-4.wav"
+     },
+     {
+      "attempt": 6,
+      "burst_db": 12.8,
+      "peak_dbfs": -11.052,
+      "onset_s": 0.05,
+      "sha256": "790ff96f8081553a3566ed36190056ad0945f103793f206779336e99aa3a5381",
+      "wav": "/var/tmp/live/cap/orig/clean-5.wav"
+     },
+     {
+      "attempt": 7,
+      "burst_db": 7.6,
+      "peak_dbfs": -11.192,
+      "onset_s": 0.05,
+      "sha256": "10048d4743ba7f06cbb940e776697c866b734b3114e4a9b82a55187691747ccf",
+      "wav": "/var/tmp/live/cap/orig/clean-6.wav"
+     }
+    ]
+   },
+   "control": {
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/control.nki",
+    "clean": 6,
+    "attempts": 7,
+    "rejected": [
+     {
+      "attempt": 6,
+      "burst_db": 8.4,
+      "peak_dbfs": -10.482,
+      "rms_dbfs": -23.304,
+      "onset_s": 0.005333,
+      "duration_s": 2.2,
+      "sha256": "14283b7df73e28a4d0cda86392465ba7aba9c77da6e74e90e57ed76b1202d9bf",
+      "seconds": 25.0,
+      "rejected": "attack lost"
+     }
+    ],
+    "kept": [
+     {
+      "attempt": 1,
+      "burst_db": 11.6,
+      "peak_dbfs": -11.216,
+      "onset_s": 0.05,
+      "sha256": "254f472f053242938ddb22f355ecf92b137cc3b9c5bb93cf74baa7fb67c2c73a",
+      "wav": "/var/tmp/live/cap/control/clean-1.wav"
+     },
+     {
+      "attempt": 2,
+      "burst_db": 11.9,
+      "peak_dbfs": -11.241,
+      "onset_s": 0.05,
+      "sha256": "5ca850c060ba00744c59bc16a1be4409dd51918e5cb5c68cb9d4e0fce582aeea",
+      "wav": "/var/tmp/live/cap/control/clean-2.wav"
+     },
+     {
+      "attempt": 3,
+      "burst_db": 8.8,
+      "peak_dbfs": -11.299,
+      "onset_s": 0.05,
+      "sha256": "1ef8e327a91e51544c6ee8b1dc2fa4f7d87c975e11c2b56bca6770c86ef8e957",
+      "wav": "/var/tmp/live/cap/control/clean-3.wav"
+     },
+     {
+      "attempt": 4,
+      "burst_db": 6.3,
+      "peak_dbfs": -11.29,
+      "onset_s": 0.05,
+      "sha256": "54f4fba545d64cc10b7b55968f1269f036e150dc3558bf07b4a5bf06b9a2ba48",
+      "wav": "/var/tmp/live/cap/control/clean-4.wav"
+     },
+     {
+      "attempt": 5,
+      "burst_db": 6.8,
+      "peak_dbfs": -10.811,
+      "onset_s": 0.05,
+      "sha256": "b185226b3aca255f12c3a38bcefbc1dc0e70df3e37b87fee104d51d2b7613037",
+      "wav": "/var/tmp/live/cap/control/clean-5.wav"
+     },
+     {
+      "attempt": 7,
+      "burst_db": 10.3,
+      "peak_dbfs": -11.081,
+      "onset_s": 0.05,
+      "sha256": "594623f08d3bc7e89652b69785bb35a064adb4f2a0cce40ed06e2881678d83ed",
+      "wav": "/var/tmp/live/cap/control/clean-6.wav"
+     }
+    ]
+   },
+   "sup2": {
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/sup2.nki",
+    "clean": 6,
+    "attempts": 6,
+    "rejected": [],
+    "kept": [
+     {
+      "attempt": 1,
+      "burst_db": 9.5,
+      "peak_dbfs": -9.261,
+      "onset_s": 0.05,
+      "sha256": "16ccb4521b1f3168e5450e952aaf7fe717f30cc04570bc77dcf735f434c261ac",
+      "wav": "/var/tmp/live/cap/sup2/clean-1.wav"
+     },
+     {
+      "attempt": 2,
+      "burst_db": 8.4,
+      "peak_dbfs": -9.515,
+      "onset_s": 0.05,
+      "sha256": "6b3c952492fcc8ccebfeb101336eb0447ead6c68e3917e4f2b212a141541fce0",
+      "wav": "/var/tmp/live/cap/sup2/clean-2.wav"
+     },
+     {
+      "attempt": 3,
+      "burst_db": 8.5,
+      "peak_dbfs": -9.389,
+      "onset_s": 0.05,
+      "sha256": "19966f9647a6d814257bcbe0319029b3c2646d7c6d88657887773e432df1fff4",
+      "wav": "/var/tmp/live/cap/sup2/clean-3.wav"
+     },
+     {
+      "attempt": 4,
+      "burst_db": 9.6,
+      "peak_dbfs": -9.192,
+      "onset_s": 0.05,
+      "sha256": "4dfa8cd70f118e2b0f8e497c992368162b0af5a4b8c4829bc669699be8656aff",
+      "wav": "/var/tmp/live/cap/sup2/clean-4.wav"
+     },
+     {
+      "attempt": 5,
+      "burst_db": 9.1,
+      "peak_dbfs": -9.387,
+      "onset_s": 0.05,
+      "sha256": "1f789be704077b33fdd53adcda4f6f466a5e2bbbd2323c5e66d54284c98fa068",
+      "wav": "/var/tmp/live/cap/sup2/clean-5.wav"
+     },
+     {
+      "attempt": 6,
+      "burst_db": 8.4,
+      "peak_dbfs": -9.396,
+      "onset_s": 0.05,
+      "sha256": "4916791449055b8ea26244e3465b8ba15113376500513770ec787c9ed8233ba0",
+      "wav": "/var/tmp/live/cap/sup2/clean-6.wav"
+     }
+    ]
+   },
+   "chor6": {
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/chor6.nki",
+    "clean": 6,
+    "attempts": 8,
+    "rejected": [
+     {
+      "attempt": 4,
+      "burst_db": 27.2,
+      "peak_dbfs": -9.516,
+      "rms_dbfs": -22.211,
+      "onset_s": 0.05,
+      "duration_s": 2.2,
+      "sha256": "9364d2c150ff0e3519ee8d27fe6b1ac9c120269ee3a2e736bb0f5dfeda931cd4",
+      "seconds": 26.4,
+      "rejected": "HF burst"
+     },
+     {
+      "attempt": 5,
+      "burst_db": 12.9,
+      "peak_dbfs": -9.793,
+      "rms_dbfs": -22.822,
+      "onset_s": 0.0,
+      "duration_s": 2.2,
+      "sha256": "d2b1b506fe3ae7361647733e9b454f2a9a4063744128cefba4a4aff62b4be725",
+      "seconds": 25.3,
+      "rejected": "attack lost"
+     }
+    ],
+    "kept": [
+     {
+      "attempt": 1,
+      "burst_db": 9.9,
+      "peak_dbfs": -9.233,
+      "onset_s": 0.05,
+      "sha256": "9458626c92d0cd11ce8cdf27686de20f8a3b91e4e324db7703d9d1606476c864",
+      "wav": "/var/tmp/live/cap/chor6/clean-1.wav"
+     },
+     {
+      "attempt": 2,
+      "burst_db": 11.5,
+      "peak_dbfs": -9.404,
+      "onset_s": 0.05,
+      "sha256": "da31f55d69cbd3bfa891af03784e4ca2ef481149d748fb8c7a3e63b7383f711f",
+      "wav": "/var/tmp/live/cap/chor6/clean-2.wav"
+     },
+     {
+      "attempt": 3,
+      "burst_db": 8.0,
+      "peak_dbfs": -9.466,
+      "onset_s": 0.05,
+      "sha256": "df9b99070398919dfbb15c64ff1cc5ae605a4115308346eecac679f2da46fe79",
+      "wav": "/var/tmp/live/cap/chor6/clean-3.wav"
+     },
+     {
+      "attempt": 6,
+      "burst_db": 6.5,
+      "peak_dbfs": -9.37,
+      "onset_s": 0.05,
+      "sha256": "f664773784d54086359915e3496ee1c04f0f03c080e6c46a7e68c31587867792",
+      "wav": "/var/tmp/live/cap/chor6/clean-4.wav"
+     },
+     {
+      "attempt": 7,
+      "burst_db": 6.9,
+      "peak_dbfs": -9.584,
+      "onset_s": 0.05,
+      "sha256": "8a450d8cf07bded964b0d3d74c66d2e168b0880034e44804ced3df45dd2301cd",
+      "wav": "/var/tmp/live/cap/chor6/clean-5.wav"
+     },
+     {
+      "attempt": 8,
+      "burst_db": 11.5,
+      "peak_dbfs": -9.505,
+      "onset_s": 0.05,
+      "sha256": "0f9e65e24abfe8037ccf1ae8287839210c190710a4b8e5337fb9cefd8263dbc9",
+      "wav": "/var/tmp/live/cap/chor6/clean-6.wav"
+     }
+    ]
+   },
+   "diff4": {
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/diff4.nki",
+    "clean": 6,
+    "attempts": 7,
+    "rejected": [
+     {
+      "attempt": 6,
+      "burst_db": 24.6,
+      "peak_dbfs": -11.239,
+      "rms_dbfs": -23.387,
+      "onset_s": 0.05,
+      "duration_s": 2.2,
+      "sha256": "762424730c8dc3fbbb280ba3ee9bae8adfde964f9550473fb6ce2cfcc36bebbc",
+      "seconds": 24.3,
+      "rejected": "HF burst"
+     }
+    ],
+    "kept": [
+     {
+      "attempt": 1,
+      "burst_db": 12.9,
+      "peak_dbfs": -11.231,
+      "onset_s": 0.05,
+      "sha256": "bb6388347aeaef6104e641644162c5289fe29c6c52edfb4bcfa10b178c802b25",
+      "wav": "/var/tmp/live/cap/diff4/clean-1.wav"
+     },
+     {
+      "attempt": 2,
+      "burst_db": 13.1,
+      "peak_dbfs": -11.286,
+      "onset_s": 0.05,
+      "sha256": "3e20577b5e8f845c143be4b0f6ba1b8b030d0403eeed10dba470117a14087972",
+      "wav": "/var/tmp/live/cap/diff4/clean-2.wav"
+     },
+     {
+      "attempt": 3,
+      "burst_db": 13.1,
+      "peak_dbfs": -11.299,
+      "onset_s": 0.05,
+      "sha256": "a2d7f9e0912a0943be7053c6eab4621d0c1fe71e521ed780371dbd2c739e8a88",
+      "wav": "/var/tmp/live/cap/diff4/clean-3.wav"
+     },
+     {
+      "attempt": 4,
+      "burst_db": 13.1,
+      "peak_dbfs": -11.339,
+      "onset_s": 0.05,
+      "sha256": "95795b3ad7183b8394e59b3d1683330c833e497c3e2817b19ccb7d85f4995103",
+      "wav": "/var/tmp/live/cap/diff4/clean-4.wav"
+     },
+     {
+      "attempt": 5,
+      "burst_db": 13.3,
+      "peak_dbfs": -11.261,
+      "onset_s": 0.05,
+      "sha256": "f92b14ea2cc6a8279eb668e36845e387a52a43bafe5804976548fc31c1f90dc9",
+      "wav": "/var/tmp/live/cap/diff4/clean-5.wav"
+     },
+     {
+      "attempt": 7,
+      "burst_db": 13.5,
+      "peak_dbfs": -11.215,
+      "onset_s": 0.05,
+      "sha256": "cae37489752a3a02c6c9a32716a09a7872e7cf5c7e58b682c16b934abdae365a",
+      "wav": "/var/tmp/live/cap/diff4/clean-6.wav"
+     }
+    ]
+   },
+   "both46": {
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/both46.nki",
+    "clean": 6,
+    "attempts": 9,
+    "rejected": [
+     {
+      "attempt": 1,
+      "burst_db": 32.9,
+      "peak_dbfs": -9.399,
+      "rms_dbfs": -22.311,
+      "onset_s": 0.05,
+      "duration_s": 2.2,
+      "sha256": "95b2e64bb316d399b18209415912525689363c6ddf5056e33113df30e028f56b",
+      "seconds": 22.2,
+      "rejected": "HF burst"
+     },
+     {
+      "attempt": 3,
+      "burst_db": 33.5,
+      "peak_dbfs": -9.513,
+      "rms_dbfs": -22.258,
+      "onset_s": 0.05,
+      "duration_s": 2.2,
+      "sha256": "95859c16f20f16c3679900b994b284b2d0826d08a10dd022faf3081162a8068c",
+      "seconds": 22.4,
+      "rejected": "HF burst"
+     },
+     {
+      "attempt": 8,
+      "burst_db": 27.6,
+      "peak_dbfs": -9.481,
+      "rms_dbfs": -22.264,
+      "onset_s": 0.05,
+      "duration_s": 2.2,
+      "sha256": "da7d0a7974bcdc1db45df8bd03ec22a6a48837a96f20d0c5ca44345353d40f5a",
+      "seconds": 23.3,
+      "rejected": "HF burst"
+     }
+    ],
+    "kept": [
+     {
+      "attempt": 2,
+      "burst_db": 13.5,
+      "peak_dbfs": -9.508,
+      "onset_s": 0.05,
+      "sha256": "29650ee2277b189410f1162288a451315d3d078a3633fac9bc3485080982f7e2",
+      "wav": "/var/tmp/live/cap/both46/clean-1.wav"
+     },
+     {
+      "attempt": 4,
+      "burst_db": 13.6,
+      "peak_dbfs": -9.572,
+      "onset_s": 0.05,
+      "sha256": "bf1e681f377310b4e31276e329e4fde5bc3cc5a76b85d3660847dd0d310585da",
+      "wav": "/var/tmp/live/cap/both46/clean-2.wav"
+     },
+     {
+      "attempt": 5,
+      "burst_db": 13.3,
+      "peak_dbfs": -9.401,
+      "onset_s": 0.05,
+      "sha256": "fa2047224a3d3548b0b2096674043219ffafeadc90be86718cd3c0ee86fb2173",
+      "wav": "/var/tmp/live/cap/both46/clean-3.wav"
+     },
+     {
+      "attempt": 6,
+      "burst_db": 13.6,
+      "peak_dbfs": -9.41,
+      "onset_s": 0.05,
+      "sha256": "a7cda38f679f277df37a2035ef9202a7aaa2273d97b07d1202dde03e05e3ad0e",
+      "wav": "/var/tmp/live/cap/both46/clean-4.wav"
+     },
+     {
+      "attempt": 7,
+      "burst_db": 14.2,
+      "peak_dbfs": -9.518,
+      "onset_s": 0.05,
+      "sha256": "ecc47c489fcaf93cb582768407648892c6b19b78d6fdba1be064d4b73e910480",
+      "wav": "/var/tmp/live/cap/both46/clean-5.wav"
+     },
+     {
+      "attempt": 9,
+      "burst_db": 13.9,
+      "peak_dbfs": -9.43,
+      "onset_s": 0.05,
+      "sha256": "37f9bfa8a3e4a1ba539c3df401f29b9701f8bfe7a39eba797d8863b5dbb71ca7",
+      "wav": "/var/tmp/live/cap/both46/clean-6.wav"
+     }
+    ]
+   }
+  }
+ },
+ "analysis": {
+  "window_s": 2.0,
+  "configs": {
+   "orig": {
+    "n": 6,
+    "level_db": {
+     "median": -24.04464535676812,
+     "min": -24.070928723005252,
+     "max": -24.00171495965994,
+     "n": 6
+    },
+    "peak_db": {
+     "median": -11.122261569552702,
+     "min": -11.213827898158815,
+     "max": -10.95250732364895,
+     "n": 6
+    },
+    "sweep_db": {
+     "median": 7.894456471807606,
+     "min": 7.687443911483841,
+     "max": 7.95395652825192,
+     "n": 6
+    },
+    "captures": [
+     "/var/tmp/live/cap/orig/clean-1.wav",
+     "/var/tmp/live/cap/orig/clean-2.wav",
+     "/var/tmp/live/cap/orig/clean-3.wav",
+     "/var/tmp/live/cap/orig/clean-4.wav",
+     "/var/tmp/live/cap/orig/clean-5.wav",
+     "/var/tmp/live/cap/orig/clean-6.wav"
+    ],
+    "within": {
+     "level_db": {
+      "median": 0.00564061421182771,
+      "min": -0.0692137633453136,
+      "max": 0.06221188143109302,
+      "n": 15
+     },
+     "band_rms_db": {
+      "median": 0.28949322102699043,
+      "min": 0.21795927957597352,
+      "max": 0.4617978744258142,
+      "n": 15
+     },
+     "wave_r": {
+      "median": 0.7926758710905562,
+      "min": 0.7870380390127435,
+      "max": 0.9952725667044489,
+      "n": 15
+     }
+    }
+   },
+   "control": {
+    "n": 6,
+    "level_db": {
+     "median": -24.05136430145963,
+     "min": -24.075202784464445,
+     "max": -23.97938677895671,
+     "n": 6
+    },
+    "peak_db": {
+     "median": -11.228503534345148,
+     "min": -11.298632545211989,
+     "max": -10.810654215023298,
+     "n": 6
+    },
+    "sweep_db": {
+     "median": 7.816445173527162,
+     "min": 7.7017837987985684,
+     "max": 7.9675816080678405,
+     "n": 6
+    },
+    "captures": [
+     "/var/tmp/live/cap/control/clean-1.wav",
+     "/var/tmp/live/cap/control/clean-2.wav",
+     "/var/tmp/live/cap/control/clean-3.wav",
+     "/var/tmp/live/cap/control/clean-4.wav",
+     "/var/tmp/live/cap/control/clean-5.wav",
+     "/var/tmp/live/cap/control/clean-6.wav"
+    ],
+    "within": {
+     "level_db": {
+      "median": -0.0020869007810979667,
+      "min": -0.09581600550773572,
+      "max": 0.07022722206914978,
+      "n": 15
+     },
+     "band_rms_db": {
+      "median": 0.3261934899419565,
+      "min": 0.20052577999571955,
+      "max": 0.41013619223532854,
+      "n": 15
+     },
+     "wave_r": {
+      "median": 0.79437927025847,
+      "min": 0.7860702618239876,
+      "max": 0.9970475808976188,
+      "n": 15
+     }
+    }
+   },
+   "sup2": {
+    "n": 6,
+    "level_db": {
+     "median": -21.822972184191052,
+     "min": -21.887831152767355,
+     "max": -21.743432642368703,
+     "n": 6
+    },
+    "peak_db": {
+     "median": -9.388271563780814,
+     "min": -9.515356682298936,
+     "max": -9.192371326033694,
+     "n": 6
+    },
+    "sweep_db": {
+     "median": 7.696623288142577,
+     "min": 7.597254597038894,
+     "max": 7.9790478603720025,
+     "n": 6
+    },
+    "captures": [
+     "/var/tmp/live/cap/sup2/clean-1.wav",
+     "/var/tmp/live/cap/sup2/clean-2.wav",
+     "/var/tmp/live/cap/sup2/clean-3.wav",
+     "/var/tmp/live/cap/sup2/clean-4.wav",
+     "/var/tmp/live/cap/sup2/clean-5.wav",
+     "/var/tmp/live/cap/sup2/clean-6.wav"
+    ],
+    "within": {
+     "level_db": {
+      "median": -0.012127914138854834,
+      "min": -0.14439851039865204,
+      "max": 0.08009453303181147,
+      "n": 15
+     },
+     "band_rms_db": {
+      "median": 0.31271934604736146,
+      "min": 0.14784109064194792,
+      "max": 0.5078665737131778,
+      "n": 15
+     },
+     "wave_r": {
+      "median": 0.9929845153031093,
+      "min": 0.7856066587846879,
+      "max": 0.9951840892001529,
+      "n": 15
+     }
+    }
+   },
+   "chor6": {
+    "n": 6,
+    "level_db": {
+     "median": -22.71998035830854,
+     "min": -22.764613254178585,
+     "max": -22.700179256823073,
+     "n": 6
+    },
+    "peak_db": {
+     "median": -9.434728803126173,
+     "min": -9.5836493584677,
+     "max": -9.232587958417,
+     "n": 6
+    },
+    "sweep_db": {
+     "median": 7.895416277888184,
+     "min": 7.763621229142255,
+     "max": 8.020387142918041,
+     "n": 6
+    },
+    "captures": [
+     "/var/tmp/live/cap/chor6/clean-1.wav",
+     "/var/tmp/live/cap/chor6/clean-2.wav",
+     "/var/tmp/live/cap/chor6/clean-3.wav",
+     "/var/tmp/live/cap/chor6/clean-4.wav",
+     "/var/tmp/live/cap/chor6/clean-5.wav",
+     "/var/tmp/live/cap/chor6/clean-6.wav"
+    ],
+    "within": {
+     "level_db": {
+      "median": 0.020884263183614138,
+      "min": -0.03115141350324535,
+      "max": 0.06443399735551125,
+      "n": 15
+     },
+     "band_rms_db": {
+      "median": 0.2936280485686291,
+      "min": 0.19267921485162237,
+      "max": 0.3514464793387979,
+      "n": 15
+     },
+     "wave_r": {
+      "median": 0.7910539833479886,
+      "min": 0.7865711275973991,
+      "max": 0.9965306414594107,
+      "n": 15
+     }
+    }
+   },
+   "diff4": {
+    "n": 6,
+    "level_db": {
+     "median": -24.089908137671905,
+     "min": -24.120911582448848,
+     "max": -24.03653209997347,
+     "n": 6
+    },
+    "peak_db": {
+     "median": -11.273412306767732,
+     "min": -11.338803377474061,
+     "max": -11.214726943630248,
+     "n": 6
+    },
+    "sweep_db": {
+     "median": 8.566479938971213,
+     "min": 8.507895585800675,
+     "max": 8.691903052466788,
+     "n": 6
+    },
+    "captures": [
+     "/var/tmp/live/cap/diff4/clean-1.wav",
+     "/var/tmp/live/cap/diff4/clean-2.wav",
+     "/var/tmp/live/cap/diff4/clean-3.wav",
+     "/var/tmp/live/cap/diff4/clean-4.wav",
+     "/var/tmp/live/cap/diff4/clean-5.wav",
+     "/var/tmp/live/cap/diff4/clean-6.wav"
+    ],
+    "within": {
+     "level_db": {
+      "median": -0.02097608619627067,
+      "min": -0.08437948247537719,
+      "max": 0.04085513292317344,
+      "n": 15
+     },
+     "band_rms_db": {
+      "median": 0.25751453908017724,
+      "min": 0.2207301167636635,
+      "max": 0.3332156519789014,
+      "n": 15
+     },
+     "wave_r": {
+      "median": 0.7954116063800343,
+      "min": 0.7921426572787565,
+      "max": 0.9992067209566208,
+      "n": 15
+     }
+    }
+   },
+   "both46": {
+    "n": 6,
+    "level_db": {
+     "median": -22.79617865568411,
+     "min": -22.81784302404609,
+     "max": -22.77625426794419,
+     "n": 6
+    },
+    "peak_db": {
+     "median": -9.46875584724402,
+     "min": -9.571563530705498,
+     "max": -9.400924577158957,
+     "n": 6
+    },
+    "sweep_db": {
+     "median": 8.509326339226046,
+     "min": 8.477185704373008,
+     "max": 8.589214921405253,
+     "n": 6
+    },
+    "captures": [
+     "/var/tmp/live/cap/both46/clean-1.wav",
+     "/var/tmp/live/cap/both46/clean-2.wav",
+     "/var/tmp/live/cap/both46/clean-3.wav",
+     "/var/tmp/live/cap/both46/clean-4.wav",
+     "/var/tmp/live/cap/both46/clean-5.wav",
+     "/var/tmp/live/cap/both46/clean-6.wav"
+    ],
+    "within": {
+     "level_db": {
+      "median": 0.003529688604096748,
+      "min": -0.041588756101901936,
+      "max": 0.03107510654632506,
+      "n": 15
+     },
+     "band_rms_db": {
+      "median": 0.25802251801219156,
+      "min": 0.17947817500674496,
+      "max": 0.3485418128068691,
+      "n": 15
+     },
+     "wave_r": {
+      "median": 0.789216697879424,
+      "min": 0.7857667672967602,
+      "max": 0.999018889990478,
+      "n": 15
+     }
+    }
+   }
+  },
+  "pairs": {
+   "orig-control": {
+    "level_db": {
+     "median": 0.0009767374473756973,
+     "min": -0.09154194404854366,
+     "max": 0.07348782480450566,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 0.08375142946632952,
+     "min": -0.4031736831355168,
+     "max": 0.3461252215630388,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.31635693035412693,
+     "min": 0.11867789471138286,
+     "max": 0.433808323753599,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -0.6672906565527024,
+     "min": -1.6277838730525762,
+     "max": 1.3798657515422743,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 6450.795775461751,
+     "min": 403.17473596635944,
+     "max": 12901.591550923502,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.7945820321362662,
+     "min": 0.784121844587798,
+     "max": 0.9965668197655068,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": 0.0,
+     "min": -2.2083333333333335,
+     "max": 0.1875,
+     "n": 36
+    },
+    "median_band_at": 6450.795775461751
+   },
+   "orig-sup2": {
+    "level_db": {
+     "median": -2.223268546924867,
+     "min": -2.32749608063655,
+     "max": -2.1138838068925843,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.7677696411650707,
+     "min": -2.021456572125121,
+     "max": -1.437150641350014,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.6485782504445741,
+     "min": 0.5474886676612893,
+     "max": 0.8283643386793359,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": 1.9961278580303583,
+     "min": 1.889748094400323,
+     "max": 2.106988278054814,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 40.0,
+     "min": 40.0,
+     "max": 8127.493386077182,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.7899163878755038,
+     "min": 0.7830694861543777,
+     "max": 0.99433496372241,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.020833333333333332,
+     "min": -2.1875,
+     "max": 2.25,
+     "n": 36
+    },
+    "median_band_at": 40.0
+   },
+   "orig-chor6": {
+    "level_db": {
+     "median": -1.322415169558731,
+     "min": -1.370749466182179,
+     "max": -1.2371017054813542,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.6848984746247009,
+     "min": -1.9812399397418154,
+     "max": -1.3688579651812507,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.5379707986814862,
+     "min": 0.4257321348015442,
+     "max": 0.634416230474015,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": 1.2584470376246442,
+     "min": -1.5586130034971548,
+     "max": 1.4660268068668403,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 40.0,
+     "min": 40.0,
+     "max": 806.3494719327189,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.9815302596860392,
+     "min": 0.7691823787388303,
+     "max": 0.9869129887952406,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.020833333333333332,
+     "min": -2.1875,
+     "max": 0.1875,
+     "n": 36
+    },
+    "median_band_at": 40.0
+   },
+   "orig-diff4": {
+    "level_db": {
+     "median": 0.04671663335282794,
+     "min": -0.034396623031781814,
+     "max": 0.11919662278890897,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 0.1545035909994521,
+     "min": 0.0008990454714332685,
+     "max": 0.38629605382511123,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.33616948650608197,
+     "min": 0.20912544944519323,
+     "max": 0.46941248190060697,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -0.8462372364507003,
+     "min": -1.7043719643782762,
+     "max": 1.4037007414491516,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 8127.493386077182,
+     "min": 640.0,
+     "max": 12901.591550923502,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.796745258054272,
+     "min": 0.7877091664382511,
+     "max": 0.9962313723776013,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.041666666666666664,
+     "min": -2.2083333333333335,
+     "max": 0.10416666666666667,
+     "n": 36
+    },
+    "median_band_at": 8127.493386077182
+   },
+   "orig-both46": {
+    "level_db": {
+     "median": -1.2484667010840145,
+     "min": -1.2946744550610632,
+     "max": -1.1838719356138476,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.6388791440027575,
+     "min": -1.8129033209998582,
+     "max": -1.3809437929434516,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.5711750512161323,
+     "min": 0.47348937051431383,
+     "max": 0.6612427670986751,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -1.3950910790292759,
+     "min": -1.6752420211633714,
+     "max": 1.314226254307684,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 50.39684199579493,
+     "min": 40.0,
+     "max": 8127.493386077182,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.8874647045961491,
+     "min": 0.7705426352964315,
+     "max": 0.9862711178314366,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.03125,
+     "min": -2.2083333333333335,
+     "max": 0.25,
+     "n": 36
+    },
+    "median_band_at": 50.39684199579493
+   },
+   "control-sup2": {
+    "level_db": {
+     "median": -2.2266418168348068,
+     "min": -2.331770142095742,
+     "max": -2.091555626189354,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.8368521214651423,
+     "min": -2.106261219178295,
+     "max": -1.295297532724362,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.6010981888088281,
+     "min": 0.5017791473347812,
+     "max": 0.7488800277319511,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": 1.9723881932646092,
+     "min": 1.8228251601072345,
+     "max": 2.129060945168982,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 40.0,
+     "min": 40.0,
+     "max": 8127.493386077182,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.9910533953204967,
+     "min": 0.7815098872889026,
+     "max": 0.9948889671332511,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.020833333333333332,
+     "min": -0.1875,
+     "max": 2.25,
+     "n": 36
+    },
+    "median_band_at": 40.0
+   },
+   "control-chor6": {
+    "level_db": {
+     "median": -1.3110310209826945,
+     "min": -1.3750235276413711,
+     "max": -1.2147735247781242,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.7627749495448652,
+     "min": -2.0660445867949893,
+     "max": -1.2270048565555989,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.5356950084866123,
+     "min": 0.44278604991552994,
+     "max": 0.6348508544443558,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -1.2707527938129268,
+     "min": -1.594127125872348,
+     "max": 1.40460025355262,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 50.39684199579493,
+     "min": 40.0,
+     "max": 8127.493386077182,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.7939728220725399,
+     "min": 0.7686193782794757,
+     "max": 0.9865939702899791,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.03125,
+     "min": -0.16666666666666666,
+     "max": 0.1875,
+     "n": 36
+    },
+    "median_band_at": 50.39684199579493
+   },
+   "control-diff4": {
+    "level_db": {
+     "median": 0.043160482457725635,
+     "min": -0.03867068449097388,
+     "max": 0.14152480349213903,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 0.04709686013415215,
+     "min": -0.08390560158174054,
+     "max": 0.528149162450763,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.30012941985025043,
+     "min": 0.19022401321843566,
+     "max": 0.48100851220510393,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -0.5906146767546272,
+     "min": -1.628577944647734,
+     "max": 1.4230113319966469,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 7289.144580769466,
+     "min": 403.17473596635944,
+     "max": 12901.591550923502,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.9950054818198398,
+     "min": 0.7850256745449303,
+     "max": 0.9963086772209517,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.05208333333333333,
+     "min": -0.1875,
+     "max": 0.10416666666666667,
+     "n": 36
+    },
+    "median_band_at": 7289.144580769466
+   },
+   "control-both46": {
+    "level_db": {
+     "median": -1.2503608074710044,
+     "min": -1.2989485165202552,
+     "max": -1.1615437549106176,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.7250218188693323,
+     "min": -1.897707968053032,
+     "max": -1.2390906843177998,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.558800603865423,
+     "min": 0.4756217290955156,
+     "max": 0.647873502723831,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -1.410698595554534,
+     "min": -1.6789392715407434,
+     "max": -1.2402040447529568,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 50.39684199579493,
+     "min": 50.39684199579493,
+     "max": 50.39684199579493,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.8893489061091163,
+     "min": 0.7710727516757032,
+     "max": 0.9878486094118105,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.041666666666666664,
+     "min": -0.1875,
+     "max": 0.25,
+     "n": 36
+    },
+    "median_band_at": 50.39684199579493
+   },
+   "sup2-chor6": {
+    "level_db": {
+     "median": 0.8963006570017136,
+     "min": 0.8123481040557188,
+     "max": 1.021180611809882,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 0.0732227035020303,
+     "min": -0.2827687238819365,
+     "max": 0.3912780324340055,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.7040744896589435,
+     "min": 0.595344612969294,
+     "max": 0.8053429612973173,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -2.0625836673480915,
+     "min": -2.261640032216337,
+     "max": -1.8805895871231093,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 50.39684199579493,
+     "min": 50.39684199579493,
+     "max": 50.39684199579493,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.7902707997124709,
+     "min": 0.7698869316464524,
+     "max": 0.9854585244262577,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.010416666666666666,
+     "min": -2.2291666666666665,
+     "max": 0.16666666666666666,
+     "n": 36
+    },
+    "median_band_at": 50.39684199579493
+   },
+   "sup2-diff4": {
+    "level_db": {
+     "median": 2.2672075342188904,
+     "min": 2.148700947206116,
+     "max": 2.3774789400801453,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 1.9011104168406314,
+     "min": 1.6993702613313122,
+     "max": 2.1464320514403674,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.6164712288804459,
+     "min": 0.5334920470143305,
+     "max": 0.7288102673984813,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -2.074878776702982,
+     "min": -2.164960241399795,
+     "max": -1.9316660666980123,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 40.0,
+     "min": 40.0,
+     "max": 40.0,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.9927899228164074,
+     "min": 0.7827927105677422,
+     "max": 0.9950223217746673,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.020833333333333332,
+     "min": -2.25,
+     "max": 0.08333333333333333,
+     "n": 36
+    },
+    "median_band_at": 40.0
+   },
+   "sup2-both46": {
+    "level_db": {
+     "median": 0.9718058201580284,
+     "min": 0.8884231151768347,
+     "max": 1.0744103816773887,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 0.12122716673202572,
+     "min": -0.11443210513997926,
+     "max": 0.3791922046718046,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.731022983643562,
+     "min": 0.6403612794975146,
+     "max": 0.8530977515075346,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -2.1393917858523777,
+     "min": -2.486813640007452,
+     "max": -1.8816757349675721,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 50.39684199579493,
+     "min": 50.39684199579493,
+     "max": 50.39684199579493,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.8865653713596005,
+     "min": 0.7695010361208612,
+     "max": 0.9865638433862002,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": -0.020833333333333332,
+     "min": -2.25,
+     "max": 0.22916666666666666,
+     "n": 36
+    },
+    "median_band_at": 50.39684199579493
+   },
+   "chor6-diff4": {
+    "level_db": {
+     "median": 1.369131802911559,
+     "min": 1.271918845794886,
+     "max": 1.4207323256257745,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 1.833741540605665,
+     "min": 1.631077585162549,
+     "max": 2.1062154190570617,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.5213482114906204,
+     "min": 0.443665751697327,
+     "max": 0.5831608549456692,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -1.3660555137148198,
+     "min": -1.5128523794365467,
+     "max": 1.4631042533500764,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 40.0,
+     "min": 40.0,
+     "max": 50.39684199579493,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.7946917166161434,
+     "min": 0.7704383065882539,
+     "max": 0.9860632841204628,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": 0.0,
+     "min": -0.1875,
+     "max": 0.10416666666666667,
+     "n": 36
+    },
+    "median_band_at": 40.0
+   },
+   "chor6-both46": {
+    "level_db": {
+     "median": 0.07329757570301254,
+     "min": 0.011641013765604669,
+     "max": 0.11766376722301786,
+     "n": 36
+    },
+    "peak_db": {
+     "median": 0.03552173616502596,
+     "min": -0.18272478130874248,
+     "max": 0.33897557228849884,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.276730309362907,
+     "min": 0.18771045299573355,
+     "max": 0.3621840519316344,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": 0.6217197178846872,
+     "min": -1.2909303827599032,
+     "max": 1.0364034852428166,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 6450.795775461751,
+     "min": 1015.9366732596477,
+     "max": 12901.591550923502,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.8925125957764806,
+     "min": 0.7856579275494135,
+     "max": 0.9963375423640731,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": 0.0,
+     "min": -0.1875,
+     "max": 0.22916666666666666,
+     "n": 36
+    },
+    "median_band_at": 6450.795775461751
+   },
+   "diff4-both46": {
+    "level_db": {
+     "median": -1.295401714060862,
+     "min": -1.3446573145046585,
+     "max": -1.2186890759273794,
+     "n": 36
+    },
+    "peak_db": {
+     "median": -1.8028454141002621,
+     "min": -1.9378788003151044,
+     "max": -1.6431634129247499,
+     "n": 36
+    },
+    "band_rms_db": {
+     "median": 0.5274555310258154,
+     "min": 0.46057545179361653,
+     "max": 0.6155350717428527,
+     "n": 36
+    },
+    "band_max_db": {
+     "median": -1.3710414745134338,
+     "min": -1.6509609347909269,
+     "max": 1.4136156272192117,
+     "n": 36
+    },
+    "band_at_db": {
+     "median": 50.39684199579493,
+     "min": 40.0,
+     "max": 50.39684199579493,
+     "n": 36
+    },
+    "wave_r": {
+     "median": 0.8913103480158333,
+     "min": 0.7722755311861593,
+     "max": 0.9896360506338232,
+     "n": 36
+    },
+    "lag_ms": {
+     "median": 0.0,
+     "min": -0.10416666666666667,
+     "max": 0.25,
+     "n": 36
+    },
+    "median_band_at": 50.39684199579493
+   }
+  }
+ }
+}
