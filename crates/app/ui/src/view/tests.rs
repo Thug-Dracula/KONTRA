@@ -587,8 +587,8 @@ fn vector_draws_a_picture_slider_even_when_its_background_is_hidden() {
         orientation: model::Orientation::Vertical,
     };
     widget.hide.background = true;
-    assert!(!stock::shows(&tree, &tree.widgets[0], false));
-    assert!(stock::shows(&tree, &tree.widgets[0], true));
+    assert!(!stock::shows(&tree, &tree.widgets[0], false, false));
+    assert!(stock::shows(&tree, &tree.widgets[0], true, false));
     let mut ui = crate::ui();
     let mut pictures = pictures(wall, knob);
     let (el, _) = vector_page(&mut ui, 0, &tree, PageRef(0), &mut pictures, (1., &[]));
