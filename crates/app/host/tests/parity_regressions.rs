@@ -20,7 +20,10 @@ fn library() -> PathBuf {
 )]
 fn render(instrument: &Path, key: u8, name: &str) -> Option<(f64, String)> {
     if !instrument.is_file() {
-        eprintln!("skipped: {} is not installed", instrument.display());
+        eprintln!(
+            "SKIPPED (library-dependent): {} is not installed",
+            instrument.display()
+        );
         return None;
     }
     let out = std::env::temp_dir().join(format!("kontra-parity-{name}.wav"));
@@ -59,7 +62,13 @@ fn cherry_electric_bass_reports_its_saved_filter_and_renders_audio() {
         diagnostics.contains("(12, 0, 46.6"),
         "the saved cutoff is not reported:\n{diagnostics}"
     );
-    assert!(peak > 0.0, "the render is silent:\n{diagnostics}");
+    // A window, not "not silent". While the Kontakt 8 handlers failed to load
+    // this instrument rendered only its buzzing group: peak 0.008685
+    // (-41.2 dBFS), which `> 0.0` passed. That was the bug.
+    assert!(
+        peak > 0.1,
+        "peak {peak:.6} is the buzzing-only render, not the bass:\n{diagnostics}"
+    );
 }
 
 #[test]
