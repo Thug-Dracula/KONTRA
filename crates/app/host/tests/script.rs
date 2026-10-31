@@ -3532,3 +3532,26 @@ fn a_route_invert_flag_at_a_slot_with_no_route_reads_zero() {
         e.unhandled_actions()
     );
 }
+
+#[test]
+fn get_event_ids_fills_the_array_with_the_live_events() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.5, 0)];
+    let mut e = engine(
+        &store,
+        zones,
+        "on init
+            declare %ids[3]
+        end on
+        on note
+            get_event_ids(%ids)
+            message(%ids[0] & \" \" & %ids[1] & \" \" & $EVENT_ID)
+        end on",
+    );
+    level(&mut e, &[on(60)]);
+    let m = e.last_message();
+    let parts: Vec<&str> = m.split(' ').collect();
+    assert_eq!(parts.len(), 3, "{m}");
+    assert_eq!(parts[0], parts[2], "the current event is listed: {m}");
+    assert_eq!(parts[1], "0", "the list ends in a 0: {m}");
+}
