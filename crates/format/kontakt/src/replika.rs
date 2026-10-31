@@ -197,6 +197,11 @@ const DIFFUSION_LENGTHS: [[f32; 4]; 8] = [
     [3823.0, 2579.0, 3833.0, 2557.0],
 ];
 
+/// The rate [`DIFFUSION_LENGTHS`] is in samples of: the ctor bakes the table
+/// for 48 kHz, and `ir::Diffusion::rate` carries that fact to the engine so a
+/// render at another rate scales the taps instead of playing them short.
+const DIFFUSION_RATE: u32 = 48_000;
+
 /// The saved knobs' effect on the network, all measured
 /// (`0x141ac54b0`, cases 0..3): the rows turn by `π/2 − SIZE`, the taps of a
 /// stage scale by `g − g·MODULATION·0.02` with `g = 0.95·AMOUNT + 0.05`, and
@@ -208,6 +213,7 @@ pub(crate) fn diffusion(r: Replika) -> ir::Diffusion {
     let taps = DIFFUSION_LENGTHS.map(|lengths| lengths.map(|length| length * scale));
     ir::Diffusion {
         taps,
+        rate: DIFFUSION_RATE,
         angle: std::f32::consts::FRAC_PI_2 - r.size.clamp(0.0, 1.0),
         relength_s: 0.25,
         seed: 0,

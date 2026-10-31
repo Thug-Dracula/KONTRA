@@ -20,9 +20,10 @@
 //! The value is a constant in the binary, not a fit: `1.0716536` is the f32 at
 //! `0x1479cb194` and `0x1479d1150`, and the f64 `1.0716535899579933` at
 //! `0x1479b6048` and `0x1479bd140`
-//! (`docs/re/kontakt-rdata/constants.tsv`). Electric Mint stores SATURATION 0,
-//! COMPRESS 1.0 and CHARACTER 1.0, every one of which the vector reads as that
-//! constant.
+//! (`docs/re/kontakt-rdata/constants.tsv`). Electric Mint's own record stores
+//! SATURATION 0, COMPRESS 0.1622 and CHARACTER 0 (offsets 4, 8 and 12); its
+//! SATURATION 0 is the row the vector reads flat, so the constant is the whole
+//! of the static law there.
 //!
 //! The slot's stored Output is applied on top (`ir::Effect::output`), as for
 //! every other module: Electric Mint's is 0.7035764, so the slot's own gain is
@@ -42,13 +43,23 @@ use kontra_ir as ir;
 /// `0x1479b6048` f64); the measured flat transfer is this to four decimals.
 pub(crate) const MAKEUP: f32 = 1.071_653_6;
 
-/// The record's SATURATION field (index 1, `$ENGINE_PAR_SUPERGT_SATURATION`).
+/// The record's seven knobs, in field order from
+/// `docs/re/kontakt-bindings/fx_other.tsv` (object `+0x08` is field 0, and
+/// field *n* is at `+0x08 + 4n` — payload offset `4n`):
 ///
-/// `fx_other.tsv` gives its object offset as 12, and a record's payload starts
-/// at object +8 -- the same convention Choral's reader follows, where
-/// `$ENGINE_PAR_CHORAL_AMOUNT` at object 8 is payload `f(0)`. So the field is
-/// payload 4. Reading 12 reached CHARACTER (object 20) instead, which is why
-/// the fixture could not tell them apart: Electric Mint stores 0 in both.
+/// | field | knob | offset |
+/// |---:|---|---:|
+/// | 0 | `$ENGINE_PAR_SUPERGT_TRIM` | 0 |
+/// | 1 | `$ENGINE_PAR_SUPERGT_SATURATION` | 4 |
+/// | 2 | `$ENGINE_PAR_SUPERGT_COMPRESS` | 8 |
+/// | 3 | `$ENGINE_PAR_SUPERGT_CHARACTER` | 12 |
+/// | 4 | `$ENGINE_PAR_SUPERGT_MIX` | 16 |
+/// | 5 | `$ENGINE_PAR_SUPERGT_ATTACK` | 20 |
+/// | 6 | `$ENGINE_PAR_SUPERGT_RELEASE` | 24 |
+///
+/// The saved record's own size agrees: `Fx7Ix4B` (7 floats, 4 ints, a byte,
+/// 45 bytes) is Electric Mint's 45-byte record exactly, so the floats start
+/// at payload 0 and offset 12 is CHARACTER, not saturation.
 const SATURATION: usize = 4;
 
 /// The slot's effect: the module's make-up as a gain, at the reading the
@@ -81,6 +92,15 @@ mod tests {
     const RECORD: &str = "f2d20d3f0000000054e3253e000000000000803f0000803f6021533e\
                           0200000001000000000000000200000000";
 
+    /// The same record with SATURATION (offset 4, field 1) on and CHARACTER
+    /// (offset 12, field 3) off — the pair the offset is pinned with.
+    const SATURATING: &str = "f2d20d3f0000803f54e3253e000000000000803f0000803f6021533e\
+                              0200000001000000000000000200000000";
+
+    /// And the converse: CHARACTER on, SATURATION off.
+    const CHARACTERFUL: &str = "f2d20d3f0000000054e3253e0000803f0000803f0000803f6021533e\
+                                0200000001000000000000000200000000";
+
     fn bytes(hex: &str) -> Vec<u8> {
         let hex: String = hex.split_whitespace().collect();
         (0..hex.len() / 2)
@@ -104,28 +124,6 @@ mod tests {
 
     /// Electric Mint's record stores SATURATION 0, so the flat law holds and
     /// only the compression is reported missing.
-    /// SATURATION is payload 4 and CHARACTER payload 12, and the fixture above
-    /// stores 0 in both -- so it passes whichever of the two the reader looks
-    /// at. These two records differ only in which of the pair is set.
-    #[test]
-    fn saturation_is_read_from_its_own_field_not_characters() {
-        let saturating = bytes("000000000000803f0000000000000000");
-        let character = bytes("0000000000000000000000000000803f");
-        let fired = |r: &[u8]| {
-            let mut notes = Notes::default();
-            let _ = effect(r, "slot 2", &mut notes);
-            notes
-                .finish()
-                .into_iter()
-                .any(|n| n.feature.contains("saturation"))
-        };
-        assert!(fired(&saturating), "field 1 set must report saturation");
-        assert!(
-            !fired(&character),
-            "field 3 (CHARACTER) must not be mistaken for saturation"
-        );
-    }
-
     #[test]
     fn the_saved_saturation_is_off_and_only_the_compression_is_reported() {
         let record = bytes(RECORD);
@@ -139,5 +137,25 @@ mod tests {
                 .any(|f| f.contains("compression not modelled"))
         );
         assert!(!missing.iter().any(|f| f.contains("saturation")));
+    }
+
+    /// The warning is the *saturation* field's, at offset 4 — not CHARACTER's
+    /// at 12. Electric Mint stores 0 in both, so its record cannot tell them
+    /// apart; these two records differ in exactly that pair, and the note
+    /// follows field 1 only. Reading offset 12 would invert both cases.
+    #[test]
+    fn the_saturation_warning_follows_field_1_and_not_character() {
+        let fired = |hex: &str| {
+            let mut notes = Notes::default();
+            let _ = effect(&bytes(hex), "instrument insert slot 2", &mut notes);
+            notes
+                .finish()
+                .into_iter()
+                .any(|n| n.feature.contains("saturation"))
+        };
+        assert_eq!(bytes(SATURATING).len(), 45);
+        assert_eq!(bytes(CHARACTERFUL).len(), 45);
+        assert!(fired(SATURATING), "saturation on must warn");
+        assert!(!fired(CHARACTERFUL), "character on is not saturation");
     }
 }

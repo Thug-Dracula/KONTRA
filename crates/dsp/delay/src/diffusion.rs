@@ -38,8 +38,8 @@ const MAX_RING: usize = 4096;
 /// A diffusion network in physical units.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
-    /// Per stage, the four taps' read distance in samples (fractional, at
-    /// most [`MAX_TAP`]).
+    /// Per stage, the four taps' read distance in samples (fractional);
+    /// [`Diffusion::new`] clamps them to 0..=[`MAX_TAP`].
     pub taps: [[f32; TAPS]; STAGES],
     /// The mixing rows' angle, radians.
     pub angle: f32,
@@ -170,6 +170,19 @@ pub struct Diffusion {
     spread: f32,
 }
 
+/// A tap distance as the rings can hold it: the capture's largest ring is
+/// [`MAX_RING`], so a longer tap would read a second pass of its own history.
+/// A saved setting can still ask for one — Replika's ctor table reaches 3833
+/// at AMOUNT 1 / MODULATION 0 — so [`Diffusion::new`] clamps rather than
+/// trusting the caller. Negative and non-finite distances read as no delay.
+fn clamp_tap(d: f32) -> f32 {
+    if d.is_finite() {
+        d.clamp(0.0, MAX_TAP)
+    } else {
+        0.0
+    }
+}
+
 impl Diffusion {
     /// Builds the network; not real-time.
     #[must_use]
@@ -177,18 +190,21 @@ impl Diffusion {
         let stages: Box<[Stage]> = settings
             .taps
             .iter()
-            .map(|taps| Stage {
-                rings: taps.iter().map(|&d| Ring::new(d)).collect(),
-                taps: taps
-                    .iter()
-                    .map(|&d| {
-                        let whole = d.max(0.0).floor();
-                        Tap {
-                            whole: whole as usize,
-                            frac: d.max(0.0) - whole,
-                        }
-                    })
-                    .collect(),
+            .map(|taps| {
+                let taps = taps.map(clamp_tap);
+                Stage {
+                    rings: taps.iter().map(|&d| Ring::new(d)).collect(),
+                    taps: taps
+                        .iter()
+                        .map(|&d| {
+                            let whole = d.floor();
+                            Tap {
+                                whole: whole as usize,
+                                frac: d - whole,
+                            }
+                        })
+                        .collect(),
+                }
             })
             .collect();
         Self {
@@ -465,6 +481,37 @@ mod tests {
         let mut silence = [[0.0; 2]; 64];
         net.process(&mut silence);
         assert!(silence.iter().all(|f| f[0] == 0.0 || f[0].abs() > 0.0));
+    }
+
+    /// [`Settings::taps`] promises "at most [`MAX_TAP`]", and nothing used to
+    /// keep it: Replika's ctor table reaches 3833 at AMOUNT 1 / MODULATION 0,
+    /// which is longer than the largest ring holds. The constructor clamps, so
+    /// the first echo cannot arrive past the bound.
+    #[test]
+    fn a_tap_past_the_bound_is_clamped_where_the_doc_says() {
+        assert_eq!(clamp_tap(3833.0), MAX_TAP);
+        assert_eq!(clamp_tap(-2.0), 0.0);
+        assert_eq!(clamp_tap(f32::NAN), 0.0);
+        assert!((clamp_tap(241.158_66) - 241.158_66).abs() < 1e-6);
+        // Every stage asks for the longest tap Replika's table can reach, so
+        // the first echo is the clamped one whichever stage produced it.
+        let mut taps = CAPTURED_TAPS;
+        taps.fill([3833.0; TAPS]);
+        let mut net = Diffusion::new(settings(taps));
+        let mut io = [[0.0f32; 2]; MAX_RING];
+        io[0] = [1.0, 1.0];
+        net.process(&mut io);
+        let bound = MAX_TAP as usize;
+        assert!(
+            io[1..bound - 3].iter().all(|f| f[0] == 0.0),
+            "a tap clamped to {MAX_TAP} arrived before it"
+        );
+        // And it arrives *at* the bound: unclamped, the 3833 tap's first echo
+        // would not appear until sample 3832.
+        assert!(
+            io[bound - 3..=bound + 1].iter().any(|f| f[0] != 0.0),
+            "a tap clamped to {MAX_TAP} never arrived at it"
+        );
     }
 
     /// A quarter second at 48 kHz: 12000 frames between ticks, and one draw
