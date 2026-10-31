@@ -34,6 +34,7 @@ mod skreamer;
 mod snapshot;
 pub use snapshot::{Preset, preset};
 mod solid_knobs;
+mod supercharger;
 mod timed;
 mod translate;
 mod versatile;

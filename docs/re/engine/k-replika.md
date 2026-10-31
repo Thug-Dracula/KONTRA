@@ -45,7 +45,7 @@ Order read, with the struct offset each value is stored at. Field numbers are th
 | 15 | float | +0x94 | TIME_UNIT (table, 0 or 500) |
 | 16 | float | +0x98 | none in TSV (read, not applied) |
 | 17 | flag | +0x79 | none in TSV (read, not applied) |
-| 18..21 | float | +0x30..+0x3c | BBDTYPE, AMOUNT, SIZE, MODULATION |
+| 18..21 | float | +0x30..+0x3c | BBDTYPE, **SIZE, AMOUNT**, MODULATION (this is the stream order; Electric Mint's byte 64 = SIZE 1.0, byte 68 = AMOUNT 0.3873 — see `k-replika-diffusion.md` §11.5) |
 | 22 | flag | +0x68 | DENSE |
 | 23..31 | float | +0x40..+0x60 | SHUFFLE, FEEL, ACCENT, PAN, WIDTH, LR_OFFSET, DUCKING_SENSE, DUCKING_RELEASE, DUCKING_AMOUNT |
 | 32 | flag | +0x67 | PINGPONG_FLIP |

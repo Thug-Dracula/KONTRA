@@ -422,6 +422,9 @@ fn slot_effect(
             *knobs = crate::replika::knobs(r);
             crate::replika::effect(r)
         }),
+        // The CompXT's static make-up only; its compression is reported
+        // (supercharger.rs).
+        0x60 => Some(crate::supercharger::effect(&public, at, notes)),
         id => crate::drive::effect(id, object.version, &public, at, notes),
     };
     // The legacy delay, chorus and flanger, Replika, the Gainer and Convolution mix

@@ -452,11 +452,18 @@ Kontakt's record, fields as `k-replika.md` numbers them:
 
 | Saved field | Byte | Becomes |
 |---|---|---|
-| SIZE (20) | 68 | `angle = π/2 − SIZE` |
-| AMOUNT (19) | 64 | `g = 0.95·AMOUNT + 0.05` |
+| SIZE (20) | 64 | `angle = π/2 − SIZE` |
+| AMOUNT (19) | 68 | `g = 0.95·AMOUNT + 0.05` |
 | MODULATION (21) | 72 | `spread = g·MODULATION·0.02` |
 | DENSE (22) | 76 | carried (the port runs bank A; bank B is unread) |
 | — | — | `taps = lengths · (g − spread)` |
+
+The stream order is **BBDTYPE, SIZE, AMOUNT, MODULATION** (bytes 60, 64, 68, 72), not the
+field-number order; §11.5 first wrote AMOUNT at 64 and SIZE at 68, which put Electric Mint's angle
+at 1.1834694 instead of 0.5707964 and made its Replika +1.5 dB loud
+(`docs/re/electric-mint-stage-gains-2026-10-31.md`). The order above is what the live module held
+during the capture below: byte 64 is 1.0 and reproduces SIZE 1, byte 68 is 0.38732699 and reproduces
+`g = 0.417960644`, byte 72 is 0.449673 and reproduces `spread = 0.00375891`.
 
 A record cut short of those bytes keeps the object's own INIT values
 (1.0 / 0.5 / 0.5 / 0.5, `dense` 1) — which is what the v0x11 copy in the tests has, and why the

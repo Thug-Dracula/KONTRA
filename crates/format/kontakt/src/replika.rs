@@ -106,6 +106,18 @@ pub(crate) const MODE_NAMES: [&str; 5] = [
 /// v0x12 appends nine floats and the flip flag after the DENSE flag; v0x11
 /// (`0x140d0241a`) stops at DENSE, so a v0x11 record is 77 bytes and a v0x12
 /// one 114.
+///
+/// The knob order after `Rate` is **BBDTYPE, SIZE, AMOUNT, MODULATION, DENSE**
+/// (bytes 60, 64, 68, 72, 76) — not the AMOUNT-then-SIZE order the reader
+/// table (`docs/re/engine/k-replika-diffusion.md` §11.5) lists. Electric Mint
+/// stores 1.0 at byte 64 and 0.387327 at 68; the module read live during the
+/// diffusion capture held SIZE 1.0 (`angle = π/2 − 1 = 0.5707964`) with
+/// `g = 0.95·AMOUNT + 0.05 = 0.417960644`, i.e. AMOUNT 0.387327 — and
+/// MODULATION 0.449673 at 72 (`spread 0.00375891`). Reading 64 as AMOUNT put
+/// the angle at 1.1834694 and the taps at 0.991 of the stage lengths instead
+/// of the capture's 0.4142, which is what made the slot +1.54 dB loud where
+/// Kontakt's is level-neutral: `sin⁸ angle` is the network's direct path,
+/// 0.5407 at the wrong angle against 0.0073 at the right one.
 pub(crate) fn saved(version: u16, public: &[u8]) -> Option<Replika> {
     let full = match version {
         0x12 => true,
@@ -117,8 +129,9 @@ pub(crate) fn saved(version: u16, public: &[u8]) -> Option<Replika> {
         Some(f32::from_le_bytes(bytes)).filter(|v| v.is_finite())
     };
     let flag = |n: usize| public.get(n).map(|&b| b != 0);
-    // Fields 18..22 (BBDTYPE, AMOUNT, SIZE, MODULATION, DENSE) sit at bytes
-    // 60..77; a record cut short keeps the INIT values the object holds.
+    // Fields 18..22 sit at bytes 60..77, in the order BBDTYPE, SIZE, AMOUNT,
+    // MODULATION, DENSE (see the function doc); a record cut short keeps the
+    // INIT values the object holds.
     let tail = |n: usize, default: f32| f(n).unwrap_or(default);
     Some(Replika {
         mode: i32::from_le_bytes(public.get(..4)?.try_into().ok()?),
@@ -134,8 +147,8 @@ pub(crate) fn saved(version: u16, public: &[u8]) -> Option<Replika> {
         // INIT record stores there: centred, half width, LR offset 0.3, no
         // flip.
         bbdb: tail(60, 1.0),
-        amount: tail(64, 0.5),
-        size: tail(68, 0.5),
+        size: tail(64, 0.5),
+        amount: tail(68, 0.5),
         modulation: tail(72, 0.5),
         dense: public.get(76).is_none_or(|&b| b != 0),
         pan: if full { f(89)? } else { 0.5 },
@@ -301,10 +314,9 @@ mod tests {
     /// The INIT record as Kontakt 8.13.1 saves it.
     const INIT_RECORD: &str = "000000000000fa431f85eb3e000000003333733fcdcccc3d0000803e9a99993e0000803f00000000cdcccc3d010000000080bf000000000000803f000000803f0000003f0000003f0000003f01000000000000003f0000003f0000003f0000003f9a99993e00000000000000000000000000";
 
-    /// Electric Mint's Replika, saved v0x11: 72 of its 77 bytes. The tail the
-    /// copy is missing (BBDTYPE, AMOUNT, SIZE, MODULATION, DENSE) is fields
-    /// 18..22, which this binding does not read.
-    const V11_RECORD: &str = "0400000000004040bfeedc3ed42c443f92ce5c3fcdcccc3d0000803e9a99993e0000803f00000000cdcccc3d0100000000003e0000fa430000803f0000803fb94fc63e8a3be63e01";
+    /// Electric Mint's Replika, saved v0x11, all 77 bytes as the instrument
+    /// stores it (dumped from `Electric Mint.nki`, 2026-10-31).
+    const V11_RECORD: &str = "0400000000004040bfeedc3ed42c443f92ce5c3fcdcccc3d0000803e9a99993e0000803f00000000cdcccc3d0100000000003e0000fa430000803f000000803f0000803fb94fc63e8a3be63e01";
 
     fn bytes(hex: &str) -> Vec<u8> {
         let hex: String = hex.split_whitespace().collect();
@@ -364,9 +376,26 @@ mod tests {
         assert_eq!(r.beats, Some(0.125));
         // Absent from a v0x11 record: the object keeps the v0x12 INIT values.
         assert_eq!((r.pan, r.width, r.offset, r.flip), (0.5, 0.5, 0.3, false));
+        // The tail's order is SIZE, AMOUNT, MODULATION: the module read live
+        // during the diffusion capture held SIZE 1.0 and this record's 0.387327
+        // as AMOUNT (g = 0.417960644), not the other way round.
+        assert_eq!((r.size, r.modulation), (1.0, 0.449_673));
+        assert!((r.amount - 0.387_327).abs() < 1e-6);
         // Mode 4 is Diffusion: no Modern delay is claimed, its own network is.
         assert_eq!(delay(r), None);
-        assert!(matches!(effect(r), Some(ir::EffectKind::Diffusion(_))));
+        let Some(ir::EffectKind::Diffusion(d)) = effect(r) else {
+            panic!("type 4 must render as a diffusion network");
+        };
+        // The captured network's own angle and tap scale
+        // (docs/re/engine/vectors/replika-diffusion-taps.tsv: stage 0's taps
+        // 241/356/245/355 against the ctor's 577/859/587/857 = 0.4142).
+        assert!((d.angle - 0.570_796_4).abs() < 1e-6, "{}", d.angle);
+        assert!(
+            (d.taps[0][0] / 577.0 - 0.414_2).abs() < 1e-3,
+            "{}",
+            d.taps[0][0]
+        );
+        assert!((d.taps[0][0] - 239.0).abs() < 1.5, "{}", d.taps[0][0]);
         assert_eq!(
             lost(r).collect::<Vec<_>>(),
             ["Replika diffusion tap drift", "Replika tempo sync"]

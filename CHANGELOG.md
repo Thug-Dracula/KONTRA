@@ -13,6 +13,7 @@ below record reviewed source checkpoints; they are not claims about pending work
 - Share the RAM-scaled attack budget across loader and player, cap it by available memory, and report any bounded preload fallback instead of rejecting large libraries solely for expanded start ranges.
 - Include the current effects, persistence, multi-instrument, loop-limit and streaming fixes from the 28-PR integration.
 - Report execution-budget failures, host-service stalls, late attacks and source-readiness delays through the plugin diagnostics. Over-budget playback callbacks fail explicitly instead of replaying notes in later blocks.
+- Read Replika's saved Diffusion knobs in their stored order — SIZE at byte 64, AMOUNT at 68 — so Electric Mint's diffuser is level-neutral, and carry the Supercharger GT's static make-up (`output × 1.0716536`, Kontakt's own constant) with its unmodelled compression reported.
 
 ## 0.3.503
 
