@@ -1,0 +1,137 @@
+[
+  {
+    "name": "Electric Mint",
+    "slug": "electric-mint",
+    "library": "Session Guitarist - Electric Mint",
+    "family": "session guitar (amp + Hot Solo FX)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
+    "keys": [60],
+    "expect": "the measured Hot Solo operating point"
+  },
+  {
+    "name": "Electric Mint (Melody)",
+    "slug": "electric-mint-melody",
+    "library": "Session Guitarist - Electric Mint",
+    "family": "session guitar (melody patch)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint (Melody).nki",
+    "keys": [60],
+    "expect": "same library, different script and sample set"
+  },
+  {
+    "name": "Cherry Electric Bass",
+    "slug": "cherry-bass",
+    "library": "Orange Tree Samples",
+    "family": "electric bass (dry DI)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Orange Tree Samples - Cherry Electric Bass/Cherry Electric Bass.nki",
+    "keys": [40, 45],
+    "expect": "clean sampled bass, little processing"
+  },
+  {
+    "name": "Ovation Acoustic Bass",
+    "slug": "ovation-bass",
+    "library": "Past to Future Reverbs",
+    "family": "acoustic bass (reverb printed)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Ovation Acoustic Bass [Past to Future Reverbs]/Ovation Acoustic Bass Guitar.nki",
+    "keys": [40, 45],
+    "expect": "reverb baked into the samples"
+  },
+  {
+    "name": "Parker Oboe - Workhorse",
+    "slug": "parker-oboe",
+    "library": "Musical Sampling",
+    "family": "solo wind (legato)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Parker Oboe [Musical Sampling]/Instruments/Untuned Patches/06 Oboe Legato - Workhorse.nki",
+    "keys": [62, 69],
+    "expect": "legato script, dry"
+  },
+  {
+    "name": "Chris Hein Harmonica Full",
+    "slug": "chris-hein-harmonica",
+    "library": "Chris Hein",
+    "family": "solo wind (harmonica)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Chris Hein Harmonica 1.0/Instruments/CH-Harmonica Full.nki",
+    "keys": [65, 60],
+    "expect": "key-switched articulations, dry"
+  },
+  {
+    "name": "8Dio Fire Sax - Sustain Dynamic",
+    "slug": "fire-sax",
+    "library": "8Dio Studio Series",
+    "family": "solo sax (dynamic sustain)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Studio Series - Fire Saxophone [8Dio]/Instruments/8Dio Fire Sax - Sustain Dynamic.nki",
+    "keys": [58, 63],
+    "expect": "modulated sustain, layered"
+  },
+  {
+    "name": "In Session Audio Taiko Creator",
+    "slug": "taiko-creator",
+    "library": "In Session Audio",
+    "family": "drum library (taiko)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/In Session Audio Taiko Creator/Taiko Creator/Instruments/Taiko Creator.nki",
+    "keys": [36, 48, 60],
+    "expect": "drum mapping, short hits"
+  },
+  {
+    "name": "8Dio Studio Vintage Organ - Soul",
+    "slug": "8dio-organ",
+    "library": "8Dio Studio Vintage Series",
+    "family": "organ (preset with FX)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/8dio - Studio Vintage Series Studio Organ part 1/Instrument/Presets/Preset - Soul.nki",
+    "keys": [60, 55],
+    "expect": "preset chain: drive, rotary, reverb"
+  },
+  {
+    "name": "Soundiron Harpsichord",
+    "slug": "soundiron-harpsichord",
+    "library": "Soundiron",
+    "family": "plucked keyboard (dry)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Soundiron - Harpsichord/Instruments/Harpsichord.nki",
+    "keys": [60, 48],
+    "expect": "plain multi-sampled harpsichord"
+  },
+  {
+    "name": "VSTBuzz Cyber - Synth Rhythm2",
+    "slug": "vstbuzz-cyber",
+    "library": "VSTBuzz Cyber",
+    "family": "synth / rhythm loop (heavy FX)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/VSTBuzz.Cyber.KONTAKT-DECiBEL/CyberKONTAKT/Instruments/Synth Rhythm2.nki",
+    "keys": [48, 60],
+    "expect": "tempo-locked loop, heavy processing"
+  },
+  {
+    "name": "Haunted Strings 2 - Main",
+    "slug": "haunted-strings",
+    "library": "Insanity Samples",
+    "family": "strings (twisted, heavy FX)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Haunted Strings 2 v2.5.1 [Insanity Samples]/1. Haunted Strings 2 - Twisted Chamber Strings - Main Articulations.nki",
+    "keys": [62, 57],
+    "expect": "textural processing, reverb, layering"
+  },
+  {
+    "name": "Vertigo Violin",
+    "slug": "vertigo-violin",
+    "library": "Cinematique Instruments",
+    "family": "solo violin (processed)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Cinematique Instruments Vertigo Violin/Vertigo Violin.nki",
+    "keys": [67, 62],
+    "expect": "granular/textural script"
+  },
+  {
+    "name": "Showroom Violin",
+    "slug": "showroom-violin",
+    "library": "VSTBuzz",
+    "family": "solo violin (dry)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/VSTbuzz.The.Showroom.Violin.KONTAKT/Instruments/Showroom Violin.nki",
+    "keys": [67, 62],
+    "expect": "plain sampled violin"
+  },
+  {
+    "name": "VSTBuzz Legendary",
+    "slug": "vstbuzz-legendary",
+    "library": "VSTBuzz Legendary",
+    "family": "synth (tonal)",
+    "nki": "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/VSTBuzz Legendary KONTAKT/Legendary KONTAKT/Legendary.nki",
+    "keys": [60, 48],
+    "expect": "synth pads/leads from a script"
+  }
+]
