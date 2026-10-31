@@ -78,6 +78,27 @@ cargo run --release -p ui-drive -- [--scale <f>] [--out <dir>] <instrument>...
 
 Last run, Electric Mint at 1×: **39 controls checked on 1 page, 0 skipped, 35
 answered with an `Edit`, 2 painted under another control, every one `ok`.**
+Electric Mint (Melody) at 1×: **44 checked, 0 skipped, 39 answered with an
+`Edit`, 1 painted under another control, every one `ok`** — the eight extra are
+its `ui_xy` rows (see below).
+
+**XY pads are in that set.** They were not until 2026-10-31, and an `ui_xy` was
+therefore never offered as an input target while the page drew it: Electric
+Mint's articulation and pattern rows are eight `declare ui_xy ?row[1]` click
+areas 258×28, so every click on a row did nothing and this harness still said
+`PASS`, because it only pressed `Button` and `Switch`. `input::read` now reads a
+pad — a press, each move it makes, and the release, each with both coordinates
+0..=1 across the control's own rect, and the event `$NI_MOUSE_EVENT_TYPE` names
+— and `ui-drive` presses pads too, so a dead pad fails the gate.
+
+That alone was not enough, and the harness could not see it: the rows' scripts
+gate their whole body on `$NI_MOUSE_EVENT_TYPE`, which the engine answered with
+0 while the constants it is compared against are distinct symbols, so no click
+ever selected a row. The engine now answers the id of the script's own event
+constant for a pad's callback. With both, a click on a Melody row runs
+`change_slot` and moves the selection: `ui-drive`'s accompanying test
+(`a_click_on_a_melody_row_selects_that_row`) clicks all eight rows and checks
+each one's keyswitch is the one down.
 
 A run that checks nothing is a failure, not a pass. When every widget lacks a
 drawn rect, or the instrument has no page at all, `ui-drive` prints `FAIL: no

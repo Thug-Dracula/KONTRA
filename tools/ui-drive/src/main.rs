@@ -344,7 +344,8 @@ impl Run {
             Outcome::Passed => println!(
                 "PASS: {} controls checked on {} page(s), {} skipped; every control's centre \
                  selected itself and a press 2 points outside selected nothing. {} answered a \
-                 click with an Edit (a knob or slider selects without changing, as Kontakt does). \
+                 click with an Edit (a knob or slider selects without changing, as Kontakt does; \
+                 an XY pad reports both coordinates of the press). \
                  {} are painted under another control, so no click can reach them in Kontakt \
                  either; each is named in the table.",
                 self.checked, self.pages, self.skipped, self.edited, self.covered,
@@ -570,6 +571,7 @@ impl Drive {
             Some(Kind::Switch) => "switch",
             Some(Kind::Menu { .. }) => "menu",
             Some(Kind::Table { .. }) => "table",
+            Some(Kind::Xy { .. }) => "xy pad",
             Some(Kind::TextEdit) => "text edit",
             Some(Kind::Label) => "label",
             Some(Kind::Image) => "image",
@@ -647,6 +649,7 @@ fn takes_input(w: &Widget) -> bool {
                 | Kind::Switch
                 | Kind::Menu { .. }
                 | Kind::Table { .. }
+                | Kind::Xy { .. }
                 | Kind::TextEdit
         )
 }
@@ -688,6 +691,9 @@ fn edit_text(e: &Edit) -> String {
     let what = match &e.to {
         Set::Value(v) => format!("{v:.3}"),
         Set::Cell(k, v) => format!("cell {k} = {v:.3}"),
+        Set::Axes { cell, at, event } => {
+            format!("cursor {cell} = ({:.3}, {:.3}) {event:?}", at[0], at[1])
+        }
         Set::Text(t) => format!("text {t:?}"),
     };
     format!("{} = {what}", e.widget.0)
@@ -716,7 +722,8 @@ fn clip(s: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Outcome, Run};
+    use super::{Drive, Outcome, Run};
+    use mui::prelude::Point;
 
     #[test]
     fn a_run_that_checked_nothing_is_not_a_pass() {
@@ -762,5 +769,183 @@ mod tests {
             why: "test",
         });
         assert_eq!(run.outcome(), Outcome::Failed);
+    }
+
+    /// Electric Mint (Melody)'s articulation and pattern rows are `ui_xy`
+    /// click areas — `declare ui_xy ?rjhag[1]` and its seven neighbours, each
+    /// 258×28 at y = 320/346/372/398 in two columns — not buttons. A press at
+    /// a row's centre must select *that* row: the script's `on ui_control` for
+    /// it sets `$earko` and writes `$CONTROL_PAR_ACTIVE_INDEX` 0 on the row
+    /// (the one `change_slot` marks selected) and -1 on the others. An edit
+    /// that only says "something was clicked" cannot pass this.
+    #[test]
+    fn a_click_on_a_melody_row_selects_that_row() {
+        use std::cell::RefCell;
+        use std::path::PathBuf;
+        use std::sync::Arc;
+
+        use kontra_engine::Engine;
+        use kontra_host::ui::{Library, Live};
+        use kontra_stream::{Store, StoreConfig};
+        use kontra_ui::input::Set;
+        use kontra_ui_model::{Kind, MouseEvent};
+
+        const LIBRARY: &str = "Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments";
+        let path = std::env::var_os("KONTRA_EMINT_MELODY").map_or_else(
+            || {
+                std::env::var_os("HOME")
+                    .map_or_else(|| PathBuf::from("/home"), PathBuf::from)
+                    .join(LIBRARY)
+                    .join("Electric Mint (Melody).nki")
+            },
+            PathBuf::from,
+        );
+        if !path.exists() {
+            eprintln!("skipped: no {}", path.display());
+            return;
+        }
+
+        let mut store = Store::new(StoreConfig::DEFAULT).expect("a store");
+        let loaded = kontra_host::instrument::load(&path, 48_000, &mut store)
+            .expect("the Melody instrument loads");
+        let mut engine = Engine::new(Arc::new(loaded.plan), store.client(), 48_000);
+        let face = loaded.faces[0].as_ref().expect("a script page");
+        let library = RefCell::new(Library::open(&path));
+        let meta = |p: &str| library.borrow_mut().meta(p);
+        let mut live = Live::new(face, 0, &engine, &meta).expect("the page builds");
+        let all = 0..live.tree.widgets.len();
+        kontra_ui::layout::resolve(&mut live.tree, all);
+
+        // The eight rows, in the order the page draws them down each column.
+        let mut rows: Vec<usize> = (live.tree.widgets.iter().enumerate())
+            .filter(|(n, w)| {
+                matches!(w.kind, Kind::Xy { .. })
+                    && !w.hidden
+                    && live.tree.visible(kontra_ui_model::WidgetRef(*n))
+            })
+            .map(|(n, _)| n)
+            .collect();
+        rows.sort_by(|&a, &b| {
+            let (w, v) = (&live.tree.widgets[a], &live.tree.widgets[b]);
+            (w.rect.y, w.rect.x)
+                .partial_cmp(&(v.rect.y, v.rect.x))
+                .expect("finite rects")
+        });
+        assert_eq!(
+            rows.len(),
+            8,
+            "the eight rows are Xy controls; found {}",
+            rows.len()
+        );
+        let names: Vec<String> = rows
+            .iter()
+            .map(|&n| live.tree.widgets[n].name.clone())
+            .collect();
+        let value_cells: std::collections::BTreeMap<usize, u32> = (rows.iter().copied())
+            .filter_map(|n| match live.tree.widgets[n].kind {
+                Kind::Xy { cells, .. } => Some((n, cells)),
+                _ => None,
+            })
+            .collect();
+
+        let mut drive = Drive::new(live.tree.clone(), 0, 1.0, &path).expect("a page");
+        drive.settle().expect("the page settles");
+
+        // What the script says is selected: `change_slot` presses the
+        // selected row's keyswitch and releases the rest
+        // (`set_key_pressed`), so the keys down are the selection — read
+        // without naming a parameter id, and different for every row.
+        let pressed = |engine: &Engine| -> Vec<usize> {
+            (engine.keys().iter().enumerate())
+                .filter(|(_, k)| k.pressed)
+                .map(|(n, _)| n)
+                .collect()
+        };
+        // The instrument starts on one row, so it is clicked last: every
+        // press then moves the selection, and a press that did nothing cannot
+        // pass.
+        let order: Vec<usize> = {
+            let mut order = rows.clone();
+            order.sort_by_key(|&n| live.tree.widgets[n].active_index != Some(-1));
+            order
+        };
+        assert_eq!(
+            pressed(&engine).len(),
+            1,
+            "the Melody instrument starts on one row"
+        );
+
+        let mut picked: Vec<(usize, usize)> = Vec::new();
+        for &n in &order {
+            let Some(rect) = drive.rect(n) else {
+                panic!("row {n} was never drawn");
+            };
+            let point = Point::new(rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+            let probe = drive.press(point).expect("a press");
+            assert_eq!(
+                probe.selected,
+                [n],
+                "the press at {point:?} landed on {:?}, not on {}",
+                probe.selected,
+                names[rows.iter().position(|&r| r == n).expect("a row")]
+            );
+            let cells = value_cells.get(&n).copied().expect("a row's cells");
+            let id = live.tree.widgets[n].source_id.expect("a script control");
+            let bits = |v: f64| v.to_bits() as i64;
+            // Every edit the click made, carried out in order the way the
+            // editor carries it (`Action::Axes` -> `Rack::axes` -> the
+            // engine): the press and the release are separate callbacks, and
+            // a pattern row selects on the release.
+            let mut events = Vec::new();
+            for edit in &probe.edits {
+                let Set::Axes { cell, at, event } = &edit.to else {
+                    continue;
+                };
+                if edit.widget.0 != n {
+                    continue;
+                }
+                assert!(
+                    (at[0] - 0.5).abs() < 0.01 && (at[1] - 0.5).abs() < 0.01,
+                    "the centre of row {n} reported {at:?}, not the middle of each axis"
+                );
+                engine.set_click(0, id, [false; 3], *cell);
+                engine.set_axes(
+                    0,
+                    id,
+                    *cell,
+                    bits(at[0]),
+                    (cells.saturating_sub(*cell) > 1).then(|| bits(at[1])),
+                    *event,
+                );
+                events.push(*event);
+            }
+            assert!(
+                events.contains(&MouseEvent::Down) && events.contains(&MouseEvent::Up),
+                "a click on row {n} sent {events:?}, not both a press and a release"
+            );
+            let now = pressed(&engine);
+            assert_eq!(
+                now.len(),
+                1,
+                "clicking row {n} left {:?} down; one row's keyswitch should be",
+                now
+            );
+            picked.push((n, now[0]));
+        }
+        // Every row of a column selects its own keyswitch: four rows, four
+        // keys per column (`set_key_pressed($pyrwy + <row>)`), so a press
+        // that repeated the previous row's cannot pass.
+        for column in [40., 336.] {
+            let of: Vec<(usize, usize)> = (picked.iter().copied())
+                .filter(|&(n, _)| (live.tree.widgets[n].rect.x - column).abs() < 1.)
+                .collect();
+            assert_eq!(of.len(), 4, "four rows in the column at x={column}");
+            let keys: std::collections::BTreeSet<usize> = of.iter().map(|&(_, k)| k).collect();
+            assert_eq!(
+                keys.len(),
+                4,
+                "the rows at x={column} pressed {of:?}; two share a keyswitch"
+            );
+        }
     }
 }

@@ -11,4 +11,5 @@ workspace = true
 
 [dependencies]
 kontra-law = { path = "../../base/law" }
+kontra-ui-model = { path = "../../model/ui-model" }
 kontra-vm = { path = "../vm" }

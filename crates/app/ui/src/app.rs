@@ -357,6 +357,18 @@ pub enum Action {
         widget: usize,
         text: String,
     },
+    /// The pointer pressed or dragged an XY pad: the cell the cursor's X
+    /// lives in (its Y is the cell after), its position 0..=1 on each axis
+    /// across the control, the mouse event the script answers, and the keys
+    /// held at the press.
+    Axes {
+        part: usize,
+        widget: usize,
+        cell: u32,
+        at: [f64; 2],
+        event: kontra_ui_model::MouseEvent,
+        keys: kontra_ui_model::UiModifiers,
+    },
     /// A value of a part's sound, for one group or all of them.
     Sound {
         part: usize,

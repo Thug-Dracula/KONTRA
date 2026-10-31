@@ -30,12 +30,21 @@ pub enum Set {
     Value(f64),
     /// One zero-based cell of a table.
     Cell(u32, f64),
+    /// An XY pad's cursor: the cell its X lives in (its Y is the cell after),
+    /// its position on each axis, 0..=1 across the control's own rect, and the
+    /// mouse event the script answers.
+    Axes {
+        cell: u32,
+        at: [f64; 2],
+        event: model::MouseEvent,
+    },
     /// A text edit's text.
     Text(String),
 }
 
 /// A page's gesture in flight: the control pressed and its value then, the
-/// menu floated open, and what is being typed into a value or text edit.
+/// menu floated open, what is being typed into a value or text edit, and the
+/// last place an XY pad's cursor was put.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Gesture {
     press: Option<(usize, f64)>,
@@ -45,6 +54,9 @@ pub struct Gesture {
     entry: Option<(usize, String, bool)>,
     /// The value edit whose arrow is held, its step, and when it steps next.
     arrow: Option<(usize, f64, f64)>,
+    /// The XY pad last set, its cursor's cell and where the pointer put it:
+    /// a still pointer sends nothing, a moving one sends every frame.
+    pad: Option<(usize, u32, [f64; 2])>,
 }
 
 /// A held arrow steps again after this, then every [`REPEAT_STEP`]
@@ -70,6 +82,7 @@ pub(crate) fn takes_input(w: &model::Widget) -> bool {
                 | Kind::Switch
                 | Kind::Menu { .. }
                 | Kind::Table { .. }
+                | Kind::Xy { .. }
                 | Kind::TextEdit
         )
 }
@@ -218,6 +231,26 @@ pub fn read(
             if r.held {
                 edits.extend(cells(ui, &id, r.drag_delta, w, &edit));
             }
+            continue;
+        }
+        if let Kind::Xy { cells, .. } = w.kind {
+            // A pad sends both coordinates on the press, on each move and on
+            // the release, one callback each: Electric Mint's pattern rows
+            // act on the button-up, and its effects chain reorders on a drag,
+            // so none of the three may be dropped. Unlike a knob's, the
+            // release is an event of its own, not a repeat of the value.
+            let at = axes(ui, &id, w, cells);
+            let moved = at.is_some_and(|(cell, at)| g.pad != Some((n.0, cell, at)));
+            let event = match (r.pressed, r.released) {
+                (true, _) => Some(model::MouseEvent::Down),
+                (_, true) => Some(model::MouseEvent::Up),
+                _ if r.held && moved => Some(model::MouseEvent::Drag),
+                _ => None,
+            };
+            if let (Some((cell, at)), Some(event)) = (at, event) {
+                edits.push(edit(Set::Axes { cell, at, event }));
+            }
+            g.pad = at.filter(|_| r.held).map(|(cell, at)| (n.0, cell, at));
             continue;
         }
         let now = value(w);
@@ -392,6 +425,35 @@ fn cells(
         .collect()
 }
 
+/// The place the pointer puts an XY pad's cursor: the cell its X lives in (its
+/// Y is the cell after) and the position on each axis, 0..=1 across the
+/// control's own rect. The reader sees the scene the last frame drew, so a
+/// moving pointer reports each place a frame late; the press and the release
+/// are exact, and the release carries the last place held.
+///
+/// Kontakt's pad reports both axes in that unit range whatever the control's
+/// size: 40s Very Own - Drums multiplies cell 0 by `$CONTROL_PAR_WIDTH` to get
+/// a pixel, and ALLURE Modern Upright's `?mixer_pad` reads `[0] * 2000 - 1000`
+/// and `[1] * 1000`. Which cursor a click caught is the script's own
+/// `$CONTROL_PAR_ACTIVE_INDEX` when it has set one, else the first: a cursor
+/// is a picture the script places, so the model has no rect to hit-test.
+fn axes(ui: &Ui, id: &str, w: &model::Widget, cells: u32) -> Option<(u32, [f64; 2])> {
+    let size = ui.scene()?.surface(id)?.frame.size;
+    let pos = ui.local(id)?;
+    if size.width <= 0. || size.height <= 0. {
+        return None;
+    }
+    let at = [
+        (pos.x / size.width).clamp(0., 1.),
+        (pos.y / size.height).clamp(0., 1.),
+    ];
+    let cursor = match w.active_index {
+        Some(said) if said >= 0 => (said as u32 & !1).min(cells.saturating_sub(2)),
+        _ => 0,
+    };
+    Some((cursor, at))
+}
+
 /// The open menu's popup, and the item picked from it.
 fn menu(
     ui: &mut Ui,
@@ -520,6 +582,9 @@ pub fn apply(tree: &mut Interface, edits: &[Edit]) {
                 }
             }
             (Set::Cell(..), _) => {}
+            // A pad's cursor is drawn from pictures the script places, not
+            // from the value, so there is nothing here to show yet.
+            (Set::Axes { .. }, _) => {}
             (&Set::Value(v), Some(model::Value::Real(_))) => w.value = Some(model::Value::Real(v)),
             (&Set::Value(v), _) => w.value = Some(model::Value::Integer(v.round() as i32)),
         }

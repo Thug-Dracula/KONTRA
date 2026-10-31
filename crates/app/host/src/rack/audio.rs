@@ -521,6 +521,22 @@ impl Audio {
                         p.engine.set_control(slot, id, value);
                     }
                 }
+                Command::Axes {
+                    part,
+                    slot,
+                    id,
+                    cell,
+                    x,
+                    y,
+                    event,
+                    keys,
+                } => {
+                    if let Some(Some(p)) = self.parts.get_mut(part) {
+                        let held = [keys.shift, keys.alt, keys.ctrl || keys.cmd];
+                        p.engine.set_click(slot, id, held, cell);
+                        p.engine.set_axes(slot, id, cell, x, y, event);
+                    }
+                }
                 Command::ControlText {
                     part,
                     slot,

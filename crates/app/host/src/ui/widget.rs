@@ -134,7 +134,12 @@ pub(super) fn widget(
             }
         }
         ControlKind::Xy => ui::Kind::Xy {
-            cursors: array.map_or(0, |(_, len)| len / 2),
+            // The variable is a real array (`declare ui_xy ?pad[n]`), and its
+            // cells are the cursors' coordinates, not one value.
+            cells: match cells {
+                Cells::Real { len, .. } => len,
+                _ => 0,
+            },
             sensitivity: [
                 "$CONTROL_PAR_MOUSE_BEHAVIOUR_X",
                 "$CONTROL_PAR_MOUSE_BEHAVIOUR_Y",

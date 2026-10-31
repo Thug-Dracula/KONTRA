@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use kontra_time::SampleTime;
+use kontra_ui_model::MouseEvent;
 use kontra_vm::{HostValue, Step, Vm};
 use kontra_voice::FadeTarget;
 
@@ -91,12 +92,11 @@ impl Engine {
             self.run_with(slot, running, |vm, context| vm.control(id, value, context));
             return;
         }
-        let own = script.callbacks.ui_control.iter().find(|(i, _)| *i == id);
-        let own = own.and_then(|&(_, own)| own);
+        let asks = (script.callbacks.ui_control.iter()).any(|(i, _)| *i == id);
         let controls = &script.controls;
         let n = self.control_index_in(slot, id);
         let cell = n.and_then(|n| controls.cells.get(n).copied().flatten());
-        if cell.is_none() && own.is_none() {
+        if cell.is_none() && !asks {
             return;
         }
         let len = n.and_then(|n| controls.steps.get(n)).copied().unwrap_or(0);
@@ -107,6 +107,64 @@ impl Engine {
         // A menu the user picks from selects that entry.
         self.ui
             .select(slot, n, i32::try_from(value).unwrap_or(i32::MIN));
+        self.fire_ui_control(slot, id, None);
+    }
+
+    /// The user pressed or dragged XY pad `id` (its UI id) of script `slot`:
+    /// the cursor whose X lives in `cell` takes the two coordinates, then the
+    /// script's callbacks run once, as Kontakt's do for one mouse event.
+    ///
+    /// The coordinates arrive as real cells' bit patterns; `y` is `None` for
+    /// a pad whose variable has only the one cell (`declare ui_xy ?pad[1]`),
+    /// which is an X-only click target.
+    ///
+    /// A foreign script's page has no UI id to address: a pad there is not
+    /// reachable this way.
+    pub fn set_axes(
+        &mut self,
+        slot: u8,
+        id: i32,
+        cell: u32,
+        x: i64,
+        y: Option<i64>,
+        event: MouseEvent,
+    ) {
+        let plan = Arc::clone(&self.plan);
+        let Some(script) = plan.scripts.get(usize::from(slot)) else {
+            return;
+        };
+        if script.foreign.is_some() {
+            return;
+        }
+        let Some(n) = self.control_index_in(slot, id) else {
+            return;
+        };
+        let base = script.controls.cells.get(n).copied().flatten();
+        if let (Some(base), Some(vm)) = (
+            base,
+            self.vms.get_mut(usize::from(slot)).and_then(Option::as_mut),
+        ) {
+            let at = base as usize + cell as usize;
+            vm.set_cell(at, x);
+            if let Some(y) = y {
+                vm.set_cell(at + 1, y);
+            }
+        }
+        self.fire_ui_control(slot, id, Some(event));
+    }
+
+    /// Runs script `slot`'s `on ui_controls` and then `on ui_control` for
+    /// `id`, as one edit to that control does. `event` is the XY pad event it
+    /// answers, and nothing for any other control.
+    fn fire_ui_control(&mut self, slot: u8, id: i32, event: Option<MouseEvent>) {
+        let plan = Arc::clone(&self.plan);
+        let Some(script) = plan.scripts.get(usize::from(slot)) else {
+            return;
+        };
+        let own = (script.callbacks.ui_control.iter())
+            .find(|(i, _)| *i == id)
+            .and_then(|&(_, own)| own);
+        self.ui.set_event(slot, event);
         for (kind, entry) in [
             (Kind::UiControls, script.callbacks.ui_controls),
             (Kind::UiControl, own),
@@ -119,6 +177,8 @@ impl Engine {
                 self.run_callback(slot, entry, running);
             }
         }
+        // Outside the callbacks it fired, the pad event means nothing.
+        self.ui.set_event(slot, None);
     }
 
     /// Starts an asynchronous command for the running slot: its `on

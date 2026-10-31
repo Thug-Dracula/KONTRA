@@ -17,7 +17,7 @@ given so it can be re-run rather than believed.
 | The plugin a host loads is the one that was tested | gate builds `kontra-plugin`, asserts `clap_entry` is exported, and installs to **both** `~/.clap` and `~/.vst3` |
 | Electric Mint plays end to end | gate render: completes, 0 missing frames, 0 clipped, `actions_unhandled` 55, `init unanswered` 51 |
 | The rendered audio is reproducible | fingerprint `7fd5a1ae59790ffc` (stable run to run; has moved five times as stages were modelled: Hot Solo+, Choral, Diffusion, the diffusion knob order and the Supercharger make-up) |
-| The page hit-tests where it is drawn | `tools/ui-drive` — 39 controls checked, every press lands on the rect it was drawn in, a press 2 points outside selects nothing |
+| The page hit-tests where it is drawn | `tools/ui-drive` — 39 controls checked on Electric Mint, 44 on Electric Mint (Melody) including its eight `ui_xy` rows, every press lands on the rect it was drawn in, a press 2 points outside selects nothing |
 | The page looks like the reviewed page | `tools/pixel-diff.py` against `tools/kontakt-reference/electric-mint-page.png` — 0 of 316500 px differ |
 | A stock Kontakt preset's impulse resolves | `/presets/…` is walked under a discovered factory root and a member inside `K4IR.nkx` (387 MB, opened by index) decodes to 477306 frames of real audio; `KONTRA_KONTAKT_PRESETS` overrides the root and the error names every root tried |
 | The load report lists per-voice filter groups | it used to print the cutoffs of *sounding* voices before any note existed, so it always read `voice filters: N groups []` — a diagnostic that lied. It now reads the built racks: Cherry reports 1 group, Harpsichord 576 |
@@ -80,6 +80,7 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | **8Dio Fire Sax is refused** | the reader rejects `Unexpected internal modulator category 3` | read that modulator category |
 | **Soundiron Harpsichord script will not compile** | `%NOTE_DURATION is not an array` | the script engine's array declaration path |
 | **Bus slot 7 phantom filter** | the instrument stores it `bypass: false`, but Kontakt behaves as if it is not running; removing it closes 11.8 dB at 12.9 kHz | wrong to decide by assumption. The decisive test needs the bypass toggled at runtime via KSP in an audio-capable session — editing the `.nki` is refused because Kontakt validates an MD5 in `BNISoundHeader` |
+| **An XY pad's selected cursor is not drawn** | `input::read` now reads pads and the engine answers `$NI_MOUSE_EVENT_TYPE`, so a click on Electric Mint (Melody)'s articulation or pattern row runs `change_slot` and moves the selection (keyswitch and `$CONTROL_PAR_ACTIVE_INDEX`; `tools/ui-drive`'s `a_click_on_a_melody_row_selects_that_row`). The page itself shows no highlight: KONTRA has no pass that draws an `ui_xy`'s cursors, so the per-cursor picture (`$CONTROL_PAR_CURSOR_PICTURE`) and the active one are not on screen | draw each cursor at its own cells' coordinates, framed by which one `$CONTROL_PAR_ACTIVE_INDEX` marks |
 | **A control edit can cost one silent block** | the price of having no lock on the audio path: if the host resumes while the control tick holds the audio side, that block renders silence | accepted trade-off; counted and logged as `block_missed` |
 
 ## What is *not* verified — do not cite these as facts

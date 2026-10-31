@@ -22,6 +22,7 @@ kontra-racks = { path = "../racks" }
 kontra-plan = { path = "../plan" }
 kontra-script-ui = { path = "../script-ui" }
 kontra-ir = { path = "../../model/ir" }
+kontra-ui-model = { path = "../../model/ui-model" }
 kontra-voice = { path = "../voice" }
 kontra-dsp = { path = "../../dsp/registry" }
 kontra-effects = { path = "../effects" }

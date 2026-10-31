@@ -7,6 +7,7 @@ use kontra_engine::{
     Atom, Engine, Event, HostNote, HostPattern, Plan, Region, SampleTime, Timed, Zone,
 };
 use kontra_stream::{BlobKey, Encoding, MemSource, SampleFmt, Store, StoreConfig};
+use kontra_ui_model::MouseEvent;
 
 const RATE: u32 = 48_000;
 const FMT: SampleFmt = SampleFmt {
@@ -3554,4 +3555,54 @@ fn get_event_ids_fills_the_array_with_the_live_events() {
     assert_eq!(parts.len(), 3, "{m}");
     assert_eq!(parts[0], parts[2], "the current event is listed: {m}");
     assert_eq!(parts[1], "0", "the list ends in a 0: {m}");
+}
+
+/// An XY pad's click, as the editor sends one: both coordinates land in the
+/// cursor's own cells (X then Y, each 0..=1), the callback runs once, and
+/// `$NI_MOUSE_EVENT_TYPE` names the event it answered. The manual's event
+/// constants have no published values, so the engine answers the id the
+/// running script's own constant carries (the `if` below compares them).
+#[test]
+fn an_xy_pad_click_writes_both_coordinates_and_names_its_event() {
+    let source = "on init
+            declare ui_xy ?pad[2]
+            declare $id
+            $id := get_ui_id(?pad)
+            message(\"id \" & $id)
+        end on
+        on ui_control(?pad)
+            if ($NI_MOUSE_EVENT_TYPE=$NI_MOUSE_EVENT_TYPE_LEFT_BUTTON_DOWN)
+                message(\"down \" & real_to_int(?pad[0]*100.0) & \" \" & real_to_int(?pad[1]*100.0))
+            else
+                if ($NI_MOUSE_EVENT_TYPE=$NI_MOUSE_EVENT_TYPE_LEFT_BUTTON_UP)
+                    message(\"up \" & real_to_int(?pad[0]*100.0) & \" \" & real_to_int(?pad[1]*100.0))
+                else
+                    message(\"drag \" & real_to_int(?pad[0]*100.0) & \" \" & real_to_int(?pad[1]*100.0))
+                end if
+            end if
+        end on";
+    let store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut e = engine(&store, Vec::new(), source);
+    level(&mut e, &[]);
+    let id: i32 = (e.last_message().strip_prefix("id ").unwrap_or(""))
+        .parse()
+        .unwrap();
+    let bits = |v: f64| v.to_bits() as i64;
+
+    for (event, said) in [
+        (MouseEvent::Down, "down 25 75"),
+        (MouseEvent::Drag, "drag 50 50"),
+        (MouseEvent::Up, "up 100 0"),
+    ] {
+        let (x, y) = match event {
+            MouseEvent::Drag => (0.5, 0.5),
+            MouseEvent::Up => (1.0, 0.0),
+            MouseEvent::Down => (0.25, 0.75),
+        };
+        e.set_click(0, id, [false; 3], 0);
+        e.set_axes(0, id, 0, bits(x), Some(bits(y)), event);
+        // The message is built from `?pad[0]` and `?pad[1]` read back, so it
+        // says both that the callback ran once and that the cells hold these.
+        assert_eq!(e.last_message(), said, "the {event:?} event");
+    }
 }

@@ -501,6 +501,24 @@ impl HostApi for Engine {
             }
             Action::CallbackType => HostValue::Int(i32::from(self.running.callback_type)),
             Action::UiIdVar => HostValue::Int(self.running.ui),
+            // `$NI_MOUSE_EVENT_TYPE`: the mouse event an XY pad's callback is
+            // answering. The manual's constants have no published values, so
+            // this answers the id the running script's own constant carries —
+            // the same opaque symbol it compares against — and 0 outside a
+            // pad's callback, where Kontakt does not define it either.
+            Action::MouseEventType => HostValue::Int(
+                (self.ui.event(self.running.slot))
+                    .and_then(|event| {
+                        let script = self.plan.scripts.get(usize::from(self.running.slot))?;
+                        script
+                            .controls
+                            .mouse_events
+                            .get(event.index())
+                            .copied()
+                            .filter(|&id| id != i32::MIN)
+                    })
+                    .unwrap_or(0),
+            ),
             Action::ControlParIdx => HostValue::Int(self.ui.last_cell(self.running.slot) as i32),
             Action::ResetRlsTrigCounter => self.reset_rls_trig_counter(int(0)),
             Action::CallbackId => HostValue::Int(self.running.callback_id as i32),

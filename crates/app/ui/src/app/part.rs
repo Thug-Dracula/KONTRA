@@ -76,6 +76,14 @@ pub(super) fn view(
                 match e.to {
                     input::Set::Value(v) => control(None, v),
                     input::Set::Cell(k, v) => control(Some(k), v),
+                    input::Set::Axes { cell, at, event } => Action::Axes {
+                        part: n,
+                        widget,
+                        cell,
+                        at,
+                        event,
+                        keys,
+                    },
                     input::Set::Text(text) => Action::ControlText {
                         part: n,
                         widget,

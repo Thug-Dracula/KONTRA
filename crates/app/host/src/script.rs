@@ -298,6 +298,12 @@ fn controls(script: &Script) -> Controls {
             "$CONTROL_PAR_KEY_CONTROL",
         ]
         .map(|name| symbol(script, name)),
+        mouse_events: [
+            "$NI_MOUSE_EVENT_TYPE_LEFT_BUTTON_DOWN",
+            "$NI_MOUSE_EVENT_TYPE_LEFT_BUTTON_UP",
+            "$NI_MOUSE_EVENT_TYPE_DRAG",
+        ]
+        .map(|name| symbol(script, name)),
     }
 }
 

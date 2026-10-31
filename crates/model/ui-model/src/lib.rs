@@ -127,6 +127,36 @@ pub struct UiModifiers {
     pub alt: bool,
     pub cmd: bool,
 }
+
+/// The mouse event a control reports while its callback runs (KSP
+/// `$NI_MOUSE_EVENT_TYPE`): an XY pad's script tells a press from a drag from
+/// the release, and acts on each (`on ui_control(?pad)` with
+/// `$NI_MOUSE_EVENT_TYPE_LEFT_BUTTON_DOWN`, `_UP`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseEvent {
+    /// The button went down on the control.
+    Down,
+    /// It came up.
+    Up,
+    /// It moved while held.
+    Drag,
+}
+
+impl MouseEvent {
+    /// How many events a control can report.
+    pub const COUNT: usize = 3;
+
+    /// This event's place among them, in the order a source looks them up.
+    #[must_use]
+    pub fn index(self) -> usize {
+        match self {
+            Self::Down => 0,
+            Self::Up => 1,
+            Self::Drag => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiActivationOrigin {
     PointerDown,
@@ -568,11 +598,16 @@ pub enum Kind {
         cells: Vec<f64>,
         steps_shown: Option<u32>,
     },
-    /// `sensitivity`: per-axis drag sensitivity in source units (KSP
-    /// `MOUSE_BEHAVIOUR_X`/`_Y`); `mouse_mode`: the source's pointer mode,
-    /// verbatim (KSP `MOUSE_MODE`), until its meanings are verified.
+    /// `cells`: the cells of the control's value array, two per cursor — X
+    /// first, then Y, each 0..=1 across the control's own width and height
+    /// (40s Very Own - Drums reads X back as `?TABS__xy0[0] * WIDTH`; ALLURE
+    /// Modern Upright's `?mixer_pad` reads `[0] * 2000 - 1000` and
+    /// `[1] * 1000`). A one-cell pad is an X-only click target. `sensitivity`:
+    /// per-axis drag sensitivity in source units (KSP `MOUSE_BEHAVIOUR_X`/`_Y`);
+    /// `mouse_mode`: the source's pointer mode, verbatim (KSP `MOUSE_MODE`),
+    /// until its meanings are verified.
     Xy {
-        cursors: u32,
+        cells: u32,
         sensitivity: [Option<u32>; 2],
         mouse_mode: Option<i32>,
     },

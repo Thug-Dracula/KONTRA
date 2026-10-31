@@ -23,7 +23,7 @@ pub use files::user_saves;
 pub use kontra_engine::{Event, HostNote, HostPattern, NoteExpression, Plan};
 use kontra_protocol::{MAX_PARTS, MeterCells, Meters, Ring, StatCells, Stats};
 pub use kontra_stream::{Store, StoreConfig};
-use kontra_ui_model::UiModifiers;
+use kontra_ui_model::{MouseEvent, UiModifiers};
 
 mod audio;
 mod files;
@@ -154,6 +154,20 @@ pub enum Command {
         /// The cell of a table set, 0 for any other control.
         cell: u32,
         value: i64,
+        keys: UiModifiers,
+    },
+    /// The user pressed or dragged XY pad `id` of script `slot` to (`x`, `y`)
+    /// on its cursor at `cell`: the coordinates are real cells' bit patterns,
+    /// `y` is `None` for a pad whose variable has only the one cell, and
+    /// `event` is what the script reads as `$NI_MOUSE_EVENT_TYPE`.
+    Axes {
+        part: usize,
+        slot: u8,
+        id: i32,
+        cell: u32,
+        x: i64,
+        y: Option<i64>,
+        event: MouseEvent,
         keys: UiModifiers,
     },
     /// The user typed `text` into text edit `id` of `part`'s script `slot`,
@@ -606,6 +620,51 @@ impl Rack {
                 keys,
             });
         }
+    }
+
+    /// The user pressed or dragged XY pad `widget` of `part`'s interface: the
+    /// cursor whose X lives in `cell` takes `at` — X then Y, each 0..=1
+    /// across the control — and the script's callback runs at the next block.
+    pub fn axes(
+        &mut self,
+        part: usize,
+        widget: usize,
+        cell: u32,
+        at: [f64; 2],
+        event: MouseEvent,
+        keys: UiModifiers,
+    ) {
+        let Some(Some(p)) = self.parts.get(part) else {
+            return;
+        };
+        let Some(view) = p.view.as_ref() else {
+            return;
+        };
+        // A Lua page's widgets have no cells yet, as for a table's.
+        let Some((slot, id, _)) = view.control(widget, at[0]) else {
+            return;
+        };
+        // Cells hold reals as their bit patterns, the way [`View::control`]
+        // hands a real-valued control over.
+        let Some(kontra_ui_model::Kind::Xy { cells, .. }) =
+            view.tree().widgets.get(widget).map(|w| &w.kind)
+        else {
+            return;
+        };
+        let bits = |v: f64| v.to_bits() as i64;
+        // X is the cursor's first cell and Y the one after it: a one-cell pad
+        // is an X-only click area, and has no second cell to write.
+        let y = (cells.saturating_sub(cell) > 1).then(|| bits(at[1]));
+        self.send(Command::Axes {
+            part,
+            slot,
+            id,
+            cell,
+            x: bits(at[0]),
+            y,
+            event,
+            keys,
+        });
     }
 
     /// The user typed `text` into text edit `widget` of `part`'s interface:

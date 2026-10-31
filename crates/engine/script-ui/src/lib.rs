@@ -15,6 +15,7 @@ pub mod readout;
 
 pub use controls::Controls;
 
+use kontra_ui_model::MouseEvent;
 use kontra_vm::{Action, HostCall, HostValue, Text};
 
 /// One control's number parameters, by parameter id, in the order set.
@@ -180,6 +181,9 @@ pub struct Store {
     /// That click's cell, until the control write it came with takes it: a
     /// later write from elsewhere (MIDI learn, a host) sets the first cell.
     pending: Option<(u8, usize, u32)>,
+    /// The XY pad event the slot's callback is answering, while it runs:
+    /// what `$NI_MOUSE_EVENT_TYPE` reads.
+    event: Option<(u8, MouseEvent)>,
 }
 
 /// One control as the script left it: what the host builds its widget from.
@@ -226,6 +230,7 @@ impl Store {
             fonts: Vec::with_capacity(64),
             click: None,
             pending: None,
+            event: None,
         }
     }
 
@@ -233,6 +238,21 @@ impl Store {
     #[must_use]
     pub fn keys(&self) -> &[Key] {
         &self.keys
+    }
+
+    /// The XY pad event script `slot`'s callbacks are answering, for as long
+    /// as they run (KSP manual: `$NI_MOUSE_EVENT_TYPE` is read inside an XY
+    /// pad's callback, and nowhere else).
+    pub fn set_event(&mut self, slot: u8, event: Option<MouseEvent>) {
+        self.event = event.map(|event| (slot, event));
+    }
+
+    /// What script `slot`'s running callback was told about the mouse.
+    #[must_use]
+    pub fn event(&self, slot: u8) -> Option<MouseEvent> {
+        self.event
+            .filter(|&(s, _)| s == slot)
+            .map(|(_, event)| event)
     }
 
     /// Whether the keyboard shows only the keys scripts press

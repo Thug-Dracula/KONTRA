@@ -2155,6 +2155,7 @@ dependencies = [
  "kontra-stream",
  "kontra-time",
  "kontra-trace",
+ "kontra-ui-model",
  "kontra-vm",
  "kontra-voice",
 ]
@@ -2421,6 +2422,7 @@ name = "kontra-script-ui"
 version = "0.0.0"
 dependencies = [
  "kontra-law",
+ "kontra-ui-model",
  "kontra-vm",
 ]
 

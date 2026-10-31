@@ -102,7 +102,19 @@ impl Face {
             Rect::new(120, 100, 80, 18),
             Kind::TextEdit,
         );
-        tree.widgets.extend([knob, switch, menu, edit, table, text]);
+        // A one-cursor pad with room for both axes, as a two-cell `ui_xy`.
+        let pad = Widget::new(
+            "?pad",
+            PageRef(0),
+            Rect::new(220, 150, 160, 40),
+            Kind::Xy {
+                cells: 2,
+                sensitivity: [Some(1), Some(1)],
+                mouse_mode: Some(0),
+            },
+        );
+        tree.widgets
+            .extend([knob, switch, menu, edit, table, text, pad]);
         Self {
             ui: kontra_ui::ui(),
             tree,
@@ -350,4 +362,89 @@ fn a_value_edit_arrow_steps_one_shown_unit_a_press() {
     held.extend(f.pointer(up, false, Mods::default()));
     assert_eq!(held.len(), 6, "{held:?}");
     assert_eq!(f.value(3), 100.);
+}
+
+/// An XY pad is a click area over its whole rect and reports both axes, 0..=1
+/// across its own width and height (KSP `ui_xy`: two real cells per cursor, X
+/// then Y). Electric Mint's articulation and pattern rows are one-cell pads
+/// (`declare ui_xy ?rjhag[1]`) whose scripts only need the click, so the X
+/// alone has to be right for a 258×28 row.
+#[test]
+fn a_pad_reports_both_axes_of_a_press_a_drag_and_a_release() {
+    let mut f = Face::new();
+    f.frame(Input::default());
+    let pad = input::surface(0, 6);
+    // Its rect, from the page the harness builds: 160 points wide, 40 tall.
+    let (x, y, w, h) = (220., 150., 160., 40.);
+    let axes = |edits: &[Edit]| -> Vec<(u32, [f64; 2], model::MouseEvent)> {
+        edits
+            .iter()
+            .filter_map(|e| match e.to {
+                Set::Axes { cell, at, event } => Some((cell, at, event)),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // The centre is the middle of each axis, on the press and on the release.
+    let click = f.click(&pad, Mods::default());
+    assert_eq!(
+        axes(&click),
+        [
+            (0, [0.5, 0.5], model::MouseEvent::Down),
+            (0, [0.5, 0.5], model::MouseEvent::Up),
+        ],
+        "a click sends the press and the release: {click:?}"
+    );
+
+    // A quarter across and three quarters down is (0.25, 0.75) of the control.
+    let at = Point::new(x + w * 0.25, y + h * 0.75);
+    let mut pressed = f.pointer(at, true, Mods::default());
+    pressed.extend(f.pointer(at, true, Mods::default()));
+    assert_eq!(
+        axes(&pressed),
+        [(0, [0.25, 0.75], model::MouseEvent::Down)],
+        "{pressed:?}"
+    );
+
+    // Held and moved, every frame the pointer moves sends the new place as a
+    // drag; a still pointer sends nothing.
+    let still = f.pointer(at, true, Mods::default());
+    assert!(
+        axes(&still).is_empty(),
+        "a still pointer sends nothing: {still:?}"
+    );
+    // The reader sees the frame before, so a movement reports on the next one.
+    f.pointer(Point::new(x + w * 0.75, y + h * 0.5), true, Mods::default());
+    let moved = f.pointer(Point::new(x + w * 0.75, y + h * 0.5), true, Mods::default());
+    assert_eq!(
+        axes(&moved),
+        [(0, [0.75, 0.5], model::MouseEvent::Drag)],
+        "{moved:?}"
+    );
+    f.pointer(
+        Point::new(x + w * 0.75, y + h * 0.5),
+        false,
+        Mods::default(),
+    );
+    let up = f.frame(Input::default());
+    assert_eq!(
+        axes(&up),
+        [(0, [0.75, 0.5], model::MouseEvent::Up)],
+        "{up:?}"
+    );
+
+    // Pulled past the right edge, the position stops at it: the pointer keeps
+    // the capture, and Kontakt's pad reports 1, not a place off the control.
+    let edge = Point::new(x + w * 0.9, y + h * 0.5);
+    let beyond = Point::new(x + w + 30., y + h * 0.5);
+    f.pointer(edge, true, Mods::default());
+    f.pointer(edge, true, Mods::default());
+    f.pointer(beyond, true, Mods::default());
+    let out = f.pointer(beyond, true, Mods::default());
+    assert_eq!(
+        axes(&out),
+        [(0, [1., 0.5], model::MouseEvent::Drag)],
+        "{out:?}"
+    );
 }

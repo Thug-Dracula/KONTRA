@@ -9,6 +9,7 @@
 //! as an argument. Other parameters (hide, picture state, range) are kept per
 //! control as the script sets them.
 
+use kontra_ui_model::MouseEvent;
 use kontra_vm::{Action, HostCall, HostValue};
 
 use crate::{LookPars, Store};
@@ -38,6 +39,11 @@ pub struct Controls {
     /// The parameter ids that read whether Shift, Alt and Ctrl were held at
     /// the control's last click; `i32::MIN` when the script never names one.
     pub key_pars: [i32; 3],
+    /// The ids the script's own `$NI_MOUSE_EVENT_TYPE` constants carry, by
+    /// [`MouseEvent::index`]; `i32::MIN` for one it never names. They are
+    /// opaque symbols with no numeric value (the manual gives none), so the
+    /// event reports the same id the script compares against.
+    pub mouse_events: [i32; MouseEvent::COUNT],
 }
 
 impl Controls {
