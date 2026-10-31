@@ -458,7 +458,9 @@ impl Chorus {
                 tap: f64::from(mode.voices[i].tap),
             }),
         };
-        c.set(Settings::default());
+        // `set` would early out here (the knob record already holds the
+        // defaults), and an underived bank has no coefficients at all.
+        c.derive();
         c
     }
 
@@ -829,6 +831,17 @@ mod tests {
         let mut io = vec![[0.0f32; 2]; 256];
         c.process(&mut io);
         assert!(io.iter().all(|f| f == &[0.0, 0.0]));
+    }
+
+    /// A fresh effect is already initialised: its defaults are audible. An
+    /// underived bank would have zero coefficients and pass the dry signal.
+    #[test]
+    fn a_new_effect_is_derived() {
+        let mut c = Chorus::new(0, 48_000.0);
+        let mut io: Vec<[f32; 2]> = (0..256).map(|i| [((i as f32) * 0.1).sin(), 0.0]).collect();
+        let want = io.clone();
+        c.process(&mut io);
+        assert_ne!(io, want, "the default knobs give a wet signal");
     }
 
     /// `mix` 0 is the dry signal, to the last bit the kernel produced.
