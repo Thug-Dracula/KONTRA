@@ -202,6 +202,7 @@ fn group_wet(out: &[Option<ir::Effect>], at: &str, notes: &mut Notes) {
             ir::EffectKind::Limiter(_) => Some("group limiter before a drive"),
             ir::EffectKind::Delay(_) => Some("group delay before a drive"),
             ir::EffectKind::Phaser(_) => Some("group phaser before a drive"),
+            ir::EffectKind::Diffusion(_) => Some("group diffusion before a drive"),
             ir::EffectKind::Cascade(_) => Some("group 3x2 Versatile before a drive"),
             ir::EffectKind::Clocked(_) => Some("group Phaser or Vowel filter before a drive"),
             ir::EffectKind::Transient(_) => Some("group transient master before a drive"),
@@ -387,7 +388,7 @@ fn slot_effect(
                 notes.add(impact, lost, at.to_owned());
             }
             *knobs = crate::replika::knobs(r);
-            crate::replika::delay(r).map(ir::EffectKind::Delay)
+            crate::replika::effect(r)
         }),
         id => crate::drive::effect(id, object.version, &public, at, notes),
     };

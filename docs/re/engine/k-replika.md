@@ -7,10 +7,11 @@ filters, saturator coefficients and ducking all depend on update code that is no
 Nothing here is measured against Kontakt. Method: decompile text (`source/kontakt8/*.c`) and
 `docs/re/kontakt-rdata/constants.tsv` only. No binary, Ghidra, radare2 or oracle was opened.
 
-Saved TYPE 4 (Diffusion) has its own pass: `k-replika-diffusion.md` (disassembly of 8.13.1).
-It corrects two readings below: the five-value delay type is selected at `0x141aca670`
-(scale 5.0), and the four-value `+0x93c` written by index 9 - "mode 0..3" here - is the
-BBD-type control, not the delay type.
+Saved TYPE 4 (Diffusion) has its own pass: `k-replika-diffusion.md` — disassembly of 8.13.1
+plus an oracle capture of 8.14.1, the network's rows, taps and impulse response, and the port.
+It corrects two readings below: the five-value delay type is selected at `0x141aca670` (scale
+5.0), and the four-value `+0x93c` written by index 9 - "mode 0..3" here - is the BBD-type
+control, not the delay type.
 
 Address convention: `0x1xxxxxxxx` names are Kontakt 8 functions; file refs are `source/kontakt8/<bucket>.c`.
 
