@@ -187,18 +187,22 @@ in 32-frame blocks; `crates/dsp/delay/tests/chorus.rs` pins both cases.
 
 | frame | case 1 native (L, R) | `Chorus` (L, R) | case 2 native | `Chorus` |
 | --- | --- | --- | --- | --- |
-| 0 | `3f32c0a0 00000000` | bit-exact | `3e820df2 00000000` | bit-exact |
-| 1 | `3c7145ad 3c314b45` | bit-exact | `3bc4ddf0 3b80fe4e` | bit-exact |
-| 150 | `3ea49034 bebce4dd` | bit-exact | `3defac3e be071ad4` | bit-exact |
-| 777 | `3e88e9e0 be871bd9` | `3e88e9de be871bdc` | `3ded953d bddf899f` | bit-exact |
-| 1500 | `be883379 3e1418bb` | `be88337b 3e1418c0` | `bd45a8a0 bdf18584` | bit-exact |
-| 2999 | `bdc85a44 bea4ea2d` | `bdc85a32 bea4ea28` | `be25b166 3d3db892` | bit-exact |
+| 0 | `3f32c0a0 00000000` | exact | `3e820df2 00000000` | exact |
+| 1 | `3c7145ad 3c314b45` | `3c7145b0 3c314b45` | `3bc4ddf0 3b80fe4e` | `3bc4ddf1 3b80fe4e` |
+| 150 | `3ea49034 bebce4dd` | `3ea49034 bebce4de` | `3defac3e be071ad4` | `3defac3f be071ad4` |
+| 777 | `3e88e9e0 be871bd9` | `3e88e9de be871bdd` | `3ded953d bddf899f` | `3ded953d bddf89a0` |
+| 1500 | `be883379 3e1418bb` | `be88337c 3e1418c4` | `bd45a8a0 bdf18584` | `bd45a89a bdf18585` |
+| 2999 | `bdc85a44 bea4ea2d` | `bdc85a34 bea4ea29` | `be25b166 3d3db892` | `be25b163 3d3db893` |
 
-Case 1 (mode 1, amount .6, invert) is within 2.5e-6 over all 3000 frames (mean 1.2e-7); case 2 (mode 2,
-amount .3, fully wet) within 2.8e-8. The residual is not a missing term: every intermediate checked
-against the emulator (`mix`, `s`, `d`, the loop filter's `s1`/`s2` and `y`, the read) agrees to the
-last bit or a few ulps, so what remains is the emulator's own `sincos` at `0x1443c9bd0`, which returns
-`0.9510565148` for `cos 18°` where libm returns `0.95105651629515`.
+The worst reference frame is 1.3e-7 absolute (case 1, frame 1500) and 4.5e-8 (case 2,
+frame 2999) — two to four ulps of f32. The f64 model the implementation was written
+from, computing the same operations in Python, reproduces frames 0, 1 and 150 of case 1
+on the exact bits and stays within 2.5e-6 over all 3000 frames (mean 1.2e-7), so what
+remains is not a missing term: every intermediate checked against the emulator — the
+mix, `s`, `d`, the loop filter's `s1`/`s2`/`y`, the read — agrees to the last bit or a
+few ulps. The residual is the emulator's own `sincos` at `0x1443c9bd0`, which returns
+`0.9510565148` for `cos 18°` where libm returns `0.95105651629515`, plus the f32
+rounding of the output.
 
 ## What is still unread
 

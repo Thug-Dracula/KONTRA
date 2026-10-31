@@ -4,9 +4,11 @@
 //! (`0x14193be50`) in the emulator over the stimulus below, 32-frame blocks at
 //! 48 kHz, and prints the output's bits. Choral is a seven-voice feedback
 //! network, so any coefficient that is merely close shows up as a slow drift
-//! over the 3000 frames; the model lands within 3e-6 of the native everywhere
-//! (mean 1e-7) and on the exact bits at most reference frames, the residual
-//! being the emulator's own `sincos` in the width matrices.
+//! over the 3000 frames. The implementation lands within 1.3e-7 (case 1) and
+//! 4.5e-8 (case 2) at the reference frames — two to four ulps of f32 — the
+//! residual being the emulator's own `sincos` in the width matrices and libm
+//! varying between platforms, which is why the tolerance below is 2e-5 rather
+//! than the measured error.
 
 use kontra_dsp_delay::chorus::{Chorus, Settings};
 

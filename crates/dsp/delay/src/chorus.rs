@@ -471,19 +471,23 @@ impl Chorus {
     )]
     pub fn set(&mut self, s: Settings) {
         let fs = self.fs;
-        let base_hz = f64::from(lfo_hz(s.rate));
+        // The kernel evaluates these laws in f64 from the f32 knobs; the f32
+        // helpers above are the same laws rounded, and are not used here.
+        let rate = f64::from(s.rate);
+        let base_hz = 0.25 + 7.4 * rate * rate * rate;
         let m = 0.99 * f64::from(s.amount * s.amount) + 0.01;
         let p = 2.0f64.powf(0.025 * m);
         // The voices law: sqrt(min(2v, 1)) and sqrt(max(2v - 1, 0)).
-        let g = f64::from((2.0 * s.voices).clamp(0.0, 1.0)).sqrt();
-        let h = f64::from((2.0 * s.voices - 1.0).clamp(0.0, 1.0)).sqrt();
+        let voices = f64::from(s.voices);
+        let g = (2.0 * voices).clamp(0.0, 1.0).sqrt();
+        let h = (2.0 * voices - 1.0).clamp(0.0, 1.0).sqrt();
         self.g1 = [1.0, 1.0, g, g, h, h, 0.0];
         // `0x14193a3e0`: the output trim from 2 + 2(g + h), `0x144760130` is 0.6.
         let sum = 2.0 + 2.0 * (g + h);
         self.trim = (1.0 / sum) * (0.2 * sum + 0.6).sqrt();
         // `0x14193ae70`: (0.999 · feedback^¼) raised to each voice's delay ratio.
         let d0 = f64::from(self.bank.voices[0].base_s);
-        let gain = 0.999 * f64::from(s.feedback).powf(0.25);
+        let gain = 0.999 * f64::from(s.feedback).sqrt().sqrt();
         for (i, line) in self.lines.iter_mut().enumerate() {
             let ratio = f64::from(self.bank.voices[i].base_s) / d0;
             self.g2[i] = gain.powf(ratio);
@@ -495,7 +499,8 @@ impl Chorus {
             line.hz = hz;
             line.hz2 = hz2;
             line.depth = fs / hz * 0.5 * (p - 1.0);
-            line.base = f64::from(voice_delay_s(self.bank.voices[i].base_s, s.delay)) * fs;
+            line.base =
+                f64::from(self.bank.voices[i].base_s) * (f64::from(s.delay) * 5.0 + 0.1) * fs;
             line.inv = f64::from(self.bank.voices[i].tap) / f64::from(self.bank.voices[i].filter);
             line.tap = f64::from(self.bank.voices[i].tap);
             // The loop filter's two-pole coefficients, `0x14193e2f6`: a `tan`
@@ -539,12 +544,13 @@ impl Chorus {
         // is 0.25 / the first voice's delay in seconds, damped by the feedback.
         let g0 = self.g2[0];
         let w = (1.0 - g0).max(0.2);
-        let f1 = (0.25 / f64::from(voice_delay_s(self.bank.voices[0].base_s, s.delay))).min(50.0);
-        self.kg = tan_poly(f1 / w.powf(0.25) * std::f64::consts::PI / fs);
+        let first = f64::from(self.bank.voices[0].base_s) * (f64::from(s.delay) * 5.0 + 0.1);
+        let f1 = (0.25 / first).min(50.0);
+        self.kg = tan_poly(f1 / w.sqrt().sqrt() * std::f64::consts::PI / fs);
         self.k2g = 1.0 / (1.0 + 2.0 * SQRT_HALF * self.kg + self.kg * self.kg);
         self.g_avg = w - 1.0;
         self.g_tap = 2.0 * SQRT_HALF * (w.sqrt() - 1.0);
-        self.makeup = (1.0 - g0.min(0.99).powi(4)).powf(0.25);
+        self.makeup = (1.0 - g0.min(0.99).powi(4)).sqrt().sqrt();
         // The association is the kernel's: (wet · makeup) · (trim · 0.707).
         self.out_gain = (self.wet * self.makeup) * (self.trim * 0.707);
     }
