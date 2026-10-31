@@ -118,8 +118,11 @@ def sweep_one(client, entry: dict, out: Path, window: float, kontakt: bool,
             row["load_error"] = str(e).splitlines()[0][:300]
             log(f"{name}: load failed: {row['load_error']}")
         if not loaded:
-            row["failed"] = "Kontakt could not load it"
-            return row
+            # `oracle_load` judges the page by Kontakt's keyboard strip; an instrument
+            # with a full-window custom UI fails that verdict while loading fine. A
+            # render that has sound settles it, so try before calling it a failure.
+            row["notes"].append("page verdict failed; checked by rendering")
+            log(f"{name}: page verdict failed, trying a render anyway")
         for candidate in keys:
             try:
                 first = parity.render_kontakt(client, midis[candidate], attempts=2)
