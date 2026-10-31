@@ -375,6 +375,8 @@ fn slot_effect(
             }
             ir::EffectKind::Amp(amp)
         }),
+        // Seven floats, two flags and the bank: the reader at 0x140d00630.
+        0x5d => crate::chorus::saved(object.version, &public).map(crate::chorus::kind),
         0x5a => crate::replika::saved(object.version, &public).and_then(|r| {
             let impact = if params.bypass {
                 ir::Impact::Cosmetic

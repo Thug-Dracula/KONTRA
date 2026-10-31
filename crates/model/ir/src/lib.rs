@@ -23,9 +23,9 @@ pub use drive::{
     SlotKnob, SlotLaw, SlotShape, SlotShapes, SlotType,
 };
 pub use effects::{
-    Amp, Cascade, CascadeStage, Clocked, ClockedShape, Compressor, Delay, DelayTime, Detector,
-    Formant, IDENTITY, ImpulseCuts, ImpulseKnob, Limiter, Matrix, Phaser, Reverb, Transient,
-    VowelSet,
+    Amp, Cascade, CascadeStage, Chorus, Clocked, ClockedShape, Compressor, Delay, DelayTime,
+    Detector, Formant, IDENTITY, ImpulseCuts, ImpulseKnob, Limiter, Matrix, Phaser, Reverb,
+    Transient, VowelSet,
 };
 pub use engine_par::{Drives, EnginePar, ScriptPar};
 pub use kontra_law::{FormulaId, common};
@@ -686,6 +686,9 @@ pub enum EffectKind {
     Delay(Delay),
     /// A phaser (the wet path; `dry` mixes the input back).
     Phaser(Phaser),
+    /// Kontakt's Choral: seven modulated delay lines in one feedback ring
+    /// (the wet path; `dry` mixes the input back).
+    Chorus(Chorus),
     /// A transient shaper, in place.
     Transient(Transient),
     /// Not carried, an insert: audio passes unchanged (its output gain trims

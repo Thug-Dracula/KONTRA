@@ -3,6 +3,7 @@
 //! store; everything this cannot carry over is an [`ir::Diagnostic`].
 
 mod access;
+mod chorus;
 mod clocked;
 mod container;
 mod delays;
