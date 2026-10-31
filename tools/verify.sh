@@ -148,6 +148,19 @@ if CARGO_TARGET_DIR="$TARGET" cargo build --release -p ui-drive >"$LOGS/verify-d
     else
         bad "ui-drive" "see $LOGS/verify-drive.txt"
     fi
+    # The Melody instrument is a different page with different widgets -- its
+    # pattern table is eight ui_xy rows, and for a while every one of them was
+    # dead while the main instrument passed. One page is not a UI.
+    MELODY="${EMINT%Electric Mint.nki}Electric Mint (Melody).nki"
+    if [ -f "$MELODY" ]; then
+        if "$TARGET/release/ui-drive" "$MELODY" >"$LOGS/verify-drive-melody.txt" 2>&1; then
+            ok "ui-drive (Melody)" "$(tail -1 "$LOGS/verify-drive-melody.txt" | cut -c1-52)"
+        else
+            bad "ui-drive (Melody)" "see $LOGS/verify-drive-melody.txt"
+        fi
+    else
+        row "ui-drive (Melody)" "no Melody instrument installed"
+    fi
 else
     # ui-drive is a workspace member: a build failure is a defect, not "not
     # built yet". Recorded as skipped, a compile break silently switched off
