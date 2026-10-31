@@ -15,6 +15,7 @@
 //! asks for the picture.
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,6 +105,16 @@ struct Run {
     /// Controls the page paints underneath another one: unreachable in
     /// Kontakt too, so not a hit-test failure.
     covered: usize,
+    /// Text fields whose press is not theirs (they edit on a double click),
+    /// so the control beneath takes it. A press there that opens the list is
+    /// the instrument's own behaviour, not a hit-test failure.
+    declining: usize,
+    /// Text fields proven to edit in place: a double click, an editor drawn
+    /// over the field itself.
+    editing: usize,
+    /// Overlapping pairs driven twice: the covered control opened, then a
+    /// press on the control painted over it.
+    overlaps: usize,
     failed: Vec<Fail>,
 }
 
@@ -241,23 +252,54 @@ impl Run {
             if !probe.edits.is_empty() {
                 self.edited += 1;
             }
-            let ok = probe.selected == [n] && probe.edits.iter().all(|e| e.widget.0 == n);
+            // One press, one owner: a click that reaches two controls is the
+            // bug class that let the Sound Preset list open with the name
+            // field's entry popup, so it fails here rather than shipping.
+            let one = probe.reacted.len() == 1;
+            let mine = probe.reacted.as_slice() == [n];
+            // The reader can hand the press to this control through a text
+            // edit above it that declines a single click; mui still reports
+            // the text edit as what it captured.
+            let forwarded = probe.selected.len() == 1
+                && probe
+                    .selected
+                    .first()
+                    .is_some_and(|&m| drive.kind(m) == "text edit" && drive.is_beneath(n, m));
+            let ok = one
+                && mine
+                && (probe.selected == [n] || forwarded)
+                && probe.edits.iter().all(|e| e.widget.0 == n);
             // A control the page paints under another one cannot be clicked in
             // Kontakt either: the widget above takes the press there, and that
             // says nothing about the hit test. It is reported, not failed.
             let covered = drive.covering(n, point);
             let unreachable = covered.filter(|&m| probe.selected == [m]);
+            // A text edit is edited on a double click, so a single press on
+            // it is the business of the control beneath. Electric Mint's
+            // preset name field sits over its preset menu this way.
+            let declining = one
+                && !mine
+                && drive.kind(n) == "text edit"
+                && probe
+                    .reacted
+                    .first()
+                    .is_some_and(|&m| drive.is_beneath(m, n));
             let verdict = if ok {
                 "ok"
-            } else if unreachable.is_some() {
+            } else if unreachable.is_some() && one {
                 "covered"
+            } else if declining {
+                "declines"
             } else {
                 "FAIL"
             };
             if unreachable.is_some() {
                 self.covered += 1;
             }
-            if !ok && unreachable.is_none() {
+            if declining {
+                self.declining += 1;
+            }
+            if !ok && unreachable.is_none() && !declining {
                 self.failed.push(Fail {
                     page: label.to_owned(),
                     widget: n,
@@ -270,7 +312,11 @@ impl Run {
                         .iter()
                         .map(|&s| drive.describe(&[s]))
                         .collect(),
-                    why: if probe.selected.is_empty() {
+                    why: if !one {
+                        "the press made more than one control react"
+                    } else if !mine {
+                        "the press selected it, but another control reacted"
+                    } else if probe.selected.is_empty() {
                         "the centre press selected nothing"
                     } else if probe.selected == [n] {
                         "the press selected it, but an Edit named another control"
@@ -278,6 +324,19 @@ impl Run {
                         "the centre press selected another control"
                     },
                 });
+            }
+            if let Some(dir) = out
+                && forwarded
+            {
+                // A popup eases in; let its first frames play before the
+                // picture, or it is drawn at zero opacity.
+                drive.settle()?;
+                let file = dir.join(format!(
+                    "{}-press-{n}.png",
+                    label.replace(['/', ' ', '—'], "_")
+                ));
+                drive.save(&file)?;
+                println!("    forwarded press drawn to {}", file.display());
             }
             // Two points outside the rect, inside the page: that press must
             // not select this control, or the hit test is selecting everything.
@@ -300,8 +359,38 @@ impl Run {
                     });
                 }
             }
+            let reached = if declining {
+                format!(
+                    " (the press is {})",
+                    probe
+                        .reacted
+                        .iter()
+                        .map(|&m| drive.describe(&[m]))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            } else if forwarded {
+                let through = probe.selected.first().copied().unwrap_or(n);
+                format!(
+                    " (forwarded through {} {})",
+                    drive.describe(&probe.selected),
+                    drive.kind(through)
+                )
+            } else if one {
+                String::new()
+            } else {
+                format!(
+                    " (reacted: {})",
+                    probe
+                        .reacted
+                        .iter()
+                        .map(|&m| drive.describe(&[m]))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
             println!(
-                "  {n:>3}  {:<7} {:<24} {:<20} {:<20} {:<20} {}  {verdict}{}",
+                "  {n:>3}  {:<7} {:<24} {:<20} {:<20} {:<20} {}  {verdict}{}{reached}",
                 clip(&source, 7),
                 clip(&name, 24),
                 drawn(rect),
@@ -314,6 +403,217 @@ impl Run {
                     drive.kind(m)
                 )),
             );
+        }
+        self.editing(&mut drive, label, out)?;
+        self.overlapping(&mut drive, label)?;
+        Ok(())
+    }
+
+    /// Every text field on the page: a double click must edit it in place.
+    /// The editor is the field itself, drawn exactly over the control, with
+    /// no panel and no second copy in a window.
+    fn editing(
+        &mut self,
+        drive: &mut Drive,
+        label: &str,
+        out: Option<&Path>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let count = drive.tree.widgets.len();
+        for n in 0..count {
+            let wr = WidgetRef(n);
+            if !drive.tree.visible(wr) {
+                continue;
+            }
+            let (name, source) = match drive.tree.widgets.get(n) {
+                Some(w) if takes_input(w) && matches!(w.kind, Kind::TextEdit) => (
+                    w.name.clone(),
+                    w.source_id
+                        .map_or_else(|| "-".to_owned(), |s| s.to_string()),
+                ),
+                _ => continue,
+            };
+            let Some(rect) = drive.rect(n) else {
+                continue;
+            };
+            let centre = Point::new(rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+            if !drive.on_page(centre) {
+                continue;
+            }
+            // Two presses inside mui's double-click window (0.4 s).
+            drive.press(centre)?;
+            drive.press_after(centre)?;
+            let entered = drive.gesture.entry() == Some(n);
+            let editor = drive.popup_rect(n);
+            // The editor is the field's width, centred on it, one line tall:
+            // a short field's text would scroll if its height were forced.
+            let in_place = editor.is_some_and(|e| {
+                (e.2 - rect.2).abs() <= 1.
+                    && ((e.0 + e.2 / 2.) - (rect.0 + rect.2 / 2.)).abs() <= 1.
+                    && ((e.1 + e.3 / 2.) - (rect.1 + rect.3 / 2.)).abs() <= 1.
+                    && e.3 <= 2. * rect.3.max(18.)
+            });
+            self.editing += 1;
+            println!(
+                "  edit {name}: double click opened {entered}, editor {}{}",
+                editor.map_or("not drawn".to_owned(), |e| format!(
+                    "{:.0}x{:.0} at ({:.0},{:.0}) for the field's {:.0}x{:.0} at ({:.0},{:.0})",
+                    e.2, e.3, e.0, e.1, rect.2, rect.3, rect.0, rect.1
+                )),
+                if entered && in_place { "" } else { "  FAIL" },
+            );
+            if let Some(dir) = out {
+                let file = dir.join(format!(
+                    "{}-edit-{n}.png",
+                    label.replace(['/', ' ', '—'], "_")
+                ));
+                drive.save(&file)?;
+                println!("    editor drawn to {}", file.display());
+            }
+            if !entered || !in_place {
+                self.failed.push(Fail {
+                    page: label.to_owned(),
+                    widget: n,
+                    source,
+                    name,
+                    rect,
+                    point: centre,
+                    selected: editor
+                        .filter(|_| entered)
+                        .map_or_else(Vec::new, |_| vec!["itself".to_owned()]),
+                    why: if entered {
+                        "the field's editor is not drawn in place"
+                    } else {
+                        "a double click did not edit the text field"
+                    },
+                });
+            }
+            // Leave the page as it was: the next check opens nothing.
+            drive.gesture = Gesture::default();
+        }
+        Ok(())
+    }
+
+    /// Every control painted under another one that takes input: opens the
+    /// one beneath (so whatever it opens is on screen), then presses the one
+    /// on top where they overlap. One press, one owner — the control beneath
+    /// must not keep a popup open over a press it does not own.
+    ///
+    /// Electric Mint's Sound Preset is the case: the list is open, the name
+    /// field painted over its plate is clicked, and before the owner rule
+    /// both the list (still open) and the field's entry popup reacted.
+    fn overlapping(
+        &mut self,
+        drive: &mut Drive,
+        label: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let count = drive.tree.widgets.len();
+        for n in 0..count {
+            let wr = WidgetRef(n);
+            if !drive.tree.visible(wr) {
+                continue;
+            }
+            let (under, source) = match drive.tree.widgets.get(n) {
+                Some(w) if takes_input(w) => (
+                    w.name.clone(),
+                    w.source_id
+                        .map_or_else(|| "-".to_owned(), |s| s.to_string()),
+                ),
+                _ => continue,
+            };
+            let Some(rect) = drive.rect(n) else {
+                continue;
+            };
+            let centre = Point::new(rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+            let Some(m) = drive.covering(n, centre) else {
+                continue;
+            };
+            // A point of the covered control the override does not cover, so
+            // the press there is the covered control's own.
+            let Some(exposed) = exposed_point(rect, |p| {
+                drive.rect(m).is_none_or(|r| !holds(r, p)) && drive.on_page(p)
+            }) else {
+                continue;
+            };
+            let opened = drive.press(exposed)?;
+            let over = drive
+                .tree
+                .widgets
+                .get(m)
+                .map_or_else(String::new, |w| w.name.clone());
+            let popup = drive.gesture.menu.is_some() || drive.gesture.entry().is_some();
+            println!(
+                "  open {under} from {}, press {over} at {}: {} reaction(s), {}",
+                at(exposed),
+                at(centre),
+                opened.reacted.len(),
+                if popup { "left open" } else { "nothing open" },
+            );
+            if opened.reacted.as_slice() != [n] {
+                self.failed.push(Fail {
+                    page: label.to_owned(),
+                    widget: n,
+                    source: source.clone(),
+                    name: under.clone(),
+                    rect,
+                    point: exposed,
+                    selected: opened
+                        .reacted
+                        .iter()
+                        .map(|&k| drive.describe(&[k]))
+                        .collect(),
+                    why: "opening the covered control made another control react",
+                });
+            }
+            if !popup {
+                continue;
+            }
+            self.overlaps += 1;
+            let probe = drive.press_after(centre)?;
+            if drive.gesture.entry() == Some(m)
+                && let (Some(popup), Some(rect)) = (drive.popup_rect(m), drive.rect(m))
+            {
+                println!(
+                    "    entry popup {:.0}x{:.0} for a {:.0}x{:.0} field",
+                    popup.2, popup.3, rect.2, rect.3
+                );
+            }
+            // The control over the plate may decline the press (a text edit
+            // edits on a double click), in which case the covered control
+            // takes it — that is one owner too.
+            let one = matches!(probe.reacted.as_slice(), [only] if *only == m || *only == n);
+            println!(
+                "    press {over}: {} reaction(s){}",
+                probe.reacted.len(),
+                if one {
+                    String::new()
+                } else {
+                    format!(
+                        " ({})",
+                        probe
+                            .reacted
+                            .iter()
+                            .map(|&k| drive.describe(&[k]))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            );
+            if !one {
+                self.failed.push(Fail {
+                    page: label.to_owned(),
+                    widget: n,
+                    source,
+                    name: under,
+                    rect,
+                    point: centre,
+                    selected: probe
+                        .reacted
+                        .iter()
+                        .map(|&k| drive.describe(&[k]))
+                        .collect(),
+                    why: "a press the control above owned still made the control beneath react",
+                });
+            }
         }
         Ok(())
     }
@@ -347,8 +647,18 @@ impl Run {
                  click with an Edit (a knob or slider selects without changing, as Kontakt does; \
                  an XY pad reports both coordinates of the press). \
                  {} are painted under another control, so no click can reach them in Kontakt \
-                 either; each is named in the table.",
-                self.checked, self.pages, self.skipped, self.edited, self.covered,
+                 either; each is named in the table. {} single press(es) on a text field were \
+                 the control beneath its business ({} field(s) edit in place on a double click). \
+                 {} overlapping pairs were driven: the covered control opened, then the control \
+                 over it pressed, and each press had exactly one owner.",
+                self.checked,
+                self.pages,
+                self.skipped,
+                self.edited,
+                self.covered,
+                self.declining,
+                self.editing,
+                self.overlaps,
             ),
             Outcome::Failed => {
                 println!(
@@ -394,11 +704,13 @@ struct Drive {
     rank: Vec<usize>,
 }
 
-/// One press at one point: which widget mui says it landed on, and the edits
-/// the editor's reader made of it.
+/// One press at one point: which widget mui says it landed on, the edits the
+/// editor's reader made of it, and every widget that reacted to it (the press
+/// itself, a popup it opened, an edit it reported).
 struct Probe {
     selected: Vec<usize>,
     edits: Vec<Edit>,
+    reacted: Vec<usize>,
 }
 
 impl Drive {
@@ -511,6 +823,18 @@ impl Drive {
         ))
     }
 
+    /// The popup `n` floats, as mui drew it.
+    fn popup_rect(&self, n: usize) -> Option<(f64, f64, f64, f64)> {
+        let id = format!("{}-popup", input::surface(self.face, n));
+        let s = self.ui.scene()?.surface(&id)?;
+        Some((
+            s.frame.x,
+            s.frame.y,
+            s.frame.size.width,
+            s.frame.size.height,
+        ))
+    }
+
     fn on_page(&self, p: Point) -> bool {
         let (w, h) = self.size;
         (0. ..=w * self.scale).contains(&p.x) && (0. ..=h * self.scale).contains(&p.y)
@@ -535,20 +859,47 @@ impl Drive {
     /// editor's own sequence — and what the press selected.
     fn press(&mut self, point: Point) -> Result<Probe, Box<dyn std::error::Error>> {
         self.gesture = Gesture::default();
+        self.press_after(point)
+    }
+
+    /// [`press`] without forgetting the gesture: the page is in the state the
+    /// last press left it (a list still open), as it is for the next click.
+    fn press_after(&mut self, point: Point) -> Result<Probe, Box<dyn std::error::Error>> {
         self.settle()?;
+        let mut reacted = BTreeSet::new();
         let mut edits = self.frame(pointer(point, true))?;
+        self.reacted(&mut reacted, &edits);
         // mui hit-tests the press against the last scene in the next frame:
         // the reader sees it on the move, and `ui.get` reports it now.
         let mut selected = self.pressed();
         edits.extend(self.frame(pointer(point, true))?);
+        self.reacted(&mut reacted, &edits);
         if selected.is_empty() {
             selected = self.pressed();
         }
         edits.extend(self.frame(pointer(point, false))?);
+        self.reacted(&mut reacted, &edits);
         edits.extend(self.frame(Input::default())?);
+        self.reacted(&mut reacted, &edits);
         // The capture is released by the quiet frame above, so the next probe
         // starts with nothing held.
-        Ok(Probe { selected, edits })
+        reacted.extend(self.gesture.menu);
+        reacted.extend(self.gesture.entry());
+        Ok(Probe {
+            selected,
+            edits,
+            reacted: reacted.into_iter().collect(),
+        })
+    }
+
+    /// Adds every widget this frame's press reached: the one mui pressed,
+    /// held, clicked or released, and the one an edit names. The popups still
+    /// open at the end of the press are added by the caller: one that was
+    /// already open and *did not* close under a press another control owns
+    /// has reacted to it.
+    fn reacted(&self, into: &mut BTreeSet<usize>, edits: &[Edit]) {
+        into.extend(self.gesture.owner());
+        into.extend(edits.iter().map(|e| e.widget.0));
     }
 
     /// The widget painted above `n` whose drawn rect holds `point`, if any:
@@ -560,6 +911,11 @@ impl Drive {
             .skip(after.saturating_add(1))
             .copied()
             .find(|&m| self.rect(m).is_some_and(|r| holds(r, point)))
+    }
+
+    /// Whether `m` is painted under `n`.
+    fn is_beneath(&self, m: usize, n: usize) -> bool {
+        self.rank.get(m).copied().unwrap_or(usize::MAX) < self.rank.get(n).copied().unwrap_or(0)
     }
 
     fn kind(&self, n: usize) -> &'static str {
@@ -697,6 +1053,20 @@ fn edit_text(e: &Edit) -> String {
         Set::Text(t) => format!("text {t:?}"),
     };
     format!("{} = {what}", e.widget.0)
+}
+
+/// A point of `rect` that `free` accepts, sampled across the rect from its
+/// corners inward: the part of a covered control its override leaves visible.
+fn exposed_point(rect: (f64, f64, f64, f64), free: impl Fn(Point) -> bool) -> Option<Point> {
+    let (x, y, w, h) = rect;
+    [0.05, 0.5, 0.95]
+        .into_iter()
+        .flat_map(|fx| {
+            [0.05, 0.5, 0.95]
+                .into_iter()
+                .map(move |fy| Point::new(x + w * fx, y + h * fy))
+        })
+        .find(|&p| free(p))
 }
 
 /// Whether a drawn rect holds a point.
