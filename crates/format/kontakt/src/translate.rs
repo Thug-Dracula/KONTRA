@@ -78,31 +78,91 @@ pub(crate) fn instrument(
             &name,
         );
     }
+    let mut chunk_scripts = 0;
     for (slot, chunk) in (program.0.children.iter().filter(|c| c.id == SCRIPT)).enumerate() {
         let script = BParScript::try_from(chunk)
             .and_then(|s| s.params())
             .map_err(decode("script"))?;
         match script.text {
             _ if script.bypass => {}
-            Some(text) if !text.trim().is_empty() => out.scripts.push(ir::Script {
-                name: script.description.unwrap_or_default(),
-                slot,
-                dialect: ir::Dialect::Ksp,
-                data: data_files(&text, path, &mut resources),
-                source: text,
-                saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
-                    .unwrap_or(script.persistent),
-                links: (links.iter())
-                    .filter(|(s, _)| usize::from(*s) == slot)
-                    .map(|&(_, l)| l)
-                    .collect(),
-            }),
+            Some(text) if !text.trim().is_empty() => {
+                out.scripts.push(ir::Script {
+                    name: script.description.unwrap_or_default(),
+                    slot,
+                    dialect: ir::Dialect::Ksp,
+                    data: data_files(&text, path, &mut resources),
+                    source: text,
+                    saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
+                        .unwrap_or(script.persistent),
+                    links: (links.iter())
+                        .filter(|(s, _)| usize::from(*s) == slot)
+                        .map(|&(_, l)| l)
+                        .collect(),
+                });
+                chunk_scripts += 1;
+            }
             _ => {
                 if let Some(file) = script.textfile_name.filter(|n| !n.is_empty()) {
                     notes.add(ir::Impact::Broken, "linked script file", file);
                 }
             }
         }
+    }
+    // Kontakt 8 writes the same BParScript objects inline in the program's
+    // private data, one per slot, instead of 0x06 chunks. Without them a
+    // library whose zone selection lives in the handlers matches only the
+    // zones its own start rules allow.
+    match crate::private_script::slots(&program.0.private_data) {
+        Some(private) => {
+            // A slot keeps its place even when it runs nothing: the engine
+            // counts slots, and a later script's `$CURRENT_SCRIPT_SLOT` must
+            // not move up towards an empty one.
+            let runs = |s: &crate::private_script::Slot| !s.bypass && !s.source.trim().is_empty();
+            let used = private.iter().rposition(runs).map_or(0, |last| last + 1);
+            for script in private.into_iter().take(used) {
+                let slot = script.slot;
+                if slot < chunk_scripts {
+                    notes.add(ir::Impact::Broken, "script saved twice", &script.name);
+                    continue;
+                }
+                if runs(&script) {
+                    out.scripts.push(ir::Script {
+                        name: script.name,
+                        slot,
+                        dialect: ir::Dialect::Ksp,
+                        data: data_files(&script.source, path, &mut resources),
+                        source: script.source,
+                        saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
+                            .unwrap_or(script.saved),
+                        links: (links.iter())
+                            .filter(|(s, _)| usize::from(*s) == slot)
+                            .map(|&(_, l)| l)
+                            .collect(),
+                    });
+                    continue;
+                }
+                if script.protected && script.source.trim().is_empty() {
+                    notes.add(ir::Impact::Broken, "protected script", &script.name);
+                }
+                out.scripts.push(ir::Script {
+                    name: script.name,
+                    slot,
+                    dialect: ir::Dialect::Ksp,
+                    source: String::new(),
+                    saved: Vec::new(),
+                    data: Vec::new(),
+                    links: Vec::new(),
+                });
+            }
+        }
+        None if program.0.private_data.windows(3).any(|w| w == [0, 0x60, 0]) => {
+            notes.add(
+                ir::Impact::Broken,
+                "script slots in the private data",
+                "the section does not read",
+            );
+        }
+        None => {}
     }
     let groups = program
         .0
