@@ -111,9 +111,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("capdir")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--order", default="orig,control,sup2,chor6,diff4,both46")
     args = ap.parse_args()
     cap = Path(args.capdir)
-    order = ["orig", "control", "sup2", "chor6", "diff4", "both46"]
+    order = args.order.split(",")
 
     measured = {}
     for name in order:

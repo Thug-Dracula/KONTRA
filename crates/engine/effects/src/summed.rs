@@ -181,35 +181,35 @@ mod tests {
     use super::*;
 
     /// Hot Solo's measured response at Electric Mint's saved record, 1/3-octave,
-    /// dB against its own median (docs/re/engine/k-hotsolo.md): the band
-    /// difference between real Kontakt and an engine with no Hot Solo at all.
-    const MEASURED: [(f32, f32); 26] = [
-        (40.0, 0.00),
-        (50.0, 3.23),
-        (63.0, 4.92),
-        (80.0, 5.52),
-        (101.0, 5.58),
-        (127.0, 3.21),
-        (160.0, 5.79),
-        (202.0, 3.93),
-        (254.0, 4.40),
-        (320.0, 5.50),
-        (403.0, 5.49),
-        (508.0, 7.70),
-        (640.0, 8.64),
-        (806.0, 9.08),
-        (1016.0, 11.87),
-        (1280.0, 13.83),
-        (1613.0, 16.45),
-        (2032.0, 17.44),
-        (2560.0, 18.40),
-        (3225.0, 19.44),
-        (4064.0, 20.15),
-        (5120.0, 20.66),
-        (6451.0, 20.93),
-        (8127.0, 19.46),
-        (10240.0, 17.85),
-        (12902.0, 15.55),
+    /// dB (docs/re/engine/k-hotsolo.md): Kontakt with insert slot 3 active minus
+    /// Kontakt with it bypassed. The 40 Hz band is absent — neither signal has
+    /// energy there, so it measures silence rather than response.
+    const MEASURED: [(f32, f32); 25] = [
+        (50.0, 3.01),
+        (63.0, 4.97),
+        (80.0, 4.34),
+        (101.0, 5.17),
+        (127.0, 6.07),
+        (160.0, 6.49),
+        (202.0, 6.81),
+        (254.0, 7.25),
+        (320.0, 8.12),
+        (403.0, 8.46),
+        (508.0, 9.05),
+        (640.0, 11.00),
+        (806.0, 12.74),
+        (1016.0, 14.38),
+        (1280.0, 15.79),
+        (1613.0, 18.78),
+        (2032.0, 19.65),
+        (2560.0, 20.39),
+        (3225.0, 21.79),
+        (4064.0, 21.97),
+        (5120.0, 22.16),
+        (6451.0, 21.15),
+        (8127.0, 19.83),
+        (10240.0, 18.02),
+        (12902.0, 14.80),
     ];
 
     /// The stage's magnitude at `hz`, from its impulse response.
@@ -248,25 +248,25 @@ mod tests {
             bands: [
                 ir::Bell {
                     shape: ir::Shape::LowShelf,
-                    hz: 40.0,
+                    hz: 43.61,
                     q: 1.0,
-                    gain_db: -6.67,
+                    gain_db: -6.569_262,
                 },
                 ir::Bell {
                     shape: ir::Shape::Peak,
-                    hz: 2903.0,
-                    q: 0.374,
-                    gain_db: 13.69,
+                    hz: 3_654.338,
+                    q: 0.260_086,
+                    gain_db: 16.101_653,
                 },
                 ir::Bell {
                     shape: ir::Shape::HighShelf,
-                    hz: 4539.0,
+                    hz: 5_150.529,
                     q: 1.0,
-                    gain_db: 8.77,
+                    gain_db: 2.546_798,
                 },
                 ir::Bell::FLAT,
             ],
-            output: 1.283,
+            output: 1.885_888,
         };
         let mut stages = stages(&[ir::EffectKind::Amp(amp)], 48_000);
         let ach: Vec<f32> = MEASURED
@@ -275,7 +275,7 @@ mod tests {
             .collect();
         // The stage's gain is calibrated on the engine's own render, so its
         // response carries one constant offset against this curve; the shape is
-        // what the fit fixes. Measured residual of the fit: 0.81 dB RMS, 1.44 worst.
+        // what the fit fixes. Measured residual of the fit: 0.40 dB RMS, 0.98 worst.
         let offset = MEASURED
             .iter()
             .zip(&ach)
@@ -288,7 +288,7 @@ mod tests {
             .map(|((_, want), got)| (got - want - offset).abs())
             .fold(0.0f32, f32::max);
         assert!(
-            worst < 1.5,
+            worst < 1.2,
             "worst band error {worst:.2} dB (offset {offset:+.2} dB)"
         );
     }

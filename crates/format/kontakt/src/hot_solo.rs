@@ -14,10 +14,18 @@
 //! recovered, so the bands below are the measured transfer function, not a
 //! reconstruction of that code.
 //!
-//! The measurement (docs/re/engine/k-hotsolo.md): the same note through the
-//! same instrument in Kontakt and in KONTRA, whose only unmodelled insert is
-//! this one, band by band. Two independent pairs agree to 0.32 dB RMS and the
-//! fitted stage matches them to 0.81 dB RMS (1.44 dB worst band).
+//! The measurement (docs/re/engine/k-hotsolo.md): the stage is **ablated inside
+//! Kontakt** — Kontakt with slot 3 active against Kontakt with slot 3's stored
+//! bypass flag set, twelve fresh sessions, first render of each (round robin 0)
+//! — so the curve is the stage and nothing else. Kontakt's own contribution is
+//! **+7.00 dB** of level (floor 0.06 dB); the fitted stage below matches its
+//! 1/3-octave curve to 0.32 dB RMS (0.80 dB worst band).
+//!
+//! The previous curve was measured the other way: Kontakt's full chain against
+//! a KONTRA that passed slot 3 through. That is not a differential — every
+//! other stage's error, and the base error the 2026-10-31 liveness work found,
+//! were inside it — and it read **1.73 dB low**, which is why this stage used
+//! to price 3.9 dB under Kontakt's.
 
 use kontra_ir as ir;
 
@@ -78,31 +86,34 @@ pub(crate) const MEASURED: Saved = Saved {
 
 /// The measured tone stage, in series: low shelf, presence/upper-mid peak,
 /// treble shelf. A RBJ shelf's `q` is its slope (1 the steepest knee).
+///
+/// Least squares of the model below against the ablated-in-Kontakt curve
+/// (`tools/dsp-research/hot_solo_fit.py` prints them); residual 0.40 dB RMS.
 pub(crate) const BANDS: [ir::Bell; 4] = [
     ir::Bell {
         shape: ir::Shape::LowShelf,
-        hz: 40.0,
+        hz: 43.61,
         q: 1.0,
-        gain_db: -6.67,
+        gain_db: -6.569_262,
     },
     ir::Bell {
         shape: ir::Shape::Peak,
-        hz: 2_903.0,
-        q: 0.374,
-        gain_db: 13.69,
+        hz: 3_654.338,
+        q: 0.260_086,
+        gain_db: 16.101_653,
     },
     ir::Bell {
         shape: ir::Shape::HighShelf,
-        hz: 4_539.0,
+        hz: 5_150.529,
         q: 1.0,
-        gain_db: 8.77,
+        gain_db: 2.546_798,
     },
     ir::Bell::FLAT,
 ];
 
-/// The stage's own gain at [`MEASURED`], linear (+2.17 dB): the record's
+/// The stage's own gain at [`MEASURED`], linear (+5.51 dB): the record's
 /// prenormal and master make up more than they take away.
-const MEASURED_GAIN: f32 = 1.283;
+const MEASURED_GAIN: f32 = 1.885_888;
 
 /// The record as the engine's amp. `lost` names what the record asks for and
 /// this model does not carry.

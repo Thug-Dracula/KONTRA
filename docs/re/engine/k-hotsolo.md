@@ -31,39 +31,47 @@ insert being removed, so no other slot explains it.
 ## The measurement
 
 Same note (MIDI 60, velocity 100, 1.5 s) through real Kontakt 8.14.1 and through KONTRA, 1/3-octave
-band levels from `tools/oracle/compare.py`. Two independent Kontakt/KONTRA pairs
-(`/tmp/opencode/oracle-mcp/parity/`, `parity-hf-before/`, both 2026-10-30) agree to **0.32 dB RMS**
-band by band, so the curve is a property of the two engines and not of one render's round robin.
+band levels from `tools/oracle/compare.py`.
 
-The difference below is `Hot Solo`'s own response: KONTRA carries it as a pass-through, so
-`Kontakt − KONTRA` is the missing stage.
+**Re-measured 2026-10-31 the only way a stage can be measured: by ablating it inside Kontakt.**
+`tools/oracle-mcp/slot-liveness/probe_base_gain.lua` sets slot 3's stored bypass flag through
+Kontakt's own engine, `capture_variants.py` renders six fresh sessions per configuration (first
+render only, round robin 0), and the stage's curve is `control` minus `s3` — Kontakt against
+Kontakt, so no other stage's error can be inside it. Full record:
+`docs/re/electric-mint-stage-gains-2026-10-31.md` and
+`docs/re/electric-mint-base-gain-2026-10-31.md`.
 
-| Hz | 40 | 50 | 63 | 80 | 101 | 127 | 160 | 202 | 254 | 320 | 403 | 508 |
+| Hz | 50 | 63 | 80 | 101 | 127 | 160 | 202 | 254 | 320 | 403 | 508 | 640 | 806 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| dB | 3.0 | 5.0 | 4.3 | 5.2 | 6.1 | 6.5 | 6.8 | 7.3 | 8.1 | 8.5 | 9.1 | 11.0 | 12.7 |
+
+| Hz | 1016 | 1280 | 1613 | 2032 | 2560 | 3225 | 4064 | 5120 | 6451 | 8127 | 10240 | 12902 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| dB | 0.0 | 3.2 | 4.9 | 5.5 | 5.6 | 3.2 | 5.8 | 3.9 | 4.4 | 5.5 | 5.5 | 7.7 |
+| dB | 14.4 | 15.8 | 18.8 | 19.7 | 20.4 | 21.8 | 22.0 | 22.2 | 21.2 | 19.8 | 18.0 | 14.8 |
 
-| Hz | 640 | 806 | 1016 | 1280 | 1613 | 2032 | 2560 | 3225 | 4064 | 5120 | 6451 | 8127 | 10240 | 12902 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| dB | 8.6 | 9.1 | 11.9 | 13.8 | 16.5 | 17.4 | 18.4 | 19.4 | 20.2 | 20.7 | 20.9 | 19.5 | 17.9 | 15.6 |
-
-Shape: a level step of +4.5 dB above ~50 Hz, a broad rise from 500 Hz, a peak near 5–6.5 kHz at
-+21 dB, and a shelf back down by 13 kHz.
+Shape: a broad lift from 200 Hz, a peak near 5 kHz at +22 dB, a shelf back down by 13 kHz. The
+40 Hz band is not listed: neither render has energy there, so it measures 0.00 by silence — the
+old list included it and it dragged the low shelf to −6.67 dB, which made the stage 3.8 dB dark at
+50–63 Hz.
 
 ## The model
 
 `ir::Amp` — a pre-gain, four bands in series, an output gain — built from a least-squares fit of
-that curve as RBJ biquads (`tools/dsp-research/hot_solo_fit.py`, scipy, 80 restarts, bounded; the
-script prints these four bands):
+that curve as RBJ biquads (`tools/dsp-research/hot_solo_fit.py`, scipy, 120 restarts, bounded to
+this module's topology — one low shelf, one upper-mid peak, one treble shelf — because unbounded
+the surface has a second basin of equal cost; the script prints these four values):
 
 | Band | Type | Hz | Q / slope | dB |
 | --- | --- | --- | --- | --- |
-| 0 | low shelf | 40 | 1.0 | −6.67 |
-| 1 | peak | 2903 | 0.374 | +13.69 |
-| 2 | high shelf | 4539 | 1.0 | +8.77 |
+| 0 | low shelf | 43.6 | 1.0 | −6.57 |
+| 1 | peak | 3654 | 0.260 | +16.10 |
+| 2 | high shelf | 5151 | 1.0 | +2.55 |
 | 3 | — | — | — | flat |
 
-Stage gain: ×1.672 (+4.46 dB) at the measured record. Fit residual against the measured curve:
-**0.81 dB RMS, 1.44 dB worst band**.
+Stage gain: ×1.886 (+5.51 dB) at the measured record. Fit residual against the measured curve:
+**0.40 dB RMS, 0.98 dB worst band**. The three shape parameters are not tightly identified
+(several sets fit within the same 0.4 dB); the stage gain is, and the gain is what was wrong.
+Kontakt prices this stage at **+7.00 dB** of level where KONTRA now prices **+6.96**.
 
 Gains: the record's prenormal and master are applied as their ratio to the measured point
 (`MEASURED_GAIN · prenormal/0.333 · master/0.420`, and 0 when either is 0). Native support is
@@ -72,22 +80,19 @@ where a proportional law predicts +6 (that render clipped at full scale).
 
 ## Before and after
 
-`tools/oracle/compare.py`, same Kontakt capture
-(`/tmp/opencode/oracle-mcp/parity-hf-before/kontakt-as-capture.wav`), KONTRA rendered by
-`kontra-host --example render` from this branch:
+Whole chain, `parity.py`, six `control` captures (one rejected as a 2.4 dB outlier, see the
+2026-10-31 record):
 
-| | level (Kontakt − KONTRA) | peak | timbre (band spread) | per-band error, RMS / median |
-| --- | --- | --- | --- | --- |
-| before (Hot Solo as `Other`) | +3.05 dB | +4.03 dB | 7.04 dB | 11.50 / +7.60 dB |
-| after | **+0.02 dB** | **−0.00 dB** | **0.78 dB** | **0.94 / +0.55 dB** |
+| | level (Kontakt − KONTRA) | band RMS |
+| --- | --- | --- |
+| before (gain ×1.283) | +3.72 dB | 1.19 dB |
+| after (gain ×1.886) | **−0.15 dB** | **0.88 dB** |
 
-Per band after, 40 Hz → 12.9 kHz: 0.0, +0.7, +1.2, +0.5, −0.1, −0.4, −1.1, 0.0, −0.1, +0.5,
-0.0, +0.6, +1.0, +0.2, +1.4, +1.5, +2.2, +1.5, +0.9, +0.6, +0.9, +1.0, +1.3, +0.5, −0.1, −1.0.
-The worst band is 1613 Hz at +2.2 dB; the 13 dB tilt of the gap is gone.
-
-One correction pass was needed: the biquad fit gave ×1.672 (+4.46 dB), and the engine's own
-render then read 2.30 dB loud against the same capture, so the stage gain is ×1.283 (+2.17 dB).
-That number is calibrated on this comparison, which is why it is stated rather than derived.
+The previous pass calibrated the gain so the *whole chain* matched one capture — "the engine's own
+render then read 2.30 dB loud against the same capture, so the stage gain is ×1.283". That is a
+gain fitted to cancel the rest of the chain, and what it was cancelling was two stages that were
+also wrong at the time (the Supercharger, 2.45 dB, and Replika's Diffusion read, 1.52 dB). Both are
+fixed, and the stage is now priced from its own ablation instead.
 
 ## What is still not modelled
 

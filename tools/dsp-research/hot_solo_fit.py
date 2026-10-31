@@ -16,14 +16,19 @@ from scipy.optimize import least_squares
 
 RATE = 48_000
 
-# 1/3-octave centres and the measured difference (Kontakt − KONTRA without Hot
-# Solo), dB. Median of the curve is +9.08 dB; the stage's own gain carries it.
+# 1/3-octave centres and the measured difference, dB: Kontakt with slot 3 active
+# against Kontakt with slot 3's stored bypass flag set, twelve fresh sessions,
+# first render of each (`tools/oracle-mcp/slot-liveness/`, 2026-10-31), taken as the
+# median of the six per configuration because one `control` capture is a 2.4 dB
+# band-RMS outlier against five captures all inside 0.34. The 40 Hz band is not in
+# the list: neither side has energy there, so it measures nothing and used to pin
+# the low shelf against a point that was 0.00 by silence, not by response.
 MEASURED = [
-    (40, 0.00), (50, 3.23), (63, 4.92), (80, 5.52), (101, 5.58), (127, 3.21),
-    (160, 5.79), (202, 3.93), (254, 4.40), (320, 5.50), (403, 5.49), (508, 7.70),
-    (640, 8.64), (806, 9.08), (1016, 11.87), (1280, 13.83), (1613, 16.45),
-    (2032, 17.44), (2560, 18.40), (3225, 19.44), (4064, 20.15), (5120, 20.66),
-    (6451, 20.93), (8127, 19.46), (10240, 17.85), (12902, 15.55),
+    (50, 3.01), (63, 4.97), (80, 4.34), (101, 5.17), (127, 6.07),
+    (160, 6.49), (202, 6.81), (254, 7.25), (320, 8.12), (403, 8.46),
+    (508, 9.05), (640, 11.00), (806, 12.74), (1016, 14.38), (1280, 15.79),
+    (1613, 18.78), (2032, 19.65), (2560, 20.39), (3225, 21.79), (4064, 21.97),
+    (5120, 22.16), (6451, 21.15), (8127, 19.83), (10240, 18.02), (12902, 14.80),
 ]
 
 
@@ -63,10 +68,16 @@ def model(p, f):
 def main() -> int:
     centres = np.array([hz for hz, _ in MEASURED], dtype=float)
     target = np.array([db for _, db in MEASURED])
-    lo = [40, -12, 500, 0.2, -20, 3000, -20, -12]
-    hi = [400, 12, 12000, 6.0, 30, 16000, 30, 20]
+    # Bounds hold the module's own topology: one low shelf, one upper-mid peak,
+    # one treble shelf. Left open, the surface has a second basin of the same
+    # cost with the "low shelf" up at 337 Hz, which is no longer a low shelf;
+    # inside these bounds the shape parameters are still loose (several sets fit
+    # within the same 0.4 dB), but the stage gain is stable at +5.5 dB and the
+    # constants in hot_solo.rs are what this script prints.
+    lo = [20, -12, 1500, 0.2, 8, 2500, 0, 0]
+    hi = [150, 8, 5000, 1.2, 20, 9000, 14, 10]
     best = None
-    for trial in range(80):
+    for trial in range(120):
         rng = np.random.default_rng(trial)
         start = [rng.uniform(a, b) for a, b in zip(lo, hi)]
         res = least_squares(lambda p: model(p, centres) - target, start, bounds=(lo, hi),
@@ -77,6 +88,7 @@ def main() -> int:
              "high shelf dB", "gain dB"]
     for name, value in zip(names, p):
         print(f"  {name:14} {value:9.3f}")
+    print(f"  {'gain linear':14} {10 ** (p[7] / 20):9.5f}")
     err = model(p, centres) - target
     print(f"residual: RMS {np.sqrt(np.mean(err ** 2)):.2f} dB, worst {np.abs(err).max():.2f} dB")
     return 0

@@ -17,3 +17,6 @@
 
 /.github/scripts/__pycache__/
 __pycache__/
+
+# run_lua.py writes one directory per probe session (its Kontakt log) here.
+/tools/oracle-mcp/slot-liveness/runs/

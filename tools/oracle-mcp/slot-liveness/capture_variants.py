@@ -102,6 +102,8 @@ def main() -> int:
     ap.add_argument("--configs", default="orig,control,sup2,chor6,diff4,both46")
     ap.add_argument("--clean", type=int, default=6)
     ap.add_argument("--max-attempts", type=int, default=20)
+    ap.add_argument("--variant-dir", default=str(VARIANT_DIR),
+                    help="where the probe wrote the <config>.nki copies")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -118,8 +120,11 @@ def main() -> int:
     server.write_midi(midi, [{"start_s": 0.0, "length_s": 1.5, "key": 60, "velocity": 100}])
 
     files = {"orig": DEFAULT_NKI}
-    for name in ("control", "sup2", "chor6", "diff4", "both46", "addr2", "addr4", "addr6"):
-        files[name] = VARIANT_DIR / f"{name}.nki"
+    variant_dir = Path(args.variant_dir)
+    for name in ("control", "sup2", "chor6", "diff4", "both46", "addr2", "addr4", "addr6",
+                 "s0", "s1", "s3", "s5", "s7", "s137",
+                 "volwrite", "vol0", "volm6", "volp6"):
+        files[name] = variant_dir / f"{name}.nki"
 
     ledger = {"burst_limit_db": BURST_DB, "configs": {}, "midi": str(midi)}
     for name in args.configs.split(","):
