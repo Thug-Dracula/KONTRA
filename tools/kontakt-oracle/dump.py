@@ -84,7 +84,8 @@ def main() -> int:
 
     xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", "1600x1000x24"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    env = slot.wine_env(dict(os.environ, DISPLAY=DISPLAY, WINEDLLOVERRIDES="d3d11,d3d10core,dxgi,d3d9=b",
+    env = slot.wine_env(dict(os.environ, DISPLAY=DISPLAY, WINEDLLOVERRIDES=os.environ.get(
+                                 "ORACLE_DLL_OVERRIDES", "d3d11,d3d10core,dxgi,d3d9=n"),
                              WINEDEBUG="-all"))
     log = open(WORK / "kontakt.log", "w")
     kontakt = subprocess.Popen(["wine", "explorer", "/desktop=oracle,1600x1000", EXE, winpath(script)],

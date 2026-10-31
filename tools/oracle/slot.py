@@ -45,8 +45,32 @@ def prefix():
     return Path(os.environ["ORACLE_PREFIX"]) if active() else DEFAULT_PREFIX
 
 
+# Kontakt installs differ by machine: a Portapotty install under the Wine
+# prefix, or a portable build anywhere on disk. The prefix copy is tried first
+# (it is what the slot prefixes carry), then the two known portable layouts.
+PORTABLE_CANDIDATES = (
+    Path.home() / "Armory/VSTs/Kontakt 8.14.1 Portable/Kontakt 8/x64/Kontakt 8.exe",
+    Path.home() / "Armory/VSTs/kontakt-8.13.1-re/Kontakt 8.exe",
+)
+
+
 def exe_default():
-    return str(prefix() / KONTAKT_REL)
+    """Kontakt's executable, or a clear failure naming what to set.
+
+    KONTAKT_EXE wins; then the prefix's own copy; then the portable builds this
+    machine has had. A tool that silently returns a path that does not exist
+    fails later, inside a launched process, with a far worse error.
+    """
+    named = os.environ.get("KONTAKT_EXE")
+    if named:
+        return named
+    for candidate in (prefix() / KONTAKT_REL, *PORTABLE_CANDIDATES):
+        if candidate.exists():
+            return str(candidate)
+    raise SystemExit(
+        "no Kontakt executable found. Set KONTAKT_EXE to it. Tried: "
+        + ", ".join(str(p) for p in (prefix() / KONTAKT_REL, *PORTABLE_CANDIDATES))
+    )
 
 
 def wine_env(env):
