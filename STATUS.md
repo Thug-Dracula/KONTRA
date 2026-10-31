@@ -19,6 +19,7 @@ given so it can be re-run rather than believed.
 | The rendered audio is reproducible | fingerprint `8e664c1f9088be9f` (stable run to run; moved from `170201c…` when Hot Solo+ went in and `8e664c1…` when Choral did) |
 | The page hit-tests where it is drawn | `tools/ui-drive` — 39 controls checked, every press lands on the rect it was drawn in, a press 2 points outside selects nothing |
 | The page looks like the reviewed page | `tools/pixel-diff.py` against `tools/kontakt-reference/electric-mint-page.png` — 0 of 316500 px differ |
+| A stock Kontakt preset's impulse resolves | `/presets/…` is walked under a discovered factory root and a member inside `K4IR.nkx` (387 MB, opened by index) decodes to 477306 frames of real audio; `KONTRA_KONTAKT_PRESETS` overrides the root and the error names every root tried |
 | The page fits the renderer's image atlas at the live device scale | test asserts the page's pictures fit at 1 **and** 2 device pixels (the 2× case is what shipped blank once) |
 | Real Kontakt can be driven headless | `tools/oracle-mcp` — Kontakt 8.14.1 on Xvfb with DXVK + lavapipe paints its instrument page and takes pointer input (`paints=yes click_px=44485`) |
 | The Hot Solo+ amp really closes the gap | an independent re-measurement on fresh sessions: level +0.02 → **−0.06 dB**, band RMS 0.94 → **0.90 dB**, worst band +2.2 → **+2.12 dB @ 1613 Hz**, per-band max difference 1.07 dB / RMS 0.32 dB — which is exactly the cross-session capture noise (0.31 dB) |
@@ -49,9 +50,9 @@ libraries and the factory library could not be reached.
 | VSTBuzz Cyber | | 0.01 dB | passes |
 | VSTBuzz Legendary | | 0.25 dB | passes |
 | Electric Mint (Melody) | | 5.38 dB | **inside the instrument's own round-robin spread** (Kontakt differs from itself by 9.60 dB) — not a KONTRA defect |
-| Vertigo Violin | −2.35 dB | 5.83 dB | missing impulse response, insert slot 3 |
+| Vertigo Violin | −3.46 dB | 3.41 dB | impulse now resolves; what remains is a 12.9 kHz notch with the unmodelled Tape Saturator and Rotator |
 | Showroom Violin | −8.96 dB | 7.20 dB | unexplained; low-mid deficit at 508 Hz |
-| Haunted Strings 2 | −9.10 dB | 2.07 dB | missing impulse response, send slot 0 |
+| Haunted Strings 2 | −9.11 dB | 2.07 dB | impulse now resolves; the 9 dB is a dry-path gain, flat across every band |
 | Cherry Electric Bass | **+44.03 dB** | 57.94 dB | voice filter closes: 1 group, cutoff 93.6 Hz, renders −68 dBFS |
 
 Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `Unexpected internal modulator category 3`), Soundiron Harpsichord (**renders exact silence** — 6232 zones, 432 groups purged, `voice filters: 576 groups []`, and a script compile error `%NOTE_DURATION is not an array`), Chris Hein Harmonica / Taiko Creator / 8Dio organ (no sound from any key tried — likely keyswitch articulations).
@@ -66,7 +67,7 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | **Hot Solo+ tone knobs, overdrive, mono** | same | the `.nki` knob sweep is possible (`preset_patch.rs` rewrites a copy) but needs an audio-capable Kontakt session |
 | **NKS2 navigation, MIDI export areas** | the KSP manual has no entry for these commands and there is nothing in KONTRA for the values to land in | the NKS2 SDK, or a decision to model a page/slot tree |
 | **Voice filters close to silence** | Cherry Electric Bass renders 44 dB quiet because its voice filter group list is empty and a 93.6 Hz cutoff is applied; Harpsichord purges 432 groups and renders exact silence. One parser gap with two faces | locate the filter field that is not being read in `crates/format/kontakt/` |
-| **Impulse responses are not found** | Haunted Strings 2 (send 0) and Vertigo Violin (insert 3) are 9 dB and 2.35 dB down with `missing impulse response` | a lookup bug or a genuinely absent asset — the difference matters and is being established |
+| **A dry-path gain is missing** | the impulse bug below is fixed, and fixing it moved Haunted Strings 2 by **0.06 dB**: the return is −16 dB under the dry, so the instrument's 9.1 dB deficit is flat across all 25 bands in the **dry path** — a gain stage (group volume, instrument output, or a script gain), not a filter and not the effect | find the stored gain that is not applied. Fitting one would hide this bug and every one like it |
 | **8Dio Fire Sax is refused** | the reader rejects `Unexpected internal modulator category 3` | read that modulator category |
 | **Soundiron Harpsichord script will not compile** | `%NOTE_DURATION is not an array` | the script engine's array declaration path |
 | **Bus slot 7 phantom filter** | the instrument stores it `bypass: false`, but Kontakt behaves as if it is not running; removing it closes 11.8 dB at 12.9 kHz | wrong to decide by assumption. The decisive test needs the bypass toggled at runtime via KSP in an audio-capable session — editing the `.nki` is refused because Kontakt validates an MD5 in `BNISoundHeader` |
