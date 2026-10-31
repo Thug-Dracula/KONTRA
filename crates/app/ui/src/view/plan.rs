@@ -31,10 +31,10 @@ pub(super) struct Widget<'a> {
     pub source: &'a model::Widget,
     pub rect: model::Rect,
     pub picture: Option<Picture<'a>>,
-    /// The pictured control this widget is painted on, in the same
-    /// coordinates, when one is behind its centre. A text field on one is
-    /// that control's own text: it draws no frame of its own and stays
-    /// inside it (`stock::shows`, `inner`).
+    /// The pictured control this widget is painted on: the inner region of
+    /// the last picture behind its centre, in the same coordinates. A text
+    /// field on one is that control's own text: it draws no frame of its own
+    /// (`stock::shows`) and stays inside the region (`inside`).
     pub ground: Option<model::Rect>,
     pub style: Option<&'a model::TextStyle>,
     pub position: f64,
@@ -124,11 +124,14 @@ pub(super) fn page<'a>(
             // takes the control's inner region as its surface, never
             // spilling over its frame.
             let ground = ground.filter(|_| matches!(w.kind, Kind::TextEdit));
+            // Where the picture goes is the page's own geometry: only the
+            // field's area is brought inside the control it sits on.
+            let area = rect;
             let rect = ground.map_or(rect, |g| inside(rect, g));
             if let Some(p) = &picture {
                 painted.push(model::Rect {
-                    x: rect.x,
-                    y: rect.y,
+                    x: area.x,
+                    y: area.y,
                     width: p.size.width,
                     height: p.size.height,
                 });
@@ -509,7 +512,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_held_button_selects_its_pressed_picture_in_the_plan() {        let mut tree = Interface {
+    fn a_held_button_selects_its_pressed_picture_in_the_plan() {
+        let mut tree = Interface {
             source: model::Source::Ksp { slot: 0 },
             // The measured Kontakt strip this KSP control uses: off, on,
             // off pressed, on pressed, off hover, on hover; global layers.
