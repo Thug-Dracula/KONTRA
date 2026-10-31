@@ -54,7 +54,20 @@ The 0.68 decomposes the same way: with the compressor out the same chain reads *
 
 ## 1. Why the old ablation could not see this
 
+**The law: a one-slot ablation prices the stage it removed only if no level-dependent stage
+follows it.** Slot 2 is the only level-dependent stage in this chain, and it is after slot 1.
+
+Source, in the recorded order of the chain: `crates/format/kontakt/src/effects.rs::rack` walks the
+rack's slots in stored order and `slot_effect` returns each as it is read; the instrument's insert
+rack as both readers see it is slot 1 `0x44` Solid G-EQ, slot 2 `0x60` Supercharger GT, slot 3
+`0x54` Hot Solo, slot 4 Replika Diffusion, slot 6 Choral, slot 7 Convolution
+(`docs/re/electric-mint-slot-liveness-2026-10-31.md` §1, re-read here with `dump_fx`); the engine
+runs them in index order on summed audio (`crates/engine/racks/src/rack.rs::Rack::process`); and
+the Supercharger is carried as *static make-up only*, with the CompXT's gain computer unread
+(`docs/re/engine/dyn-compressors.md`, `crates/format/kontakt/src/supercharger.rs`).
+
 Slot order is 1 Eq → 2 Supercharger → 3 Hot Solo → 4 Diffusion → 5 — → 6 Choral → 7 Convolution.
+
 A one-slot ablation reads a stage at the top and subtracts it with the stage off. With a
 level-dependent stage *after* the ablated slot, the second capture enters that stage at a
 different level, so the difference carries the compressor's gain change. The previous record's
