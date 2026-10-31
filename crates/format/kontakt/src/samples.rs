@@ -1,5 +1,6 @@
-//! Where a preset's sample names live. Lookups
-//! never leave the library root: a sample outside it does not resolve.
+//! Where a preset's sample names live. Lookups never leave the library root: a
+//! sample outside it does not resolve, apart from Kontakt's own preset content
+//! ([`Resolver::archive_at`]), which lives outside every library by design.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -180,6 +181,20 @@ impl Resolver {
         self.archives
             .entry(path)
             .or_insert_with(|| Some((file, index.clone())));
+    }
+
+    /// A member of the archive at `archive`, wherever it is. Kontakt ships its
+    /// own responses in such archives, outside every library root, so `find`
+    /// never reaches them; the archive is opened here and cached like any other.
+    pub(crate) fn archive_at(
+        &mut self,
+        archive: &Path,
+        member: &str,
+    ) -> Result<Option<Location>, String> {
+        let archive = archive
+            .canonicalize()
+            .unwrap_or_else(|_| archive.to_path_buf());
+        self.archive_entry(&archive, member)
     }
 
     fn archive_entry(&mut self, archive: &Path, member: &str) -> Result<Option<Location>, String> {

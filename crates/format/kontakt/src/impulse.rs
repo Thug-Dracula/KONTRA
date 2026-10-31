@@ -11,7 +11,7 @@ use ni_file::kontakt::objects::{EffectParameters, EffectValue, FNTableImpl, File
 use std::path::Path;
 
 use crate::resources::Resources;
-use crate::samples::Resolver;
+use crate::samples::{Location, Resolver};
 use kontra_format::Notes;
 
 /// The instrument's sample and other-files tables, read once: a large
@@ -32,6 +32,8 @@ pub(crate) struct Impulses<'a> {
     resolver: &'a mut Resolver,
     /// The library's resource containers, opened on the first miss.
     resources: Option<Resources>,
+    /// Kontakt's own preset roots, found on the first name from them.
+    presets: Option<crate::factory::Presets>,
     path: &'a Path,
     pub(crate) out: Vec<ir::Impulse>,
     /// The responses' files, appended to the instrument's samples.
@@ -54,6 +56,7 @@ impl<'a> Impulses<'a> {
             files,
             resolver,
             resources,
+            presets: None,
             path,
             out: Vec::new(),
             samples: Vec::new(),
@@ -171,33 +174,27 @@ impl<'a> Impulses<'a> {
     }
 
     /// The response file `name` as an index into [`Self::samples`], added
-    /// on first use: from the resolver, else the library's resources.
+    /// on first use: from the resolver, else the library's resources, else
+    /// Kontakt's own preset content (a stock effect preset names its file
+    /// there, outside the library).
     fn sample(&mut self, name: String) -> Result<usize, (String, String)> {
         if let Some(found) = self.samples.iter().position(|s| s.name == name) {
             return Ok(found);
         }
-        let found = self.resolver.resolve(&name).and_then(|l| match l {
-            Some(l) => Ok(l),
-            // A container's own resources (`.nicnt`): the name after `Resources/`.
-            None => {
-                let inner = name
-                    .rsplit_once("Resources/")
-                    .map_or(name.as_str(), |(_, n)| n);
-                let resources = self.resources();
-                if let Some(found) = resources.locate(inner) {
-                    return Ok(found);
-                }
-                let archives: Vec<_> = resources
-                    .archives()
-                    .map(|a| format!("{}/Resources/{inner}", a.display()))
-                    .collect();
-                archives
-                    .iter()
-                    .find_map(|member| self.resolver.resolve(member).ok().flatten())
-                    .ok_or_else(|| "not found".to_string())
+        let found = match self.in_library(&name) {
+            Ok(Some(found)) => Ok(Some(found)),
+            Ok(None) if crate::factory::is_preset(&name) => {
+                let presets = self
+                    .presets
+                    .get_or_insert_with(crate::factory::Presets::from_environment);
+                presets.locate(&name, self.resolver)
             }
-        });
-        let location = found.map_err(|e| (name.clone(), e.to_string()))?;
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        };
+        let location = found
+            .map_err(|e| (name.clone(), e))?
+            .ok_or_else(|| (name.clone(), "not found".to_string()))?;
         self.samples.push(ir::Sample {
             name,
             file: location.file,
@@ -209,6 +206,29 @@ impl<'a> Impulses<'a> {
             keystream: location.keystream,
         });
         Ok(self.samples.len() - 1)
+    }
+
+    /// The file from the instrument's own library: the resolver's tables and
+    /// folders, else the library's resource containers.
+    fn in_library(&mut self, name: &str) -> Result<Option<Location>, String> {
+        if let Some(found) = self.resolver.resolve(name)? {
+            return Ok(Some(found));
+        }
+        // A container's own resources (`.nicnt`): the name after `Resources/`.
+        let inner = name
+            .rsplit_once("Resources/")
+            .map_or(name, |(_, inner)| inner);
+        let resources = self.resources();
+        if let Some(found) = resources.locate(inner) {
+            return Ok(Some(found));
+        }
+        let archives: Vec<_> = resources
+            .archives()
+            .map(|a| format!("{}/Resources/{inner}", a.display()))
+            .collect();
+        Ok(archives
+            .iter()
+            .find_map(|member| self.resolver.resolve(member).ok().flatten()))
     }
 
     /// The library's containers, opened on first use with the archives the
@@ -269,4 +289,80 @@ pub(crate) fn script_knobs() -> [(&'static str, ir::KnobTarget, ir::Law); 5] {
         ("$ENGINE_PAR_IRC_FREQ_HIGHPASS_LR", cut(true, false), hz()),
         ("$ENGINE_PAR_IRC_FREQ_LOWPASS_LR", cut(true, true), hz()),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::factory::scratch::Scratch;
+
+    const TAPE_ECHO: &str =
+        "presets/effects/convolution/15 special effects/mix/ir samples/tape echo.wav";
+    const FACTORY_TAPE_ECHO: &str =
+        "Presets/Effects/Convolution/15 Special Effects/Mix/IR Samples/Tape Echo.wav";
+
+    /// Impulses for an instrument in `library`, with `factory` as the one
+    /// preset root; the library copy of the response is written when `local`.
+    fn with_factory<'a>(
+        library: &Scratch,
+        local: bool,
+        resolver: &'a mut Resolver,
+        instrument: &'a Path,
+        factory: &Scratch,
+    ) -> Impulses<'a> {
+        if local {
+            library.file(&format!("Library/Instruments/{TAPE_ECHO}"));
+        }
+        // A library root (`find_root`) and the factory response it never has.
+        library.file("Library/Samples/keep");
+        factory.file(FACTORY_TAPE_ECHO);
+        let mut impulses = Impulses::new(HashMap::new(), resolver, instrument, None);
+        impulses.presets = Some(crate::factory::Presets::new(
+            vec![factory.0.join("Presets")],
+            factory.0.clone(),
+        ));
+        impulses
+    }
+
+    #[test]
+    fn a_library_response_wins_over_the_factory_file_of_the_same_name() {
+        let library = Scratch::new("impulse-library");
+        let factory = Scratch::new("impulse-library-factory");
+        let instrument = library.file("Library/Instruments/test.nki");
+        let local = library.file(&format!("Library/Instruments/{TAPE_ECHO}"));
+        let mut resolver = Resolver::new(&instrument, None).unwrap();
+        let mut impulses = with_factory(&library, true, &mut resolver, &instrument, &factory);
+        let index = impulses.sample(TAPE_ECHO.to_string()).unwrap();
+        assert_eq!(impulses.samples[index].file, local);
+    }
+
+    #[test]
+    fn a_response_only_the_factory_has_comes_from_the_preset_root() {
+        let library = Scratch::new("impulse-factory");
+        let factory = Scratch::new("impulse-factory-root");
+        let instrument = library.file("Library/Instruments/test.nki");
+        let mut resolver = Resolver::new(&instrument, None).unwrap();
+        let mut impulses = with_factory(&library, false, &mut resolver, &instrument, &factory);
+        let index = impulses.sample(TAPE_ECHO.to_string()).unwrap();
+        assert_eq!(
+            impulses.samples[index].file,
+            factory.0.join(FACTORY_TAPE_ECHO)
+        );
+    }
+
+    #[test]
+    fn a_factory_name_no_root_has_says_which_roots_were_tried() {
+        let library = Scratch::new("impulse-missing");
+        let instrument = library.file("Library/Instruments/test.nki");
+        let mut resolver = Resolver::new(&instrument, None).unwrap();
+        let mut impulses = Impulses::new(HashMap::new(), &mut resolver, &instrument, None);
+        let root = library.0.join("Presets");
+        impulses.presets = Some(crate::factory::Presets::new(
+            vec![root.clone()],
+            library.0.clone(),
+        ));
+        let (name, why) = impulses.sample(TAPE_ECHO.to_string()).unwrap_err();
+        assert_eq!(name, TAPE_ECHO);
+        assert!(why.contains(&root.display().to_string()), "{why}");
+    }
 }

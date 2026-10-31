@@ -12,6 +12,7 @@ mod dynamics;
 mod effects;
 mod engine_pars;
 mod external;
+mod factory;
 mod fastlz;
 mod hot_solo;
 mod impulse;
