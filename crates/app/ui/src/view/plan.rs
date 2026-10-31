@@ -31,6 +31,11 @@ pub(super) struct Widget<'a> {
     pub source: &'a model::Widget,
     pub rect: model::Rect,
     pub picture: Option<Picture<'a>>,
+    /// The pictured control this widget is painted on: the inner region of
+    /// the last picture behind its centre, in the same coordinates. A text
+    /// field on one is that control's own text: it draws no frame of its own
+    /// (`stock::shows`) and stays inside the region (`inside`).
+    pub ground: Option<model::Rect>,
     pub style: Option<&'a model::TextStyle>,
     pub position: f64,
     pub look: Option<stock::Look>,
@@ -56,6 +61,7 @@ pub(super) fn page<'a>(
             && r.x + r.width > 0.
             && r.y + r.height > 0.
     };
+    let mut painted: Vec<model::Rect> = Vec::new();
     let widgets = tree
         .draw_order(page)
         .into_iter()
@@ -65,6 +71,12 @@ pub(super) fn page<'a>(
             if !tree.visible(index) || !on_page(raw) {
                 return None;
             }
+            let rect = model::Rect {
+                x: raw.x * scale,
+                y: raw.y * scale,
+                width: raw.width * scale,
+                height: raw.height * scale,
+            };
             let picture = w.images.first().filter(|_| !bare).and_then(|use_| {
                 let (path, meta) = image_asset(tree, use_.asset)?;
                 Some(Picture {
@@ -91,6 +103,7 @@ pub(super) fn page<'a>(
                     },
                 })
             });
+            let ground = on_control(&painted, rect, scale);
             let style = w.style.and_then(|s| tree.styles.get(s.0));
             let position = position(w);
             let look = stock::Look::of(
@@ -101,21 +114,33 @@ pub(super) fn page<'a>(
                 knob_name(w),
                 bare,
             );
-            let stock = look.is_none() && stock::shows(tree, w, bare);
+            let stock = look.is_none() && stock::shows(tree, w, bare, ground.is_some());
             let words = if look.is_some() {
                 String::new()
             } else {
                 caption(w, tree.source, &tree.laws)
             };
+            // A field on a pictured control is that control's own text: it
+            // takes the control's inner region as its surface, never
+            // spilling over its frame.
+            let ground = ground.filter(|_| matches!(w.kind, Kind::TextEdit));
+            // Where the picture goes is the page's own geometry: only the
+            // field's area is brought inside the control it sits on.
+            let area = rect;
+            let rect = ground.map_or(rect, |g| inside(rect, g));
+            if let Some(p) = &picture {
+                painted.push(model::Rect {
+                    x: area.x,
+                    y: area.y,
+                    width: p.size.width,
+                    height: p.size.height,
+                });
+            }
             Some(Widget {
                 index,
                 source: w,
-                rect: model::Rect {
-                    x: raw.x * scale,
-                    y: raw.y * scale,
-                    width: raw.width * scale,
-                    height: raw.height * scale,
-                },
+                rect,
+                ground,
                 picture,
                 style,
                 position,
@@ -133,6 +158,40 @@ pub(super) fn page<'a>(
         },
         widgets,
     })
+}
+
+/// The pictured control a widget at `r` is painted on: the inner region of
+/// the last picture drawn behind the widget's centre, one pixel (`scale`,
+/// the control's own frame) clear of the picture's edge. A control the page
+/// stacks over another takes its surface from that one.
+fn on_control(painted: &[model::Rect], r: model::Rect, scale: f64) -> Option<model::Rect> {
+    let (x, y) = (r.x + r.width / 2., r.y + r.height / 2.);
+    painted
+        .iter()
+        .rev()
+        .find(|p| x >= p.x && x < p.x + p.width && y >= p.y && y < p.y + p.height)
+        .map(|p| inset(*p, scale))
+}
+
+/// `r` shrunk by `by` on every side.
+fn inset(r: model::Rect, by: f64) -> model::Rect {
+    model::Rect {
+        x: r.x + by,
+        y: r.y + by,
+        width: (r.width - 2. * by).max(0.),
+        height: (r.height - 2. * by).max(0.),
+    }
+}
+
+/// The overlap of `r` and `at_most`, never negative along either axis.
+fn inside(r: model::Rect, at_most: model::Rect) -> model::Rect {
+    let (x, y) = (r.x.max(at_most.x), r.y.max(at_most.y));
+    model::Rect {
+        x,
+        y,
+        width: ((r.x + r.width).min(at_most.x + at_most.width) - x).max(0.),
+        height: ((r.y + r.height).min(at_most.y + at_most.height) - y).max(0.),
+    }
 }
 
 /// The frame `w` shows of a picture with `frames`: the script's
@@ -223,6 +282,23 @@ pub(super) fn caption(w: &model::Widget, source: model::Source, laws: &model::La
     }
 }
 
+/// Where a control's words sit: from the left in a label (KSP manual, "set
+/// and center text in labels") and in a text edit, which is an entry field
+/// and reads from the edge the typing starts at — Kontakt's own preset name
+/// is left, whatever the script's alignment asks (measured). Anything else
+/// centres them unless the script says otherwise.
+fn align(w: &model::Widget, style: Option<&model::TextStyle>) -> model::Align {
+    let stock = if matches!(w.kind, model::Kind::Label) {
+        model::Align::Left
+    } else {
+        model::Align::Center
+    };
+    match w.kind {
+        model::Kind::TextEdit => model::Align::Left,
+        _ => style.map_or(stock, |s| s.align),
+    }
+}
+
 /// Geometry and ink of a label, in view points. Explicit line breaks keep
 /// their empty rows and use the source's measured line pitch.
 pub(super) struct Text {
@@ -264,14 +340,7 @@ pub(super) fn text(
         } else {
             2. * scale
         },
-        align: style.map_or(
-            if matches!(widget.kind, model::Kind::Label) {
-                model::Align::Left
-            } else {
-                model::Align::Center
-            },
-            |s| s.align,
-        ),
+        align: align(widget, style),
         color: style.map(|s| s.color),
         multiline,
     }
@@ -295,14 +364,7 @@ pub(super) fn glyphs(
     (scale, line): (f64, f64),
     width_of: impl Fn(usize) -> Option<u32>,
 ) -> Vec<Glyph> {
-    let align = style.map_or(
-        if matches!(widget.kind, model::Kind::Label) {
-            model::Align::Left
-        } else {
-            model::Align::Center
-        },
-        |s| s.align,
-    );
+    let align = align(widget, style);
     let multiline = words.contains('\n');
     let top = widget
         .text_y
@@ -494,5 +556,97 @@ mod tests {
         };
         assert_eq!(frame(&[]), Some(0));
         assert_eq!(frame(&[WidgetRef(0)]), Some(2));
+    }
+
+    /// Electric Mint's Sound Preset name (measured on Kontakt 8.14.1's own
+    /// render): the preset `Menu` is a plate at (446,32,171,21) and the
+    /// name — a `TextEdit` at (455,37,128,18) — is that plate's text. Kontakt
+    /// draws the name and nothing else: the field has no frame of its own (a
+    /// second, flat-toned box inside the plate's graded one), and it never
+    /// reaches past the plate, which it would by 2 px at its foot.
+    #[test]
+    fn a_text_field_on_a_pictured_control_takes_its_surface_and_stays_inside_it() {
+        use kontra_ui_model::{Margins, MenuItem};
+
+        let mut tree = Interface {
+            // A script's own controls: the stock faces are the KSP ones.
+            source: model::Source::Ksp { slot: 0 },
+            ..Interface::default()
+        };
+        tree.pages.push(model::Page {
+            size: model::Size {
+                width: 633.,
+                height: 500.,
+            },
+            ..model::Page::default()
+        });
+        tree.assets.push(model::Asset {
+            path: "Resources/pictures/dropdown_topright.png".into(),
+            kind: model::AssetKind::Image(model::ImageMeta {
+                frames: 6,
+                size: Some(model::Size {
+                    width: 32.,
+                    height: 21.,
+                }),
+                stretch: [true, false],
+                margins: Margins {
+                    left: 7,
+                    right: 18,
+                    ..Margins::default()
+                },
+                ..model::ImageMeta::default()
+            }),
+        });
+        let mut menu = model::Widget::new(
+            "$vig33",
+            PageRef(0),
+            model::Rect::new(446, 32, 171, 21),
+            model::Kind::Menu {
+                items: vec![MenuItem {
+                    text: "Spacious EDM".into(),
+                    value: 1,
+                    visible: true,
+                }],
+            },
+        );
+        menu.images
+            .push(model::ImageUse::new(model::AssetRef(0), model::Role::Strip));
+        tree.widgets.push(menu);
+        let mut field = model::Widget::new(
+            "@name",
+            PageRef(0),
+            model::Rect::new(455, 37, 128, 18),
+            model::Kind::TextEdit,
+        );
+        field.text = "Spacious EDM".into();
+        tree.widgets.push(field);
+
+        let planned = page(&tree, PageRef(0), false, 1., &[]).expect("a page");
+        let field = planned
+            .widgets
+            .iter()
+            .find(|w| w.index == WidgetRef(1))
+            .expect("the name field is on the page");
+
+        // The plate it is painted on, one pixel clear of the plate's frame.
+        assert_eq!(
+            field.ground,
+            Some(model::Rect::new(447, 33, 169, 19)),
+            "the field did not find the plate it sits on"
+        );
+        assert!(
+            !field.stock,
+            "the field drew a frame of its own over the plate: a flat edge \
+             inside a graded one reads as an overlay, not as the plate's text"
+        );
+        assert_eq!(
+            field.rect,
+            model::Rect::new(455, 37, 128, 15),
+            "the field overhangs the plate it sits on"
+        );
+        assert!(
+            matches!(align(field.source, field.style), model::Align::Left),
+            "the name does not start at the plate's left edge"
+        );
     }
 }

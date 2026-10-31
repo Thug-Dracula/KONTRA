@@ -661,8 +661,16 @@ fn rect(x: f64, y: f64, w: f64, h: f64) -> Path {
 
 /// Whether `w` draws a stock fader, text field or table: an unpictured
 /// script one whose background the script has not hidden.
-pub(super) fn shows(tree: &Interface, w: &Widget, bare: bool) -> bool {
-    (bare || !w.hide.background)
+///
+/// A text field painted on a pictured control draws no frame of its own: the
+/// picture is its surface, and a second frame inside it (its own flat tone
+/// against the picture's graded one, its own light) reads as an overlay laid
+/// over the control rather than as the control's text. Kontakt draws the
+/// field's words and nothing else there (Electric Mint's preset name,
+/// measured).
+pub(super) fn shows(tree: &Interface, w: &Widget, bare: bool, on_picture: bool) -> bool {
+    !(on_picture && matches!(w.kind, Kind::TextEdit))
+        && (bare || !w.hide.background)
         && (bare
             || unpictured(tree, w)
             || (matches!(tree.source, Source::FalconLua) && matches!(w.kind, Kind::Table { .. })))
