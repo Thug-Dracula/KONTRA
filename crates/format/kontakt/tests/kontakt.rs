@@ -60,3 +60,85 @@ fn an_analog_strings_snapshot_is_its_instrument_with_its_saved_values() {
     assert_eq!(snap.scripts.len(), base.scripts.len());
     assert_ne!(saved(&snap), saved(&base));
 }
+
+const VERTIGO: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Cinematique \
+                       Instruments Vertigo Violin/Vertigo Violin.nki";
+const HAUNTED: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Haunted Strings 2 \
+                       v2.5.1 [Insanity Samples]/1. Haunted Strings 2 - Twisted Chamber \
+                       Strings - Main Articulations.nki";
+
+/// The response `i` holds that the preset names `suffix`, if it resolved one.
+fn response<'i>(i: &'i kontra_ir::Instrument, suffix: &str) -> Option<&'i kontra_ir::Sample> {
+    i.samples.iter().find(|s| s.name.ends_with(suffix))
+}
+
+/// A stock Kontakt preset names its response `/presets/…`, outside the
+/// instrument's library; without a factory root the load reports it missing,
+/// which is not this test's failure on a machine with no Kontakt installed.
+fn unplaced(i: &kontra_ir::Instrument) -> Option<String> {
+    let missing: Vec<&str> = i
+        .diagnostics
+        .iter()
+        .filter(|d| d.feature == "missing impulse response")
+        .map(|d| d.detail.as_str())
+        .collect();
+    if !missing.is_empty() {
+        return Some(missing.join("; "));
+    }
+    None
+}
+
+#[test]
+fn vertigos_tape_echo_comes_from_the_kontakt_presets_folder() {
+    let path = Path::new(VERTIGO);
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return;
+    }
+    let i = kontra_format_kontakt::load(path).unwrap();
+    if let Some(missing) = unplaced(&i).filter(|d| d.contains("no Kontakt presets root")) {
+        eprintln!("skipped: {missing}");
+        return;
+    }
+    assert!(unplaced(&i).is_none(), "{:?}", unplaced(&i));
+    let tape = response(&i, "Tape Echo.wav").expect("the insert's Tape Echo.wav resolved");
+    assert!(tape.file.is_file(), "{}", tape.file.display());
+    assert!(
+        tape.name
+            .to_lowercase()
+            .starts_with("/presets/effects/convolution/"),
+        "{}",
+        tape.name
+    );
+    assert!(
+        i.impulses.iter().any(|impulse| i
+            .samples
+            .get(impulse.sample)
+            .is_some_and(|s| s.file == tape.file)),
+        "no insert points at {}",
+        tape.file.display()
+    );
+}
+
+#[test]
+fn haunted_strings_send_response_comes_out_of_kontakts_ir_archive() {
+    let path = Path::new(HAUNTED);
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return;
+    }
+    let i = kontra_format_kontakt::load(path).unwrap();
+    if let Some(missing) = unplaced(&i).filter(|d| d.contains("no Kontakt presets root")) {
+        eprintln!("skipped: {missing}");
+        return;
+    }
+    assert!(unplaced(&i).is_none(), "{:?}", unplaced(&i));
+    let response = response(&i, "L300 Acousticas 8.7s.wav").expect("the send's response resolved");
+    assert!(response.file.is_file(), "{}", response.file.display());
+    assert!(
+        response.file.to_string_lossy().ends_with("K4IR.nkx"),
+        "{} is not the shipped archive",
+        response.file.display()
+    );
+    assert!(response.len.is_some(), "an archive member has a length");
+}
