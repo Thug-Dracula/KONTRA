@@ -29,6 +29,7 @@ fn wet(kind: ir::EffectKind) -> bool {
             | ir::EffectKind::Convolution { .. }
             | ir::EffectKind::Delay(_)
             | ir::EffectKind::Phaser(_)
+            | ir::EffectKind::Chorus(_)
             | ir::EffectKind::Diffusion(_)
             | ir::EffectKind::Compressor(_)
             | ir::EffectKind::Limiter(_)
@@ -63,4 +64,46 @@ pub fn slots(group: &Group, from: usize) -> Vec<Option<ir::Effect>> {
         .enumerate()
         .map(|(n, e)| e.filter(|_| n >= from))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Choral as its record reads: the saved dry level is ignored (0x5d is not
+    /// a parallel module), so the slot is fully wet.
+    fn choral() -> ir::Effect {
+        ir::Effect {
+            kind: ir::EffectKind::Chorus(ir::Chorus {
+                mode: 0,
+                amount: 0.5,
+                rate: 0.5,
+                delay: 0.3,
+                voices: 0.7,
+                width: 0.5,
+                feedback: 0.0,
+                mix: 1.0,
+                scatter: true,
+                invert: false,
+            }),
+            bypass: false,
+            output: 1.0,
+            dry: 0.0,
+        }
+    }
+
+    /// A Choral in a group is that group's own wet path, so the group's sum
+    /// runs it: without this the slot is neither folded (its dry is 0, which
+    /// silences the group — `matrix::rack_only`) nor built as a rack.
+    #[test]
+    fn a_group_chorus_splits_out_to_the_group_rack() {
+        let chorus = choral();
+        assert!(wet(chorus.kind), "a Choral is a wet slot");
+        let group = Group {
+            inserts: vec![Some(chorus)],
+            ..Group::standard()
+        };
+        assert_eq!(split(&group, &[]), Some(0), "the group's own rack runs it");
+        assert_eq!(slots(&group, 0), vec![Some(chorus)]);
+    }
 }

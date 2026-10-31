@@ -14,7 +14,7 @@ mod engine_pars;
 mod external;
 mod factory;
 mod fastlz;
-mod hot_solo;
+pub mod hot_solo;
 mod impulse;
 mod laws;
 mod legacy_reverb;
