@@ -4,12 +4,15 @@
 //! cannot draw (a library that did not open, a page that got no pictures)
 //! is written here instead of vanishing.
 //!
-//! `KONTRA_LOG_DIR` puts the files elsewhere and `KONTRA_LOG=0` turns the
-//! log off; anything else is quiet: errors only. Files rotate at
-//! [`MAX_BYTES`] and the newest [`KEEP`] sessions are kept, so a log can
-//! never fill the disk. [`start`] writes the first line, with the path, so
-//! the file is findable from the plugin alone.
+//! `KONTRA_LOG_DIR` puts the files elsewhere. Quiet is the default: with
+//! `KONTRA_LOG` unset (or empty) only the first line — the path, so the file
+//! is findable from the plugin alone — and errors are written; set it to
+//! anything other than `0` or `off` to add the state-change lines [`info`]
+//! writes. `KONTRA_LOG=0` (or `off`) turns the log off entirely. A file stops
+//! taking writes at [`MAX_BYTES`] with a final `log_full` line, and the newest
+//! [`KEEP`] sessions are kept, so a log can never fill the disk.
 
+use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -22,35 +25,48 @@ use kontra_host::ui::{FailureSink, Missing};
 const MAX_BYTES: u64 = 4 << 20;
 /// Session files kept; the oldest beyond this are removed at start.
 const KEEP: usize = 16;
+/// Buckets [`info`] rate-limits events in.
+const SLOTS: usize = 4;
 
 struct Log {
     file: Option<File>,
     path: PathBuf,
     bytes: u64,
     full: bool,
+    /// `KONTRA_LOG` is unset or empty: the startup line and errors only.
+    quiet: bool,
 }
 
 static LOG: OnceLock<Mutex<Log>> = OnceLock::new();
 
-/// Where the session log is, and disabled or not, from the environment.
+/// Whether `KONTRA_LOG` asks for state-change lines. Only a non-empty value
+/// other than `0` or `off` does; unset is quiet, which is the default.
+fn verbose(value: Option<&OsStr>) -> bool {
+    value.is_some_and(|v| !v.is_empty() && v != "0" && v != "off")
+}
+
+/// Where the session log is, and whether `KONTRA_LOG` turned it off.
 fn place() -> (PathBuf, bool) {
-    if let Some(dir) = std::env::var_os("KONTRA_LOG_DIR").filter(|v| !v.is_empty()) {
-        return (PathBuf::from(dir), true);
-    }
-    let quiet = std::env::var_os("KONTRA_LOG").is_some_and(|v| v == "0" || v == "off");
-    let dir = std::env::var_os("XDG_CACHE_HOME")
+    let on = std::env::var_os("KONTRA_LOG").is_none_or(|v| v != "0" && v != "off");
+    let dir = std::env::var_os("KONTRA_LOG_DIR")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        })
         .unwrap_or_else(std::env::temp_dir)
         .join("kontra")
         .join("logs");
-    (dir, !quiet)
+    (dir, on)
 }
 
 /// The session log's file, opened on first use.
 fn log() -> &'static Mutex<Log> {
     LOG.get_or_init(|| {
+        let quiet = !verbose(std::env::var_os("KONTRA_LOG").as_deref());
         let (dir, on) = place();
         let _ = std::fs::create_dir_all(&dir);
         prune(&dir);
@@ -73,6 +89,7 @@ fn log() -> &'static Mutex<Log> {
             path,
             bytes: 0,
             full: false,
+            quiet,
         })
     })
 }
@@ -106,7 +123,13 @@ pub fn start() {
     static STARTED: OnceLock<()> = OnceLock::new();
     STARTED.get_or_init(|| {
         let path = path();
-        write_line(
+        // Not through [`write_line`]: a quiet session still has to say where
+        // its file is, which is the one line it cannot lose.
+        let Ok(mut log) = log().lock() else {
+            return;
+        };
+        write(
+            &mut log,
             "info",
             "session_started",
             &[
@@ -118,32 +141,46 @@ pub fn start() {
     });
 }
 
-/// An error: what happened, and the values that say where.
+/// An error: what happened, and the values that say where. Always written,
+/// quiet or not.
 pub fn error(event: &str, data: &[(&str, &str)]) {
     write_line("error", event, data);
 }
 
 /// A significant state change, at most once a second per event name, so a
 /// drag or a load cannot flood the log. The control side writes these,
-/// never the audio thread.
+/// never the audio thread. Quiet unless `KONTRA_LOG` turns them on.
 pub fn info(event: &str, data: &[(&str, &str)]) {
-    static LAST: [AtomicU64; 4] = [
-        AtomicU64::new(0),
-        AtomicU64::new(0),
-        AtomicU64::new(0),
-        AtomicU64::new(0),
-    ];
-    // A slot per event name: two different events never silence each other.
-    let slot = (event.as_bytes().first().copied().unwrap_or(0) as usize) % LAST.len();
+    static LAST: [AtomicU64; SLOTS] = [const { AtomicU64::new(0) }; SLOTS];
+    // The slot is a hash of the whole name, not its first letter: an event
+    // no longer shares a slot merely because its name shares a prefix (every
+    // future `c...` name with `control_applied`). Four slots are not a
+    // collision-free table; the test below holds every name the plugin
+    // actually emits to its own slot.
+    let Some(at) = LAST.get(slot(event)) else {
+        return;
+    };
     let now = now_ms();
-    let last = LAST.get(slot).map_or(0, |at| at.load(Ordering::Relaxed));
+    let last = at.load(Ordering::Relaxed);
     if now.saturating_sub(last) < 1000 {
         return;
     }
-    if let Some(at) = LAST.get(slot) {
-        at.store(now, Ordering::Relaxed);
-    }
+    at.store(now, Ordering::Relaxed);
     write_line("info", event, data);
+}
+
+/// FNV-1a over the whole event name, reduced to a rate-limit slot. Stable
+/// across runs and builds; [`tests::every_event_the_plugin_logs_gets_its_own_slot`]
+/// holds every name the plugin emits to a separate one.
+const fn slot(event: &str) -> usize {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut rest = event.as_bytes();
+    while let Some((&byte, tail)) = rest.split_first() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        rest = tail;
+    }
+    (hash % SLOTS as u64) as usize
 }
 
 /// Milliseconds since the plugin started, for [`info`]'s rate.
@@ -156,12 +193,22 @@ fn now_ms() -> u64 {
         .unwrap_or(u64::MAX)
 }
 
-/// One JSON line, written and flushed now; dropped once the file is full.
+/// One JSON line, written and flushed now; dropped once the file is full and
+/// dropped entirely when it is a state change in a quiet session.
 fn write_line(level: &str, event: &str, data: &[(&str, &str)]) {
     let Ok(mut log) = log().lock() else {
         return;
     };
-    write(&mut log, level, event, data);
+    emit(&mut log, level, event, data);
+}
+
+/// [`write_line`]'s gate: `info` goes only to a session with `KONTRA_LOG` set,
+/// errors always go.
+fn emit(log: &mut Log, level: &str, event: &str, data: &[(&str, &str)]) {
+    if log.quiet && level == "info" {
+        return;
+    }
+    write(log, level, event, data);
 }
 
 /// [`write_line`], for a log the caller holds.
@@ -257,6 +304,28 @@ pub fn picture_too_large(side: u32, limit: u32) {
 mod tests {
     use super::*;
 
+    /// A fresh temporary directory for one test's log file, so tests that set
+    /// their own verbosity cannot collide.
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("kontra-session-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp directory");
+        dir
+    }
+
+    /// A log over `file`, as a session with `quiet` would open it.
+    fn open(file: &Path, quiet: bool) -> Log {
+        let _ = std::fs::remove_file(file);
+        Log {
+            file: OpenOptions::new().create(true).append(true).open(file).ok(),
+            path: file.to_path_buf(),
+            bytes: 0,
+            full: false,
+            quiet,
+        }
+    }
+
     #[test]
     fn a_line_is_one_json_object_with_its_escapes() {
         let mut text = String::new();
@@ -266,20 +335,8 @@ mod tests {
 
     #[test]
     fn a_line_reaches_the_file_as_it_is_written() {
-        let dir = std::env::temp_dir().join(format!("kontra-session-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("a temp directory");
-        let file = dir.join("session-1-1-1.jsonl");
-        let mut log = Log {
-            file: OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&file)
-                .ok(),
-            path: file.clone(),
-            bytes: 0,
-            full: false,
-        };
+        let file = scratch("flush").join("session-flush-1-1-1.jsonl");
+        let mut log = open(&file, false);
         write(
             &mut log,
             "error",
@@ -291,6 +348,80 @@ mod tests {
         assert_eq!(
             text,
             "{\"level\":\"error\",\"event\":\"picture_missing\",\"reason\":\"no library\",\"asset\":\"pictures/x.png\"}\n"
+        );
+    }
+
+    #[test]
+    fn quiet_is_the_default_and_only_a_setting_turns_state_changes_on() {
+        assert!(!verbose(None), "unset is quiet");
+        assert!(!verbose(Some(OsStr::new(""))), "empty is quiet");
+        assert!(!verbose(Some(OsStr::new("0"))), "0 turns the log off");
+        assert!(!verbose(Some(OsStr::new("off"))), "off turns the log off");
+        assert!(verbose(Some(OsStr::new("1"))));
+        assert!(verbose(Some(OsStr::new("debug"))));
+    }
+
+    #[test]
+    fn a_quiet_session_writes_an_error_but_no_state_change() {
+        let file = scratch("quiet").join("session-quiet-1-1-1.jsonl");
+        let mut log = open(&file, true);
+        emit(&mut log, "info", "control_applied", &[("commands", "1")]);
+        emit(
+            &mut log,
+            "error",
+            "picture_missing",
+            &[("reason", "no library")],
+        );
+        let text = std::fs::read_to_string(&file).expect("the error is flushed");
+        assert!(
+            !text.contains("control_applied"),
+            "a quiet session wrote a state change:\n{text}"
+        );
+        assert!(
+            text.contains("\"event\":\"picture_missing\""),
+            "a quiet session dropped its error:\n{text}"
+        );
+    }
+
+    /// The event names `lib.rs` passes to [`info`], read from its source: a
+    /// third one added later is covered without editing this list.
+    fn emitted_info_events() -> Vec<String> {
+        const CALL: &str = "session::info(";
+        let mut rest = include_str!("lib.rs");
+        let mut names = Vec::new();
+        while let Some(at) = rest.find(CALL) {
+            rest = rest[at + CALL.len()..].trim_start();
+            if let Some(name) = rest.strip_prefix('"')
+                && let Some(end) = name.find('"')
+            {
+                names.push(name[..end].to_owned());
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn every_event_the_plugin_logs_gets_its_own_slot() {
+        let names = emitted_info_events();
+        assert!(
+            names.len() >= 2,
+            "lib.rs no longer logs its state changes, so this test pins nothing: {names:?}"
+        );
+        for (i, a) in names.iter().enumerate() {
+            for b in &names[i + 1..] {
+                assert_ne!(
+                    slot(a),
+                    slot(b),
+                    "{a} and {b} share a rate-limit slot and would silence each other"
+                );
+            }
+        }
+        // And the hash covers the whole name, not its first byte: a
+        // first-letter bucket puts these two `c...` events in one slot.
+        assert_ne!(
+            slot("control_applied"),
+            slot("cache_missed"),
+            "the slot is a first-letter bucket again"
         );
     }
 }

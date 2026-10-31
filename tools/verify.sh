@@ -80,6 +80,25 @@ echo "== layer 0/1: tests =="
 for c in kontra-engine kontra-host kontra-ui mui kontra-native-host kontra-plugin kontra-ui-pictures; do run_tests "$c"; done
 if [ -d crates/dsp/delay ]; then run_tests kontra-dsp-delay; fi
 
+# The two parity regressions need a Kontakt library installed outside the
+# repository. They are `#[ignore]`d so a clean checkout reports them as
+# ignored rather than passing them without reading anything; run them here
+# when the library is present, and fail the gate if either one fails.
+PARITY=${KONTRA_TEST_LIBRARY:-${HOME}/Armory/VSTs/Kontakt1}
+if [ -d "$PARITY" ]; then
+    out=$(CARGO_TARGET_DIR="$TARGET" cargo test -p kontra-host --test parity_regressions -- --ignored 2>&1)
+    line=$(printf '%s\n' "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6} END {print p" passed, "f" failed"}')
+    if printf '%s\n' "$out" | grep -qE "^test result: FAILED"; then
+        bad "tests: parity regressions" "${line:-some tests failed}"
+    elif ! printf '%s\n' "$out" | grep -qE "^test result:"; then
+        bad "tests: parity regressions" "did not compile or did not run"
+    else
+        ok "tests: parity regressions" "${line:-no result line}"
+    fi
+else
+    row "tests: parity regressions" "skipped (no library at $PARITY)"
+fi
+
 echo "== build =="
 if CARGO_TARGET_DIR="$TARGET" cargo build --release -p kontra-plugin >"$LOGS/verify-build.log" 2>&1; then
     ok "build kontra-plugin" "$(stat -c%s "$TARGET/release/libkontra_plugin.so" 2>/dev/null || echo '?') bytes"

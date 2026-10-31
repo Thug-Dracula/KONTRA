@@ -253,6 +253,7 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
         }
     }
     let scripts: Vec<String> = ir.scripts.iter().map(|s| s.source.clone()).collect();
+    let script_names: Vec<String> = ir.scripts.iter().map(|s| s.name.clone()).collect();
     let loaded = crate::instrument::build(ir, rate, &mut store);
     let name = loaded.name.clone();
     let pages = loaded.pages.clone();
@@ -262,6 +263,15 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
         "{name}: {} zones, loaded in {:?}",
         loaded.plan.zones.len(),
         t.elapsed()
+    );
+    // The script slots the reader found, by name. Kontakt 8 keeps them in the
+    // program's private data, and a program whose slots do not read looks
+    // exactly like one with no scripts: Cherry Electric Bass loses 44 dB of
+    // level that way, with nothing else in the report to say why.
+    say!(
+        diag,
+        "  scripts: {} slots {script_names:?}",
+        script_names.len()
     );
     say!(
         diag,
