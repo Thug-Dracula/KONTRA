@@ -25,7 +25,8 @@ sys.path.insert(0, str(HERE.parent / "oracle"))
 import slot  # noqa: E402  (oracle-slot: prefix, display and work dir of this session; legacy when unset)
 
 EXE = os.environ.get("KONTAKT_EXE") or slot.exe_default()
-SETTINGS = Path(EXE).parents[2] / "UserData/Settings.cfg"
+INSTALL = slot.install(EXE)
+SETTINGS = None if INSTALL is None else INSTALL / "UserData/Settings.cfg"
 WORK = slot.work(Path.home() / ".cache/kontra-native-oracle") / "run" / str(os.getpid())
 DISPLAY = slot.display(":78")  # not :77, which the audio reference harness owns
 
@@ -69,6 +70,13 @@ def main() -> int:
         return 2
     out = Path(sys.argv[1]).resolve()
     inputs = [Path(p).resolve() for p in sys.argv[2:]]
+    if SETTINGS is None:
+        sys.exit(
+            f"{EXE} is not inside a Kontakt install (no x64/ above it), so there is no "
+            "UserData/Settings.cfg to read: set KONTAKT_EXE to the installed executable"
+        )
+    if not SETTINGS.is_file():
+        sys.exit(f"no {SETTINGS}: enable Options > Developer first (DeveloperFeatures=dw:1)")
     if b"DeveloperFeatures=dw:1" not in SETTINGS.read_bytes():
         sys.exit(f"enable Options > Developer first: DeveloperFeatures=dw:1 in {SETTINGS}")
     if slot.kontakt_pids():

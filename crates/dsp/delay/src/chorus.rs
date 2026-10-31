@@ -634,11 +634,16 @@ impl Chorus {
                     * ((2.0 - line.c1 * (1.0 - t1)) * (0.25 * (t1 + 1.0)) + alt)
                     + line.c2 * line.smooth;
                 // The read, `0x14193c4c8`: trunc(d) frames back, Catmull-Rom.
+                // The ring is a power of two, so the distance wraps through it
+                // by masking: `wrapping_sub` keeps the frame that a ring that
+                // long would hold, where `len − whole` went negative once the
+                // distance passed the ring (a panic in debug, an arbitrary
+                // frame in release).
                 let d = line.depth * line.smooth + line.base;
                 let whole = d as usize;
                 let f = d - d.floor();
                 let len = line.ring.len();
-                let at = (line.widx + len - whole) & (len - 1);
+                let at = line.widx.wrapping_sub(whole) & (len - 1);
                 let (p0, pm1, p1, p2) = (
                     line.ring[at],
                     line.ring[(at + len - 1) & (len - 1)],
@@ -842,6 +847,38 @@ mod tests {
         let want = io.clone();
         c.process(&mut io);
         assert_ne!(io, want, "the default knobs give a wet signal");
+    }
+
+    /// A read distance longer than the ring reads the frame its remainder
+    /// names. `widx + len − whole` underflowed as soon as the distance passed
+    /// the ring: a panic in debug, an arbitrary frame in release.
+    #[test]
+    fn a_read_past_the_ring_reads_frames_remainder() {
+        let ring = Chorus::new(1, 48_000.0).lines[0].ring.len() as f64;
+        let run = |base: f64| {
+            let mut c = Chorus::new(1, 48_000.0);
+            for line in &mut c.lines {
+                line.base = base;
+                line.depth = 0.0;
+            }
+            let mut io: Vec<[f32; 2]> = (0..512)
+                .map(|i| {
+                    [
+                        ((i as f32) * 0.1).sin() * 0.5,
+                        ((i as f32) * 0.07).cos() * 0.5,
+                    ]
+                })
+                .collect();
+            c.process(&mut io);
+            io
+        };
+        // Three rings and 100 frames back is 100 frames back in this ring, so
+        // the two runs read the same frames throughout.
+        assert_eq!(
+            run(3.0 * ring + 100.0),
+            run(100.0),
+            "a distance of 3 rings + 100 frames, {ring} to the ring"
+        );
     }
 
     /// `mix` 0 is the dry signal, to the last bit the kernel produced.

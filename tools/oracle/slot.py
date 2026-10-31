@@ -47,11 +47,27 @@ def prefix():
 
 # Kontakt installs differ by machine: a Portapotty install under the Wine
 # prefix, or a portable build anywhere on disk. The prefix copy is tried first
-# (it is what the slot prefixes carry), then the two known portable layouts.
+# (it is what the slot prefixes carry), then the two known portable layouts:
+# one unpacked in Kontakt's own `Kontakt 8/x64` shape, one flat beside the
+# executable (which [`install`] cannot name a settings file for).
 PORTABLE_CANDIDATES = (
     Path.home() / "Armory/VSTs/Kontakt 8.14.1 Portable/Kontakt 8/x64/Kontakt 8.exe",
     Path.home() / "Armory/VSTs/kontakt-8.13.1-re/Kontakt 8.exe",
 )
+
+
+def install(exe):
+    """The Kontakt directory `exe` belongs to, or None when there is none.
+
+    Kontakt's executable sits in the install's `x64/`, and every path the tools
+    derive from it — `UserData/Settings.cfg`, the work directories — is
+    measured from the directory above that. A portable build unpacked flat
+    (`…/kontakt-8.13.1-re/Kontakt 8.exe`) has no `x64/`, so `parents[2]` of it
+    names a directory that is not Kontakt's at all; None says so instead of
+    letting a caller build a nonsense path out of it.
+    """
+    exe = Path(exe)
+    return exe.parents[1] if exe.parent.name == "x64" else None
 
 
 def exe_default():

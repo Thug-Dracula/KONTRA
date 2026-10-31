@@ -64,20 +64,28 @@ const SATURATION: usize = 4;
 
 /// The slot's effect: the module's make-up as a gain, at the reading the
 /// measured vector covers.
-pub(crate) fn effect(public: &[u8], at: &str, notes: &mut Notes) -> ir::EffectKind {
+///
+/// `impact` is the slot's own: a bypassed slot does not run the compressor, so
+/// what it would have done is a cosmetic gap.
+pub(crate) fn effect(
+    public: &[u8],
+    at: &str,
+    impact: ir::Impact,
+    notes: &mut Notes,
+) -> ir::EffectKind {
     let saturation = public
         .get(SATURATION..SATURATION + 4)
         .and_then(|b| b.try_into().ok())
         .map_or(0.0, f32::from_le_bytes);
     if saturation > 0.0 {
         notes.add(
-            ir::Impact::Audible,
+            impact,
             "Supercharger saturation (level-dependent transfer)",
             at.to_owned(),
         );
     }
     notes.add(
-        ir::Impact::Audible,
+        impact,
         "Supercharger gain only (CompXT compression not modelled)",
         at.to_owned(),
     );
@@ -128,7 +136,12 @@ mod tests {
     fn the_saved_saturation_is_off_and_only_the_compression_is_reported() {
         let record = bytes(RECORD);
         let mut notes = Notes::default();
-        let kind = effect(&record, "instrument insert slot 2", &mut notes);
+        let kind = effect(
+            &record,
+            "instrument insert slot 2",
+            ir::Impact::Audible,
+            &mut notes,
+        );
         assert_eq!(kind, ir::EffectKind::Gain(MAKEUP));
         let missing: Vec<_> = notes.finish().into_iter().map(|n| n.feature).collect();
         assert!(
@@ -147,7 +160,12 @@ mod tests {
     fn the_saturation_warning_follows_field_1_and_not_character() {
         let fired = |hex: &str| {
             let mut notes = Notes::default();
-            let _ = effect(&bytes(hex), "instrument insert slot 2", &mut notes);
+            let _ = effect(
+                &bytes(hex),
+                "instrument insert slot 2",
+                ir::Impact::Audible,
+                &mut notes,
+            );
             notes
                 .finish()
                 .into_iter()
@@ -157,5 +175,26 @@ mod tests {
         assert_eq!(bytes(CHARACTERFUL).len(), 45);
         assert!(fired(SATURATING), "saturation on must warn");
         assert!(!fired(CHARACTERFUL), "character on is not saturation");
+    }
+
+    /// A bypassed slot runs nothing, compressor included: its gaps are the
+    /// cosmetic kind the other modules' bypassed slots report, not audible
+    /// ones.
+    #[test]
+    fn a_bypassed_slot_reports_its_gaps_as_cosmetic() {
+        let mut notes = Notes::default();
+        let kind = effect(
+            &bytes(RECORD),
+            "instrument insert slot 2",
+            ir::Impact::Cosmetic,
+            &mut notes,
+        );
+        assert_eq!(kind, ir::EffectKind::Gain(MAKEUP));
+        let impacts: Vec<ir::Impact> = notes.finish().into_iter().map(|n| n.impact).collect();
+        assert!(!impacts.is_empty(), "the gain-only gap is still reported");
+        assert!(
+            impacts.iter().all(|&i| i == ir::Impact::Cosmetic),
+            "a slot that does not run reports nothing audible: {impacts:?}"
+        );
     }
 }
