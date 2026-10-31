@@ -22,6 +22,7 @@ mod links;
 pub mod presentation;
 #[cfg(test)]
 mod preset_patch;
+mod private_script;
 mod provenance;
 mod readouts;
 mod replika;

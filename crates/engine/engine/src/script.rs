@@ -200,6 +200,33 @@ impl Engine {
         self.targets_scratch = hits;
     }
 
+    /// `get_event_ids(array)`: every live event's id into the array, then a 0.
+    ///
+    /// The array is passed as its first cell and its length; a slot past the
+    /// end is not written. Kontakt fills it in the order the events were
+    /// created, and the current event is one of them.
+    fn event_ids(&self, base: i32, len: i32, cells: &mut [i64]) {
+        let (Ok(base), Ok(len)) = (usize::try_from(base), usize::try_from(len)) else {
+            return;
+        };
+        let end = base.saturating_add(len).min(cells.len());
+        let mut at = base;
+        for (r, _) in self.notes.live() {
+            if at >= end {
+                break;
+            }
+            if let Some(cell) = cells.get_mut(at) {
+                *cell = i64::from(NoteRef::event_id(r));
+            }
+            at += 1;
+        }
+        if at < end
+            && let Some(cell) = cells.get_mut(at)
+        {
+            *cell = 0;
+        }
+    }
+
     fn key_down(&self, key: i32) -> bool {
         self.notes
             .count(|n| n.origin == Origin::Host && i32::from(n.host.key) == key && !n.is_up())
@@ -333,6 +360,10 @@ impl HostApi for Engine {
             }
             Action::IgnoreEvent => {
                 self.ignore_event(int(0));
+                HostValue::Nothing
+            }
+            Action::GetEventIds => {
+                self.event_ids(int(0), int(1), call.cells);
                 HostValue::Nothing
             }
             Action::PlayNote => HostValue::Int(self.play_note(int(0), int(1), int(2), int(3))),

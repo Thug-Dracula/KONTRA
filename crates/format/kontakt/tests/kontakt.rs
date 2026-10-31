@@ -63,6 +63,8 @@ fn an_analog_strings_snapshot_is_its_instrument_with_its_saved_values() {
 
 const VERTIGO: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Cinematique \
                        Instruments Vertigo Violin/Vertigo Violin.nki";
+const CHERRY: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Orange Tree Samples - \
+                      Cherry Electric Bass/Cherry Electric Bass.nki";
 const HAUNTED: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Haunted Strings 2 \
                        v2.5.1 [Insanity Samples]/1. Haunted Strings 2 - Twisted Chamber \
                        Strings - Main Articulations.nki";
@@ -141,4 +143,34 @@ fn haunted_strings_send_response_comes_out_of_kontakts_ir_archive() {
         response.file.display()
     );
     assert!(response.len.is_some(), "an archive member has a length");
+}
+
+/// Kontakt 8 keeps the handlers inline in the program's private data rather
+/// than in `0x06` chunks; a slot's saved values ride with its source.
+#[test]
+fn a_kontakt_8_program_keeps_its_scripts_in_its_private_data() {
+    let path = Path::new(CHERRY);
+    if !path.exists() {
+        return;
+    }
+    let i = kontra_format_kontakt::load(path).unwrap();
+    let slots: Vec<(usize, &str)> = i
+        .scripts
+        .iter()
+        .map(|s| (s.slot, s.name.as_str()))
+        .collect();
+    assert_eq!(
+        slots,
+        [
+            (0, "Interface 1.09"),
+            (1, "Legato 1.03"),
+            (2, "Sample 1.01"),
+            (3, "Zone 1.01"),
+        ],
+        "one script per slot, in slot order"
+    );
+    // The Interface's saved values are the record's persistent list.
+    assert_eq!(i.scripts[0].saved[0], "$hkbb2 0");
+    assert!(i.scripts[0].saved.iter().any(|s| s.starts_with("%4ikw1")));
+    assert!(i.scripts.iter().all(|s| !s.source.trim().is_empty()));
 }
