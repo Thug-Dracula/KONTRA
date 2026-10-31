@@ -29,6 +29,7 @@ fn wet(kind: ir::EffectKind) -> bool {
             | ir::EffectKind::Convolution { .. }
             | ir::EffectKind::Delay(_)
             | ir::EffectKind::Phaser(_)
+            | ir::EffectKind::Chorus(_)
             | ir::EffectKind::Diffusion(_)
             | ir::EffectKind::Compressor(_)
             | ir::EffectKind::Limiter(_)
@@ -63,4 +64,47 @@ pub fn slots(group: &Group, from: usize) -> Vec<Option<ir::Effect>> {
         .enumerate()
         .map(|(n, e)| e.filter(|_| n >= from))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chorus() -> ir::EffectKind {
+        ir::EffectKind::Chorus(ir::Chorus {
+            mode: 0,
+            amount: 0.4,
+            rate: 0.2,
+            delay: 0.3,
+            voices: 0.3,
+            width: 0.9,
+            feedback: 0.0,
+            mix: 0.4,
+            scatter: true,
+            invert: false,
+        })
+    }
+
+    /// A group rack cannot carry a wet effect: its voices sum through a gain
+    /// matrix, so a slot whose dry is 0 would multiply every voice by zero.
+    /// Choral was missing from both lists and a Choral in a group insert
+    /// rendered that group as silence with a clean diagnostic list.
+    #[test]
+    fn a_wet_kind_is_kept_out_of_the_voice_matrix() {
+        assert!(wet(chorus()), "the group rack must run it, not fold it");
+        assert!(
+            kontra_effects::matrix::rack_only(chorus()),
+            "the translator must pass it unprocessed and report that"
+        );
+        assert_eq!(
+            kontra_effects::matrix::rack(&[Some(ir::Effect {
+                kind: chorus(),
+                bypass: false,
+                output: 1.0,
+                dry: 0.0,
+            })]),
+            kontra_effects::matrix::IDENTITY,
+            "with both fixed the matrix stays identity; before the fix it was [[0,0],[0,0]]"
+        );
+    }
 }

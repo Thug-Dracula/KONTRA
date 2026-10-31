@@ -43,6 +43,10 @@ pub fn rack_only(kind: ir::EffectKind) -> bool {
             | ir::EffectKind::Limiter(_)
             | ir::EffectKind::Delay(_)
             | ir::EffectKind::Phaser(_)
+            // Chorus has a wet path like the others here, and a group rack
+            // cannot carry it: its dry is 0, so leaving it in a voice matrix
+            // would fold zeros into every voice and silence the group.
+            | ir::EffectKind::Chorus(_)
             | ir::EffectKind::Diffusion(_)
             | ir::EffectKind::Transient(_)
             | ir::EffectKind::Cascade(_)

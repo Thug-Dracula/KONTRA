@@ -234,6 +234,7 @@ fn group_wet(out: &[Option<ir::Effect>], at: &str, notes: &mut Notes) {
             ir::EffectKind::Limiter(_) => Some("group limiter before a drive"),
             ir::EffectKind::Delay(_) => Some("group delay before a drive"),
             ir::EffectKind::Phaser(_) => Some("group phaser before a drive"),
+            ir::EffectKind::Chorus(_) => Some("group chorus before a drive"),
             ir::EffectKind::Diffusion(_) => Some("group diffusion before a drive"),
             ir::EffectKind::Cascade(_) => Some("group 3x2 Versatile before a drive"),
             ir::EffectKind::Clocked(_) => Some("group Phaser or Vowel filter before a drive"),
