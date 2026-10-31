@@ -273,9 +273,11 @@ mod tests {
             .iter()
             .map(|&(hz, _)| response(&mut stages, hz))
             .collect();
-        // The stage's gain is calibrated on the engine's own render, so its
-        // response carries one constant offset against this curve; the shape is
-        // what the fit fixes. Measured residual of the fit: 0.40 dB RMS, 0.98 worst.
+        // The level is asserted, not absorbed. An earlier version subtracted
+        // this offset before checking the shape, which meant the stage gain --
+        // the number that was miscalibrated twice against the wrong reference,
+        // and the whole reason this curve exists -- could move by decibels with
+        // the suite green. Measured today: +0.0101 dB.
         let offset = MEASURED
             .iter()
             .zip(&ach)
@@ -287,6 +289,10 @@ mod tests {
             .zip(&ach)
             .map(|((_, want), got)| (got - want - offset).abs())
             .fold(0.0f32, f32::max);
+        assert!(
+            offset.abs() < 0.2,
+            "the stage's level is {offset:+.2} dB off Kontakt's curve; the gain is not a free parameter"
+        );
         assert!(
             worst < 1.2,
             "worst band error {worst:.2} dB (offset {offset:+.2} dB)"
