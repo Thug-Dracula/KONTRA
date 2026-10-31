@@ -309,6 +309,12 @@ impl Svf {
         self.shape.damping = damping;
     }
 
+    /// The shape this filter was built with (pass, stages, damping, gain).
+    #[must_use]
+    pub fn shape(&self) -> Shape {
+        self.shape
+    }
+
     /// The cutoff as last set, in Hz.
     #[must_use]
     pub fn cutoff(&self) -> f32 {

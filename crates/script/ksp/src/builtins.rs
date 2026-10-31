@@ -405,6 +405,7 @@ builtins! {
         GroupsAffected "%GROUPS_AFFECTED" [I] 0 Int;
         KeyDownOct "%KEY_DOWN_OCT" [I] 0 Int;
         EventParAt "%EVENT_PAR" [I] 0 Int;
+        NoteDuration "%NOTE_DURATION" [I] 0 Int;
     }
 }
 
@@ -418,6 +419,7 @@ impl Builtin {
             Self::KeyDownOct => 12,
             Self::GroupsSelected | Self::GroupsAffected => 4096,
             Self::EventParAt => 4,
+            Self::NoteDuration => 128,
             _ => return None,
         })
     }

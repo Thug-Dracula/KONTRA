@@ -368,4 +368,5 @@ actions! {
     GroupsAffected,
     KeyDownOct,
     EventParAt,
+    NoteDuration,
 }

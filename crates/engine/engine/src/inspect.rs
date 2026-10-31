@@ -41,6 +41,46 @@ impl Engine {
         self.voice_cutoffs()
     }
 
+    /// Every group whose insert rack runs a filter per voice, with the slot,
+    /// the cutoff the saved (or scripted) settings give it and its shape.
+    /// Read from the built rack, not from sounding voices, so it is populated
+    /// as soon as the instrument is loaded.
+    #[must_use]
+    pub fn filter_groups(&self) -> Vec<(usize, u8, f32, f32, String)> {
+        self.voice_units
+            .iter()
+            .enumerate()
+            .flat_map(|(group, units)| {
+                units.iter().filter_map(move |u| match &u.kind {
+                    crate::voice_rack::Kind::Filter(f) => {
+                        let shape = f.shape();
+                        Some((
+                            group,
+                            u.insert,
+                            f.cutoff(),
+                            shape
+                                .damping
+                                .get(usize::from(shape.stages).saturating_sub(1))
+                                .copied()
+                                .unwrap_or(2.0),
+                            format!(
+                                "{:?}/{} pole/{}",
+                                shape.pass,
+                                shape.stages,
+                                if shape.ladder.is_some() {
+                                    "ladder"
+                                } else {
+                                    "svf"
+                                }
+                            ),
+                        ))
+                    }
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+
     /// Each sounding voice's zone, position in source frames and gain, for
     /// inspectors (never the audio thread).
     pub fn voices(&self) -> impl Iterator<Item = (usize, f64, kontra_voice::Gain)> + '_ {

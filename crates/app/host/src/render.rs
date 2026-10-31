@@ -298,9 +298,13 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
     if std::env::var_os("KONTRA_INIT_ONLY").is_some() {
         return Err("KONTRA_INIT_ONLY is set: nothing was rendered".into());
     }
-    let (filtered, cutoffs) = engine.voice_filters();
-    if filtered > 0 {
-        say!(diag, "voice filters: {filtered} groups {cutoffs:?}");
+    let groups = engine.filter_groups();
+    if !groups.is_empty() {
+        let listed: Vec<_> = groups
+            .iter()
+            .map(|(group, insert, hz, damping, shape)| (group, insert, *hz, *damping, shape))
+            .collect();
+        say!(diag, "voice filters: {} groups {listed:?}", groups.len());
     }
     let (chains, chained) = engine.eq_chains();
     if chains > 0 {

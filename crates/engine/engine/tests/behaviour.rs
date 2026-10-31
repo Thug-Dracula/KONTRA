@@ -2414,3 +2414,76 @@ fn script_controller_callback_links_indirect_route_evaluations() {
         && !v.controller_can_affect
         && matches!(v.unit, RouteUnit::GainMultiplier)));
 }
+
+#[test]
+fn the_filter_report_lists_every_filtered_group_from_load() {
+    use kontra_engine::ir::{Effect, EffectKind, Filter, Mod, ModKind, Pass, Source};
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut plan = Plan::new(vec![Zone::new(sine(&mut store), 60, RATE)], 8);
+    plan.groups[0].inserts = vec![Some(Effect {
+        kind: EffectKind::Filter(Filter {
+            pass: Pass::Low,
+            hz: 800.0,
+            stages: 2,
+            ladder: None,
+            damping: [1.85, 0.77, 0.0],
+            gain: 1.0,
+            octaves: 8.97,
+            q_octaves: 0.0,
+        }),
+        bypass: false,
+        output: 1.0,
+        dry: 0.0,
+    })];
+    // A route moves the cutoff, so the filter runs per voice (a fixed one is
+    // folded into the shared chain and is not a per-voice filter).
+    plan.groups[0].mods = vec![Mod {
+        name: String::new(),
+        slot: 0,
+        target: 0,
+        bypass: false,
+        invert: false,
+        kind: ModKind::Cutoff {
+            source: Source::Controller(74),
+            insert: 0,
+            depth: 1.0,
+        },
+    }];
+    let engine = Engine::new(Arc::new(plan), store.client(), RATE);
+    // No note has sounded: the report reads the built rack, not the voices.
+    let groups = engine.filter_groups();
+    assert_eq!(groups.len(), 1, "one group runs a filter: {groups:?}");
+    let (group, insert, hz, _, shape) = &groups[0];
+    assert_eq!((*group, *insert), (0, 0));
+    assert!(
+        (hz - 800.0).abs() < 1.0,
+        "saved cutoff, not a default: {hz}"
+    );
+    assert!(shape.contains("Low"), "saved filter type: {shape}");
+}
+
+#[test]
+fn the_note_duration_array_reports_time_since_the_note_started() {
+    use kontra_vm::{HostApi, HostCall, HostValue, Text};
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let plan = Plan::new(vec![Zone::new(sine(&mut store), 60, RATE)], 8);
+    let mut e = engine(&store, plan);
+    // Start the note, then run a tenth of a second of silence.
+    let mut block = vec![[0.0f32; 2]; 4800];
+    e.process(&mut block, &[on(60, 1.0)]);
+    let mut out = Text::EMPTY;
+    let mut call = |e: &mut Engine, key: i64| {
+        e.call(HostCall {
+            action: kontra_engine::Action::NoteDuration,
+            context: 0,
+            ints: &[key],
+            texts: &[],
+            cells: &mut [],
+            text_cells: &mut [],
+            text_out: &mut out,
+        })
+    };
+    // 4800 frames at 48 kHz is 100 000 microseconds.
+    assert_eq!(call(&mut e, 60), HostValue::Int(100_000));
+    assert_eq!(call(&mut e, 61), HostValue::Int(0), "no note on that key");
+}
