@@ -107,111 +107,112 @@ Read back with the emulator (`tools/re/choral_modes.py` uses the same core const
 bank = e.read(core + 0x6c8, 'Q'); f = e.read(bank, 'f', 56)
 ```
 
-## What is measured, and what is not
+## The bank, field by field
 
-Measured on 8.13.1 through the emulator:
+The mode switch writes float per-voice columns into the bank; `0x14193e160` then copies them onto the
+voice structs (`V` = `core+0xbb0+0x290·i`, the pointer the `process` uses). Reading the bank at
+`[core+0x6c8]` and the voices after `prepare`, the columns are:
 
-- **Voice delay** `base × (delay · 5 + 0.1)` s. Mode 0's first voice lands on frame 374 at delay 0.5
-  and 734 at 1.0; the formula predicts 374.4 and 734.4.
-- **Mode selection** `(int)(p · 4)` clamped to 0..=3, with 4 folding onto 3.
-- **The LFO's swing at amount 1, rate 0.5, delay 0.5, mode 0**: an impulse train every 2000 frames
-  puts the strongest echo between frames 1389 and 1594, i.e. 28.9 to 33.2 ms around a 30 ms centre,
-  a swing of roughly ±7%.
+| bank | voice field | meaning |
+| --- | --- | --- |
+| `+0x00` | `V-0x230`, `V-0x228` | base delay, seconds; `base × (delay·5+0.1) × fs` in samples |
+| `+0x1c` | `V-0x220` | gain: LFO rate multiplier (`0x14193b140`) and the output gain |
+| `+0x38` | `V-0x158` | the LFO's phase offset ("pan") |
+| `+0x54` | `V-0x1d8` | loop-filter value; scales the second LFO and divides its tap |
+| `+0x70` | `V-0x1e0` | second LFO's tap, and the flag `V-0x1a0` = `tap > 1e-8` |
+| `+0x8c` | `V-0x80` | loop-filter corner, Hz |
+| `+0xa8` | `V-0x1c0` = `1-s`, `V-0x1b8` = `s` | 0 takes the lowpass tap, 1 the bandpass tap |
+| `+0xc4` | `V-0x1f8` | smoother's triangle coefficient `c1` |
+| `+0xe0` | `V-0x200` | smoother's one-pole coefficient `c2` |
 
-Not measured, and therefore not implemented:
+Where a mode block does not write a column the constructor's defaults stand, which is why mode 1's
+corners are 4000/6000/10000 Hz and every mode's voice 6 is 50 Hz with blend 1 and tap 0.
 
-- The swing's law is **measured to be quadratic in amount**. Impulse train, rate 0.5, delay 0.5,
-  mode 0, the voice whose base is 0.011 s (28.65 ms, 1375 frames at amount 0):
+**Correction to the earlier tables**: `V-0x1e0` is not the voice's share of the seven-tap mix. It is
+the second LFO's depth; the `cmpb -0x1a0` branch tests `tap > 1e-8`, and the mix weights come from the
+*scatter* parameter alone (`0x14193a620`). The width factors are `1 − i/7` by *pair* (`i` and `i+1`
+share an angle), not `1 − ⌊i/2⌋/7`.
 
-  | amount | echo range (frames) | swing | swing / base |
-  | --- | --- | --- | --- |
-  | 0.00 | 1375..1375 | 0 | 0 |
-  | 0.25 | 1375..1387 | 12 | 0.87% |
-  | 0.50 | 1378..1430 | 52 | 3.8% |
-  | 0.75 | 1383..1492 | 109 | 7.9% |
-  | 1.00 | 1389..1594 | 205 | 14.9% |
+## The kernel, per frame (`0x14193be50`)
 
-  The ratios track `a²` (0.0625, 0.25, 0.5625, 1.0) closely, so the peak-to-peak swing is about
-  `0.15 · a² · base`. The documented pitch-ratio law (`2^(d·0.025)`, 1.75% at amount 1) is roughly
-  eight times too small, so it is **not** the swing law and must not be used as one.
-- The LFO's shape and its per-voice phase.
-- The six loop-filter constants after the pans, and whether the 0.99 seven in mode 3 are the one-pole
-  coefficients they look like.
+Per frame, in this order:
 
-## Kernel read (2026-10-30): the LFO, its phase, and the depth
+1. **Seven-tap cyclic mix** (`0x141939270`, coefficients at `core+0x7c0`): a circulant over the
+   *previous* frame's reads at `core+0x830`,
+   `mix[j] = Σᵢ C[(i − j) mod 7] · read[i]`. The coefficients are `0x14193a620`'s scatter matrix:
+   `C[0] = 1 − 0.5540970937771941·s`, `C[1] = C[2] = C[4] = −0.261203874963741·s`,
+   `C[3] = C[5] = C[6] = 0.445902906222806·s` (the constants are `0x147697a88`, `0x147697ac0`,
+   `0x147697a80`). Rows sum to one; `scatter` 0 is diagonal.
+2. **Per voice** (`0x14193c300`), a two-pole loop filter on `x = A·G2ᵢ·mixᵢ + makeup·input`
+   (`A` is the invert polarity at `core+0x1b80`, `G2` at `core+0x780`):
 
-Read from `0x14193be50` (process), `0x14193c7c0` (the modulation-matrix update, which is inert here:
-`core+0x3d5` is 0, so it returns before writing anything), `0x14193bd90` (the per-voice LFO read),
-`0x14193dc00`, `0x14193dd30`, `0x14193ddb0` (its setup) and the amount setter `0x14193a2f0`, then
-confirmed by tracing the emulator (`Emu` hooks at `0x14193c431`, `0x14193c4b9`).
+   ```
+   k  = tan(π·hz/fs)                     # 0x14193e321, tan by x + x³/3 + x⁵/7.5
+   k2 = 1 / (1 + √2·k + k²)
+   q      = (s2 + k·(x − s1)) · k2
+   s2, s1 = 2q − s2, s1 + 2q·k
+   low    = (s1_old + s1) / 2
+   band   = x − √2·q − low
+   y      = (1 − blend)·low + blend·band
+   ```
 
-**The LFO is a triangle.** At rate 0.5, amount 0.6, mode 1, 48 kHz, the value handed to the voice
-is `4·n·(hz/fs) − 1` to the last bit (`hz/fs` = 2.4479e-5) up to the peak at frame 20429, then the
-mirror: `x = 4φ − 1` on the rising half, `x = 3 − 4φ` on the falling half.
+   `y` is written to the voice's ring twice — at `widx` and at `widx + size` (`size` = 32768,
+   `mask` = `0x7fff` at `voice+0x48`) — and `widx` advances, so the read pointer always sits one frame
+   ahead of the write.
+3. **The LFO** (`0x14193bd90`): a triangle at `offset + phase` (`offset` = the bank's pan), then
+   `phase += hz/fs` with a one-pole glide that is inert here (`voice+0x28` stays 0). The second LFO is
+   the *shaped* triangle of `0x1419393d0`, `(π/2)y − 0.641592653589793y³ + 0.0707963267948966y⁵` —
+   `sin(πy/2)` to 4e-4 — at rate `hz · filter`, and it is only called when `tap > 1e-8`.
+   Both then feed the smoother: `s = (1−c2)·[(2 − c1(1−t))·(t+1)/4 + (½·t₂+1)·tap/filter] + c2·s`.
+4. **The read**: `d = base + depth·s` samples, `trunc(d)` frames back from the read pointer, a
+   Catmull-Rom between `trunc` and `trunc+1` (four taps at `trunc−1 … trunc+2`, the ring running
+   backwards), giving this frame's `read`.
+5. **The output** (`0x14193c191`): per voice `t = A·(read + G2ᵢ·mixᵢ) + makeup·input`, then the width
+   rotation — even voices `[c s; −s c]`, odd `[c −s; s c]` from `core+0x8a0` at
+   `θ = width·π/4·(1 − i/7)` per pair, voice 6 identity — scaled by `G1` (`core+0x748`), summed.
+6. **The global tone filter** (`core+0x1c20..0x1cd0`): the same two-pole form with
+   `k = tan(π·f1/w^¼/fs)`, `f1 = min(0.25/(base₀·(delay·5+0.1)), 50)`, `w = max(1 − G2₀, 0.2)`
+   (clamps `0x144f38b08`, `0x144f38948`), and the output
+   `(sum + low·(w−1) + q·√2·(√w−1)) · (mix·makeup·(0x1b70·0.707)) + (1−mix)·input`, where
+   `0x1b70 = sqrt(0.2·Σ + 0.6)/Σ`, `Σ = 2 + 2(g + h)` and `makeup = (1 − min(G2₀, 0.99)⁴)^¼`.
 
-**Rate law: `hz = 0.25 + 7.4 · rate³`** (Hz). `voice+(-0x220)` after prepare, 48 kHz:
+`core+0x1c60..0x1c74` receives six smoothed `voice+0x50` products — the per-frame delay increment
+times the depth, i.e. the LFO's *velocity* — and nothing in the kernel reads them back. They are a
+metering feed, not audio; `Chorus` does not compute them.
 
-| rate | 0 | 0.05 | 0.1 | 0.25 | 0.5 | 0.75 | 1 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Hz | 0.25 | 0.250925 | 0.2574 | 0.365625 | 1.175 | 3.371875 | 7.65 |
+## Validation against the native vector
 
-**Per-voice phase = the mode table's `pan` field.** `voice+(-0x158)` holds the offset the read adds
-to the phase, and it is exactly the effective bank's pan for that voice: mode 1 `0, .5, .33333,
-.83333, .66666, .16666, 0`; mode 0 `0, .5, 0, .5, 0, .5, 0`; mode 3 `0, 0, 0, .25, 0, .25, 0`. So the
-`pan` column is the LFO's phase offset, not a stereo position.
+`tools/re/kemu_timemod.py choral` renders 3000 frames of `0.5·sin(0.05n) + δ(n)` / `0.5·sin(0.031n)`
+in 32-frame blocks; `crates/dsp/delay/tests/chorus.rs` pins both cases.
 
-**Depth law (supersedes the 0.15·a² fit below).** The amount setter stores
-`m = 0.99·amount² + 0.01` at `voice+(-0x218)` and `1/(2^(0.025m) − 0.9999)` at `voice+0x58`;
-`0x14193dc00` then stores
+| frame | case 1 native (L, R) | `Chorus` (L, R) | case 2 native | `Chorus` |
+| --- | --- | --- | --- | --- |
+| 0 | `3f32c0a0 00000000` | exact | `3e820df2 00000000` | exact |
+| 1 | `3c7145ad 3c314b45` | `3c7145b0 3c314b45` | `3bc4ddf0 3b80fe4e` | `3bc4ddf1 3b80fe4e` |
+| 150 | `3ea49034 bebce4dd` | `3ea49034 bebce4de` | `3defac3e be071ad4` | `3defac3f be071ad4` |
+| 777 | `3e88e9e0 be871bd9` | `3e88e9de be871bdd` | `3ded953d bddf899f` | `3ded953d bddf89a0` |
+| 1500 | `be883379 3e1418bb` | `be88337c 3e1418c4` | `bd45a8a0 bdf18584` | `bd45a89a bdf18585` |
+| 2999 | `bdc85a44 bea4ea2d` | `bdc85a34 bea4ea29` | `be25b166 3d3db892` | `be25b163 3d3db893` |
 
-```
-depth_samples = (fs / hz) · ½ · (2^(0.025·m) − 1)        at voice+(-0x210)
-```
+The worst reference frame is 1.3e-7 absolute (case 1, frame 1500) and 4.5e-8 (case 2,
+frame 2999) — two to four ulps of f32. The f64 model the implementation was written
+from, computing the same operations in Python, reproduces frames 0, 1 and 150 of case 1
+on the exact bits and stays within 2.5e-6 over all 3000 frames (mean 1.2e-7), so what
+remains is not a missing term: every intermediate checked against the emulator — the
+mix, `s`, `d`, the loop filter's `s1`/`s2`/`y`, the read — agrees to the last bit or a
+few ulps. The residual is the emulator's own `sincos` at `0x1443c9bd0`, which returns
+`0.9510565148` for `cos 18°` where libm returns `0.95105651629515`, plus the f32
+rounding of the output.
 
-and the process adds `depth · s` to the base delay, where `s` is the smoothed LFO. Measured
-(`voice+(-0x210)`, 48 kHz): 3.5398 / 25.4558 / 91.3451 / 201.6327 / 357.0320 samples at amount
-0 / .25 / .5 / .75 / 1 (rate 0.5), and 611.4650 at amount .6, rate 0 (0.25 Hz). The impulse-train
-table above under-samples a 1.175 Hz triangle, which is why it read only 205 frames at amount 1
-where the depth field is 357 samples.
+## What is still unread
 
-**The six loop-filter constants are per-voice coefficients.** `voice+(-0x1d8)` is the mode table's
-filter value for that voice (mode 1: 4.1, 4.1, 4.0, 4.0, 4.12, 4.1241; 1.0 for voice 6, which the
-table does not give one) and `voice+(-0x1d0)` is `1/`it. Two more per-voice smoother coefficients
-sit at `voice+(-0x1f8)` and `voice+(-0x200)`, and a tap weight at `voice+(-0x1e0)` (which is what the
-`cmpb -0x1a0(%rsi)` branch in the process tests):
+Nothing on the audio path. Still open, and inert for this effect:
 
-| mode | `-0x1f8` | `-0x200` | `-0x1e0` |
-| --- | --- | --- | --- |
-| 0 | .2 .21 .21 .2 .4 .4 0 | .4 ×7 | 0 0 0 0 .01 .01 0 |
-| 1 | .01 .01 .01 .013 .014 .012 0 | .3 .32 .32 .3 .33 .3 .4 | 1 ×6, 0 |
-| 2 | .1 .1 .101 .101 .4 .4 0 | .2 .22 .22 .2 .2 .2 .99 | 0 ×7 |
-| 3 | 0 .2 0 0 0 0 0 | .99 ×7 | 0 0 .3 .3 .6 .6 0 |
-
-Which bank field or constructor table those come from is not identified yet.
-
-**Feedback enters as a per-voice input gain**, `(0.999 · feedback^0.25)^(base_i/base_0)`
-(`0x14193ae70`): at feedback 0.5 and mode 1 that is 0.840056 ×4, 0.723484 ×2, 0.485757.
-
-**The stereo rotation comes from `width`, not from the bank's `pan`.** `0x14193a4a0` writes a 2×2
-rotation per voice at `core+0x8a0`, `[c s; −s c]` for even voices and its transpose for odd ones, at
-`θ = width · (π/4) · (1, 1, 5/7, 5/7, 3/7, 3/7, 0)` (the `1 − i/7` factors and the ±π/4 constants
-`0x147697a78`/`0x147697aa0`/`0x147697ac8`). Measured at width 0.4: 18° for voices 0/1, 12.857° for
-2/3, 7.71° for 4/5, identity for voice 6; at width 1: 45°, 32.14°, 19.29°.
-
-**`voices` scales the output gains** at `core+0x748` (`0x14193a3e0`): `[1, 1, g, g, h, h, 0]` with
-`g = sqrt(min(2·voices, 1))` and `h = sqrt(max(2·voices − 1, 0))` — 1 and 0.63246 at voices 0.7,
-1/0 at 0.5, 0/0 at 0.
-
-**The process, per frame** (`0x14193be50`): for each voice — LFO read and glide (`0x14193bd90`), the
-one-pole smoother, the fractional delay in samples, a **Catmull-Rom** read of the voice's ring (four
-taps at `floor`, `floor±1`, `floor+2`, weights `p0 + ½f(p1−p−1) + f²(p−1−2.5p0+2p1−½p2) +
-f³(1.5p0−1.5p1+½p2−½p−1)` with the ring running backwards in time) — then a seven-tap cyclic mix
-(`0x141939270`) over `core+0x830` with the coefficients at `core+0x7c0` and the per-voice gains at
-`core+0x748`/`core+0x780`, a global two-section tone filter (`core+0x1c20`..`0x1cd0`) and the
-dry/wet mix at `core+0x1b88`/`core+0x1b90`. The ring is written at `widx` and `widx + size`
-(double-buffered); the read pointer is `widx + 1`.
-
-Not yet read, and the reason `Chorus::process` is still unimplemented: the per-voice smoothing and
-filter networks behind `-0x1f8`/`-0x200`/`-0x1e0`, the pan rotation matrices at `core+0x8a0`, how the
-seven-tap mix at `core+0x7c0` is applied per frame, and the global tone filter's design.
-
+- **`core+0x1c60..0x1c74`** — written (six smoothed LFO velocities) and read by nothing in the kernel.
+  Whose display consumes it is not traced.
+- **`0x14193c7c0`** (the modulation-matrix update) returns at once unless `core+0x3d5` is set, which
+  the Choral construct/host path never sets.
+- **`core+0x680`** is a *pointer* to the bank, not a second table; its `[0]`, `[4]` … floats are the
+  bank's delays, which is how `0x14193ae70` gets `baseᵢ/base₀`.
+- **Mode 2's `+0x94/+0x98/+0x9c/+0xa0`** (150/20000) are read into `V-0x188`/`V-0x190`, which the
+  kernel never touches — a second, unused filter pair.
