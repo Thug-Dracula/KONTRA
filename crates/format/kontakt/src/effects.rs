@@ -97,6 +97,10 @@ fn rack(
     notes: &mut Notes,
     mut laws: Option<(ir::RackAt, &mut Slots)>,
 ) -> Vec<Option<ir::Effect>> {
+    // A send rack's slots return only their wet (see [`send_wet_only`]).
+    let laws_sends = laws
+        .as_ref()
+        .is_some_and(|(at, _)| matches!(at, ir::RackAt::Sends));
     let mut out: Vec<Option<ir::Effect>> = array
         .items
         .iter()
@@ -173,10 +177,38 @@ fn rack(
     while out.last().is_some_and(Option::is_none) {
         out.pop();
     }
+    if laws_sends {
+        send_wet_only(&mut out);
+    }
     if at.starts_with("group") {
         group_wet(&out, at, notes);
     }
     out
+}
+
+/// A slot's stored output gain, as Kontakt applies it.
+///
+/// A filter/EQ slot has no Output control, so a stored 0 there means "no
+/// control" and reads unity (ANALOG STRINGS stores 0 on one that plays in
+/// Kontakt; corpus of 12,918 EQ slots). Any other stored level is the level
+/// itself: Haunted Strings 2's Solid EQs (0x44) carry its layer mixer, driven
+/// by `$ENGINE_PAR_INSERT_EFFECT_OUTPUT_GAIN` — 1.3498, 0.1485 and 0.32954 for
+/// the script's 438579, 210153 and 274111. Reading those as unity sums three
+/// layers at full level (+2.8 dB here).
+fn slot_output(filter: bool, stored: f32) -> f32 {
+    if filter && stored <= 0.0 { 1.0 } else { stored }
+}
+
+/// A send rack's slots return only what they make: a stored dry level is the
+/// module's own mix control, not a pass-through of the send's input. Kontakt
+/// already returns a send slot's dry at 0 for a type it loads (measured on
+/// 8.13's reverb, `fx_types.rs`), and a saved 0.98 there would put the whole
+/// dry signal back on the main output beside the dry path — Haunted Strings 2
+/// stores exactly that on its convolution send (+5.9 dB when summed).
+fn send_wet_only(out: &mut [Option<ir::Effect>]) {
+    for e in out.iter_mut().flatten() {
+        e.dry = 0.0;
+    }
 }
 
 /// A group rack runs its wet slots on the group's sum, except one at or
@@ -399,11 +431,18 @@ fn slot_effect(
     let parallel = matches!(effect.id, 0x10..=0x12 | 0x15 | 0x16 | 0x59 | 0x5a);
     // An EQ (Filter kinds 22..=24) has no Output control: ANALOG STRINGS
     // stores 0 on one that plays in Kontakt (v2 sampler-kontakt effects/mod.rs, corpus of
-    // 12,918 EQ slots).
+    // 12,918 EQ slots). A stored 0 is that absent control, not a mute, so it
+    // still reads unity. A *stored* level is a level: Haunted Strings 2's Solid
+    // EQs (0x44) carry its layer mixer, which its script drives through
+    // `$ENGINE_PAR_INSERT_EFFECT_OUTPUT_GAIN` — resolved 1.3498, 0.1485 and
+    // 0.32954 for `$pure_vol`/`$amp_vol`/`$tape_vol` 438579/210153/274111
+    // through the effect gain law. Forcing unity there sums three layers at
+    // full level (+2.8 dB on the render, and the wrong layer balance).
     let eq = matches!(
         kind,
         Some(ir::EffectKind::Eq(_) | ir::EffectKind::Filter(_) | ir::EffectKind::Clocked(_))
     );
+    let output = slot_output(eq, params.output_gain);
     let effect_out = ir::Effect {
         kind: kind.unwrap_or(if parallel {
             ir::EffectKind::OtherWet
@@ -411,7 +450,7 @@ fn slot_effect(
             ir::EffectKind::Other
         }),
         bypass: params.bypass,
-        output: if eq { 1.0 } else { params.output_gain },
+        output,
         dry: if parallel || effect.id == 0x13 {
             params.dry_level
         } else {
@@ -710,5 +749,57 @@ pub(crate) fn program(program: &Program, impulses: &mut Impulses, notes: &mut No
         main,
         buses,
         laws,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a stored EQ output means: 0 is an absent control, anything else is
+    /// a level. Pinned by Haunted Strings 2 (its Solid EQs are its layer mixer)
+    /// and ANALOG STRINGS (a 0 on an EQ that plays).
+    #[test]
+    fn a_filter_slots_stored_output_is_a_level_unless_it_is_absent() {
+        assert_eq!(slot_output(true, 0.0), 1.0, "a filter's absent Output");
+        assert_eq!(slot_output(true, -0.0), 1.0, "negative zero is still none");
+        assert_eq!(slot_output(true, 1.3497815), 1.3497815, "pure layer");
+        assert_eq!(slot_output(true, 0.1485001), 0.1485001, "amp layer");
+        assert_eq!(slot_output(true, 0.32953337), 0.32953337, "tape layer");
+        assert_eq!(slot_output(false, 0.0), 0.0, "another slot's 0 is a value");
+        assert_eq!(slot_output(false, 0.7035764), 0.7035764);
+    }
+
+    /// A send rack returns only what its slots make; their stored dry is the
+    /// module's own mix control, not a pass-through (Haunted Strings 2 stores
+    /// 0.9797 on its convolution send, worth +5.9 dB if summed).
+    #[test]
+    fn a_send_racks_slots_keep_no_dry_level() {
+        let slot = |kind, dry| {
+            Some(ir::Effect {
+                kind,
+                bypass: false,
+                output: 0.2012346,
+                dry,
+            })
+        };
+        let mut rack = vec![
+            slot(ir::EffectKind::Convolution { impulse: 0 }, 0.97968113),
+            None,
+            slot(ir::EffectKind::Gain(2.0), 0.5),
+        ];
+        send_wet_only(&mut rack);
+        for e in rack.iter().flatten() {
+            assert_eq!(e.dry, 0.0, "a send slot kept a dry level: {e:?}");
+        }
+        assert_eq!(
+            rack[0].as_ref().map(|e| e.output),
+            Some(0.2012346),
+            "the wet output is left alone"
+        );
+        assert_eq!(
+            rack[2].as_ref().map(|e| e.kind),
+            Some(ir::EffectKind::Gain(2.0))
+        );
     }
 }
