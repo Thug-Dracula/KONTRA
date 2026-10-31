@@ -564,7 +564,11 @@ mod tests {
     fn a_text_field_on_a_pictured_control_takes_its_surface_and_stays_inside_it() {
         use kontra_ui_model::{Margins, MenuItem};
 
-        let mut tree = Interface::default();
+        let mut tree = Interface {
+            // A script's own controls: the stock faces are the KSP ones.
+            source: model::Source::Ksp { slot: 0 },
+            ..Interface::default()
+        };
         tree.pages.push(model::Page {
             size: model::Size {
                 width: 633.,
