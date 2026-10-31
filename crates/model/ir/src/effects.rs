@@ -169,13 +169,21 @@ pub const DIFFUSION_TAPS: usize = 4;
 /// ring buffers read at four fractional taps, mixed by a 4×4 whose rows are
 /// built from one angle (docs/re/engine/k-replika-diffusion.md §11).
 ///
-/// The tap distances arrive as data, in samples: which saved knob sets the
-/// size and how the per-stage drift moves the taps inside its window is
-/// measured in part only, so the format, not the DSP, decides the positions.
+/// The tap distances arrive as data, as read delays **in samples at
+/// [`Self::rate`]**: which saved knob sets the size and how the per-stage
+/// drift moves the taps inside its window is measured in part only, so the
+/// format, not the DSP, decides the positions. The rate is what makes those
+/// sample counts a time — Kontakt's `NI::DSP::Diffuser` bakes its table for
+/// 48 kHz, so the network scales them for the rate it is built at. Without it
+/// a 44.1 kHz render played every delay line 8.8 % short, while
+/// [`Self::relength_s`] next to it was already in seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Diffusion {
-    /// Per stage, the four taps' read distance in samples (fractional).
+    /// Per stage, the four taps' read distance in samples at [`Self::rate`]
+    /// (fractional).
     pub taps: [[f32; DIFFUSION_TAPS]; DIFFUSION_STAGES],
+    /// The rate [`Self::taps`] is a sample count of.
+    pub rate: u32,
     /// The mixing rows' angle, radians (measured: π/2 − SIZE).
     pub angle: f32,
     /// Seconds between the network's re-length ticks; 0 for none

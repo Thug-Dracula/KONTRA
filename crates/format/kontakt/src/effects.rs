@@ -85,22 +85,53 @@ fn name(id: u16) -> String {
         .map_or_else(|| format!("unknown {id:#04x}"), |(_, n)| (*n).into())
 }
 
-/// A rack's slots as effects. Gainer, Inverter and Stereo Modeller carry
-/// over; every other module passes audio at its output gain and is reported
-/// (bypassed ones as cosmetic: a script may switch them on).
-/// A rack's effects by slot. Slot laws go to `laws` when the rack is one a
-/// script addresses by `rack_at`.
+/// Where a rack sits in the signal path — what its slots return.
+///
+/// Kept apart from [`ir::RackAt`], which is how a *script* addresses a rack: a
+/// rack can exist (a fourth instrument rack, or one whose index no address
+/// describes) without a name a script can reach, but it still has a place, and
+/// the place is what decides whether its slots return only their wet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Place {
+    Inserts,
+    Sends,
+    Main,
+    Bus(u8),
+    Group(u32),
+    /// A rack Kontakt's script interface has no name for.
+    Unnamed,
+}
+
+impl Place {
+    /// How a script addresses this rack, for the slot laws: `None` when it has
+    /// no such name.
+    fn at(self) -> Option<ir::RackAt> {
+        Some(match self {
+            Self::Inserts => ir::RackAt::Inserts,
+            Self::Sends => ir::RackAt::Sends,
+            Self::Main => ir::RackAt::Main,
+            Self::Bus(n) => ir::RackAt::Bus(n),
+            Self::Group(n) => ir::RackAt::Group(n),
+            Self::Unnamed => return None,
+        })
+    }
+}
+
+/// A rack's effects by slot. Gainer, Inverter and Stereo Modeller carry over;
+/// every other module passes audio at its output gain and is reported (bypassed
+/// ones as cosmetic: a script may switch them on).
+///
+/// `place` is the rack's own position; `laws` is only where the script-
+/// addressable slot laws go, so no law may be read off it being present.
 fn rack(
     array: &BParamArrayBParFX8,
     at: &str,
+    place: Place,
     impulses: &mut Impulses,
     notes: &mut Notes,
-    mut laws: Option<(ir::RackAt, &mut Slots)>,
+    laws: Option<&mut Slots>,
 ) -> Vec<Option<ir::Effect>> {
-    // A send rack's slots return only their wet (see [`send_wet_only`]).
-    let laws_sends = laws
-        .as_ref()
-        .is_some_and(|(at, _)| matches!(at, ir::RackAt::Sends));
+    let mut laws = laws.and_then(|slots| place.at().map(|at| (at, slots)));
     let mut out: Vec<Option<ir::Effect>> = array
         .items
         .iter()
@@ -177,13 +208,37 @@ fn rack(
     while out.last().is_some_and(Option::is_none) {
         out.pop();
     }
-    if laws_sends {
-        send_wet_only(&mut out);
-    }
-    if at.starts_with("group") {
-        group_wet(&out, at, notes);
-    }
+    place_effects(&mut out, place, at, notes);
     out
+}
+
+/// What a rack's place does to its slots once each is decoded: a send rack's
+/// slots return only their wet, and a group's wet slots run where its drive
+/// does. The place is the only input, so no placement law can be switched off
+/// by a caller that passes no law sink.
+fn place_effects(out: &mut [Option<ir::Effect>], place: Place, at: &str, notes: &mut Notes) {
+    if place == Place::Sends {
+        send_wet_only(out);
+    }
+    if matches!(place, Place::Group(_)) {
+        group_wet(out, at, notes);
+    }
+}
+
+/// Whether a slot's kind has no Output control, so a stored 0 there is the
+/// absent control rather than silence.
+///
+/// The evidence is the Eq and Filter kinds only — Filter subtypes 22..=24, 12,918
+/// EQ slots in the corpus, and Haunted Strings 2's Solid EQs (below). A
+/// [`ir::EffectKind::Clocked`] slot (Phaser/Vowel subtypes of the same module)
+/// has never been ablated: no corpus slot stores a 0 there that Kontakt plays,
+/// so it keeps its stored level as a level until one is measured. Reading it as
+/// "absent" would change a Clocked slot's gain on no evidence.
+fn absent_output(kind: Option<&ir::EffectKind>) -> bool {
+    matches!(
+        kind,
+        Some(ir::EffectKind::Eq(_) | ir::EffectKind::Filter(_))
+    )
 }
 
 /// A slot's stored output gain, as Kontakt applies it.
@@ -195,8 +250,8 @@ fn rack(
 /// by `$ENGINE_PAR_INSERT_EFFECT_OUTPUT_GAIN` — 1.3498, 0.1485 and 0.32954 for
 /// the script's 438579, 210153 and 274111. Reading those as unity sums three
 /// layers at full level (+2.8 dB here).
-fn slot_output(filter: bool, stored: f32) -> f32 {
-    if filter && stored <= 0.0 { 1.0 } else { stored }
+fn slot_output(absent: bool, stored: f32) -> f32 {
+    if absent && stored <= 0.0 { 1.0 } else { stored }
 }
 
 /// A send rack's slots return only what they make: a stored dry level is the
@@ -441,11 +496,8 @@ fn slot_effect(
     // 0.32954 for `$pure_vol`/`$amp_vol`/`$tape_vol` 438579/210153/274111
     // through the effect gain law. Forcing unity there sums three layers at
     // full level (+2.8 dB on the render, and the wrong layer balance).
-    let eq = matches!(
-        kind,
-        Some(ir::EffectKind::Eq(_) | ir::EffectKind::Filter(_) | ir::EffectKind::Clocked(_))
-    );
-    let output = slot_output(eq, params.output_gain);
+    // Only these two kinds: [`absent_output`] says why Clocked is not one.
+    let output = slot_output(absent_output(kind.as_ref()), params.output_gain);
     let effect_out = ir::Effect {
         kind: kind.unwrap_or(if parallel {
             ir::EffectKind::OtherWet
@@ -632,16 +684,17 @@ pub(crate) fn group(
     notes: &mut Notes,
     laws: &mut Slots,
 ) -> Vec<Option<ir::Effect>> {
-    let rack_at = u32::try_from(index)
-        .ok()
-        .map(|g| (ir::RackAt::Group(g), laws));
+    // A group index past u32 has no law address either, so it takes the
+    // unnamed place and contributes no laws.
+    let place = u32::try_from(index).map_or(Place::Unnamed, Place::Group);
     match group.insert_fx() {
         Ok(array) => rack(
             &array,
             &format!("group {index} insert"),
+            place,
             impulses,
             notes,
-            rack_at,
+            Some(laws),
         ),
         Err(e) => {
             notes.add(
@@ -718,17 +771,17 @@ pub(crate) fn program(program: &Program, impulses: &mut Impulses, notes: &mut No
         };
         match array {
             Ok(array) => {
-                let to = match (child.id, racks) {
+                let place = match (child.id, racks) {
+                    // A bus past u8 has no law address either, so it takes the
+                    // unnamed place rather than a made-up one.
                     (BUS, _) => u8::try_from(buses.len().saturating_sub(1))
-                        .ok()
-                        .map(ir::RackAt::Bus),
-                    (_, 1) => Some(ir::RackAt::Inserts),
-                    (_, 2) => Some(ir::RackAt::Sends),
-                    (_, 3) => Some(ir::RackAt::Main),
-                    _ => None,
+                        .map_or(Place::Unnamed, Place::Bus),
+                    (_, 1) => Place::Inserts,
+                    (_, 2) => Place::Sends,
+                    (_, 3) => Place::Main,
+                    _ => Place::Unnamed,
                 };
-                let to = to.map(|at| (at, &mut laws));
-                let effects = rack(&array, &at, impulses, notes, to);
+                let effects = rack(&array, &at, place, impulses, notes, Some(&mut laws));
                 match (child.id, buses.last_mut()) {
                     (BUS, Some(bus)) => bus.inserts = effects,
                     _ => {
@@ -778,19 +831,7 @@ mod tests {
     /// 0.9797 on its convolution send, worth +5.9 dB if summed).
     #[test]
     fn a_send_racks_slots_keep_no_dry_level() {
-        let slot = |kind, dry| {
-            Some(ir::Effect {
-                kind,
-                bypass: false,
-                output: 0.2012346,
-                dry,
-            })
-        };
-        let mut rack = vec![
-            slot(ir::EffectKind::Convolution { impulse: 0 }, 0.97968113),
-            None,
-            slot(ir::EffectKind::Gain(2.0), 0.5),
-        ];
+        let mut rack = dry_rack();
         send_wet_only(&mut rack);
         for e in rack.iter().flatten() {
             assert_eq!(e.dry, 0.0, "a send slot kept a dry level: {e:?}");
@@ -804,5 +845,81 @@ mod tests {
             rack[2].as_ref().map(|e| e.kind),
             Some(ir::EffectKind::Gain(2.0))
         );
+    }
+
+    fn dry_rack() -> Vec<Option<ir::Effect>> {
+        let slot = |kind, dry| {
+            Some(ir::Effect {
+                kind,
+                bypass: false,
+                output: 0.2012346,
+                dry,
+            })
+        };
+        vec![
+            slot(ir::EffectKind::Convolution { impulse: 0 }, 0.97968113),
+            None,
+            slot(ir::EffectKind::Gain(2.0), 0.5),
+        ]
+    }
+
+    /// The send law is the rack's *place*, not whether a law sink was passed.
+    /// It used to be read off the `Option<&mut Slots>` argument, so a caller
+    /// that collected no laws on the send rack (or a group rack's index that
+    /// did not fit a law address) silently put Haunted Strings 2's +5.9 dB of
+    /// dry back on the main output. `place_effects` cannot see a law sink at
+    /// all, which is the fix; this pins the behaviour.
+    #[test]
+    fn the_send_law_is_the_racks_place_and_nothing_else() {
+        let mut notes = Notes::default();
+        let mut rack = dry_rack();
+        place_effects(&mut rack, Place::Sends, "instrument send", &mut notes);
+        for e in rack.iter().flatten() {
+            assert_eq!(e.dry, 0.0, "the send rack kept a dry level: {e:?}");
+        }
+        let keeps_dry = [
+            Place::Inserts,
+            Place::Main,
+            Place::Bus(0),
+            Place::Group(0),
+            Place::Unnamed,
+        ];
+        for place in keeps_dry {
+            let mut rack = dry_rack();
+            place_effects(&mut rack, place, "somewhere", &mut notes);
+            assert_eq!(
+                rack[0].as_ref().map(|e| e.dry),
+                Some(0.97968113),
+                "{place:?} is not a send rack and must keep its stored dry"
+            );
+        }
+        // And the law address can only name racks a script has a word for.
+        assert_eq!(Place::Sends.at(), Some(ir::RackAt::Sends));
+        assert_eq!(Place::Group(3).at(), Some(ir::RackAt::Group(3)));
+        assert_eq!(Place::Unnamed.at(), None);
+    }
+
+    /// A Clocked slot has never been ablated, so it is not one of the kinds
+    /// whose stored 0 means "no Output control": 12,918 EQ slots say that about
+    /// Eq and Filter, and nothing says it about Clocked. Reading it as absent
+    /// would move a Clocked slot's gain with no measurement behind it.
+    #[test]
+    fn a_clocked_slot_is_not_yet_a_slot_without_an_output_control() {
+        let clocked = ir::EffectKind::Clocked(ir::Clocked {
+            shape: ir::ClockedShape::Allpass,
+            cutoff: 1000.0,
+            resonance: 0.5,
+        });
+        assert!(!absent_output(Some(&clocked)));
+        // Its stored level is still a level, at 0.5 and at 0.
+        assert_eq!(slot_output(absent_output(Some(&clocked)), 0.5), 0.5);
+        assert_eq!(slot_output(absent_output(Some(&clocked)), 0.0), 0.0);
+        // The two kinds the corpus does back.
+        let eq = ir::EffectKind::Eq([ir::Bell::FLAT; 4]);
+        assert!(absent_output(Some(&eq)));
+        assert_eq!(slot_output(absent_output(Some(&eq)), 0.0), 1.0);
+        // Anything else, and a slot that decodes to no kind at all.
+        assert!(!absent_output(Some(&ir::EffectKind::Gain(1.0))));
+        assert!(!absent_output(None));
     }
 }

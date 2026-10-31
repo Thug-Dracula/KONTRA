@@ -295,11 +295,16 @@ fn delay(d: ir::Delay, tempo: f32) -> kontra_dsp::delay::Settings {
     }
 }
 
-/// The diffusion network's settings: the taps the format measured, the
-/// angle, and the re-length clock (a quarter second, measured).
+/// The diffusion network's settings: the taps the format measured (a sample
+/// count at the rate the format measured them at), the angle, and the
+/// re-length clock (a quarter second, measured).
 fn network(d: ir::Diffusion, rate: u32) -> diffusion::Settings {
+    // The taps are Kontakt's own table, in samples at `d.rate`; a network built
+    // at another rate reads them short (8.8 % at 44.1 kHz) unless they are
+    // scaled. At the rate they were measured at the factor is exactly 1.
+    let scale = rate as f32 / d.rate.max(1) as f32;
     diffusion::Settings {
-        taps: d.taps,
+        taps: d.taps.map(|stage| stage.map(|tap| tap * scale)),
         angle: d.angle,
         // `+0x12a8 = trunc(sample rate · 0.25)`, `0x1448569e4`.
         relength: (rate as f32 * d.relength_s).max(0.0) as u32,
@@ -486,5 +491,42 @@ pub fn curve(c: ir::DriveCurve) -> drive::Curve {
         ir::DriveCurve::Fold(x) => drive::Curve::Fold(x),
         ir::DriveCurve::Tanh(x) => drive::Curve::Tanh(x),
         ir::DriveCurve::Atan(x) => drive::Curve::Atan(x),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The taps are a sample count at the rate the format measured them at
+    /// ([`ir::Diffusion::rate`]), so a render at another rate reads them scaled
+    /// — at 44.1 kHz an unscaled 48 kHz table played every delay line 8.8 %
+    /// short. At the measured rate the factor is exactly 1, which is what keeps
+    /// the 48 kHz renders sample-for-sample what they were.
+    #[test]
+    fn the_diffusion_taps_scale_with_the_render_rate() {
+        let d = ir::Diffusion {
+            taps: [[577.0, 859.0, 587.0, 857.0]; ir::DIFFUSION_STAGES],
+            rate: 48_000,
+            angle: 1.0,
+            relength_s: 0.25,
+            seed: 0,
+        };
+        assert_eq!(
+            network(d, 48_000).taps[0],
+            d.taps[0],
+            "the measured rate must not move a tap"
+        );
+        let at_44 = network(d, 44_100);
+        let want = 577.0 * 44_100.0 / 48_000.0;
+        assert!(
+            (at_44.taps[0][0] - want).abs() < 1e-3,
+            "{} vs {want}",
+            at_44.taps[0][0]
+        );
+        assert_eq!(at_44.relength, 11_025, "a quarter second at 44.1 kHz");
+        // A record with no rate is read as the rate it is played at, not as a
+        // division by zero.
+        assert!(network(ir::Diffusion { rate: 0, ..d }, 0).taps[0][0].is_finite());
     }
 }
