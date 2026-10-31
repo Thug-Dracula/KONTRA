@@ -22,6 +22,12 @@
 #     see a picture that resolved to nothing -- it still has a rect -- which is
 #     how a missing graphic shipped once. If no reference capture exists the
 #     gate fails: ALLOW_NO_PIXEL_REF=1 is a logged admission that layer 3 is off.
+#   - a Sound Preset panel that no longer looks like *Kontakt's* render of it
+#     (layer 3, second row): a crop of Kontakt 8.14.1's own page, cut by
+#     tools/kontakt-reference/panel-reference.py, diffed against our panel at a
+#     measured ceiling. The golden row below it compares us to ourselves and so
+#     can only see change; this row can see a panel that was simply wrong, which
+#     is how the preset field persisted in review.
 set -uo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -53,6 +59,28 @@ declare -a ROWS
 row() { ROWS+=("$(printf '%-42s %s' "$1" "$2")"); }
 bad() { row "$1" "FAIL  $2"; FAILED=1; }
 ok()  { row "$1" "ok    $2"; }
+
+# One layer-3 row from one pixel-diff run: the label, then pixel-diff's own
+# arguments (reference, render, thresholds). Exit 1 is over the ceiling, exit 2
+# means the two could not be compared at all -- neither of which is a pass.
+pixel_row() {
+    local name=$1
+    shift
+    local out status reason
+    out=$(python3 "$REPO/tools/pixel-diff.py" "$@" 2>&1)
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        ok "$name" "$(printf '%s\n' "$out" | grep -o 'differing.*%' | head -1)"
+    elif [ "$status" -eq 2 ]; then
+        # "cannot be compared" (missing, unreadable, or different-sized
+        # without --scale or --crop) is neither a threshold failure nor a pass.
+        bad "$name" "$(printf '%s\n' "$out" | head -1)"
+    else
+        reason=$(printf '%s\n' "$out" | grep -oE '[0-9.]+% differs, ceiling [0-9.]+%' | head -1)
+        bad "$name" "${reason:-pixel-diff exited $status with no summary}"
+        printf '%s\n' "$out" | grep -E '^ +[0-9]+ px' | head -5 | sed 's/^/      /'
+    fi
+}
 
 run_tests() {
     local crate=$1
@@ -198,35 +226,87 @@ fi
 
 echo "== layer 3: the page still looks like the reviewed capture =="
 REF=${PIXEL_REF:-$(ls "$REPO"/tools/kontakt-reference/*-page.png 2>/dev/null | head -1)}
-if [ -n "$REF" ] && [ -f "$REF" ]; then
+# The panel, cut out of Kontakt 8.14.1's own render (tools/kontakt-reference/
+# panel-reference.py records the alignment and how to regenerate it). This row
+# exists because the golden row compares us to *our own* earlier render: it
+# can see that the page changed and never that it was wrong when it was
+# captured, which is how a preset field drew a stock frame over its plate
+# through three review rounds while every round agreed with the last wrong
+# picture. This reference has no such memory of us in it.
+PANEL_REF=${PIXEL_PANEL_REF:-$REPO/tools/kontakt-reference/electric-mint-panel-kontakt.png}
+# Percent of the panel allowed to differ from Kontakt's. Ceilings, not goals:
+# this one only ever comes down.
+#
+# Measured 2026-10-31 on this tree -- 2,304 of 12,213 px = 18.87% at tolerance
+# 12/channel -- and it is the same number on every run, because the render is
+# deterministic (the golden row reads 0 px against our own capture). The residue
+# is known, and each part of it is a defect this row would rather we fixed:
+#
+#   713 px (5.84%) the preset plate's frame is drawn 1 px up and 1 px left of
+#                  Kontakt's: its whole-width top and bottom border rows
+#                  (page rows 34/35 and 51/52) and the columns of its sides;
+#   416 px (3.41%) text rasterisation, "Sound Preset": our face is 64 px wide
+#                  where Kontakt's bitmap is 68, so no glyph lands on the same
+#                  pixel;
+#   478 px (3.91%) the same, "Spacious EDM" in the field;
+#   384 px (3.14%) the same, "Link to Song";
+#   277 px (2.27%) the save / clear / arrow buttons in the header row, a pixel
+#                  off Kontakt's own pictograms;
+#    36 px (0.29%) the mint swatch in the "Link to Song" row.
+#
+# 21.0 is 2.13 points above that measurement and 8.12 points below the defect
+# this row is for: with the field's stock frame drawn over the plate again (the
+# fix in 1e6159ac5 reverted) the same region measures 29.12% (3,557 px).
+MAX_PANEL_PCT=${MAX_PANEL_PCT:-21.0}
+# The panel's rect in page coordinates: the preset plate (446,32,171,21) grown
+# to take in the header row above it and the Link to Song row below, 2 px clear
+# either side. panel-reference.py cuts the reference to exactly this window, so
+# the two sides are compared in the same pixels. --merge 1 (not the default 3):
+# the panel is 12,213 px, and a default-merged finding is one blob covering
+# everything that moved; at 1 a field frame comes back as its own region at
+# (447,33) and the swatch as its own at (449,61), which names the defect.
+PANEL_CROP=${PANEL_CROP:-444,12,177,69}
+
+SHOT=
+SHOTERR=
+if { [ -n "$REF" ] && [ -f "$REF" ]; } ||
+   { [ -f "$PANEL_REF" ] && [ "${ALLOW_NO_PIXEL_REF:-0}" != "1" ]; }; then
     SHOTS=$LOGS/verify-shots
     rm -rf "$SHOTS"; mkdir -p "$SHOTS"
     if CARGO_TARGET_DIR="$TARGET" cargo run --release -q -p ui-shots -- "$SHOTS" "$EMINT" >"$LOGS/verify-shots.log" 2>&1; then
         SHOT=$(ls "$SHOTS"/*.png 2>/dev/null | head -1)
-        if [ -n "$SHOT" ]; then
-            OUT=$(python3 "$REPO/tools/pixel-diff.py" "$REF" "$SHOT" --scale --max-pct "$MAX_PIXEL_PCT" --out "$LOGS/verify-pixel" 2>&1)
-            STATUS=$?
-            if [ "$STATUS" -eq 0 ]; then
-                ok "pixel diff vs golden" "$(printf '%s\n' "$OUT" | grep -o 'differing.*%' | head -1)"
-            elif [ "$STATUS" -eq 2 ]; then
-                # "cannot be compared" (missing, unreadable, or different-sized
-                # without --scale) is neither a threshold failure nor a pass.
-                bad "pixel diff vs golden" "$(printf '%s\n' "$OUT" | head -1)"
-            else
-                REASON=$(printf '%s\n' "$OUT" | grep -oE '[0-9.]+% differs, ceiling [0-9.]+%' | head -1)
-                bad "pixel diff vs golden" "${REASON:-pixel-diff exited $STATUS with no summary}"
-                printf '%s\n' "$OUT" | grep -E '^ +[0-9]+ px' | head -5 | sed 's/^/      /'
-            fi
-        else
-            bad "pixel diff vs golden" "ui-shots produced no png"
-        fi
     else
-        bad "pixel diff vs golden" "see $LOGS/verify-shots.log"
+        SHOTERR="see $LOGS/verify-shots.log"
+    fi
+fi
+
+if [ -n "$REF" ] && [ -f "$REF" ]; then
+    if [ -n "$SHOTERR" ]; then
+        bad "pixel diff vs golden" "$SHOTERR"
+    elif [ -n "$SHOT" ]; then
+        pixel_row "pixel diff vs golden" "$REF" "$SHOT" --scale \
+            --max-pct "$MAX_PIXEL_PCT" --out "$LOGS/verify-pixel"
+    else
+        bad "pixel diff vs golden" "ui-shots produced no png"
     fi
 elif [ "${ALLOW_NO_PIXEL_REF:-0}" = "1" ]; then
     row "pixel diff vs golden" "OFF (ALLOW_NO_PIXEL_REF=1)"
 else
     bad "pixel diff vs golden" "no golden in tools/kontakt-reference/"
+fi
+
+echo "== layer 3: the panel still looks like Kontakt's own render =="
+if [ ! -f "$PANEL_REF" ]; then
+    bad "pixel diff vs Kontakt panel" "no reference; run tools/kontakt-reference/panel-reference.py"
+elif [ "${ALLOW_NO_PIXEL_REF:-0}" = "1" ] && [ -z "$REF" ]; then
+    row "pixel diff vs Kontakt panel" "OFF (ALLOW_NO_PIXEL_REF=1)"
+elif [ -n "$SHOTERR" ]; then
+    bad "pixel diff vs Kontakt panel" "$SHOTERR"
+elif [ -z "$SHOT" ]; then
+    bad "pixel diff vs Kontakt panel" "ui-shots produced no png"
+else
+    pixel_row "pixel diff vs Kontakt panel" "$PANEL_REF" "$SHOT" \
+        --crop "$PANEL_CROP" --merge 1 --max-pct "$MAX_PANEL_PCT" --out "$LOGS/verify-panel"
 fi
 
 echo

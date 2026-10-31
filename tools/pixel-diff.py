@@ -4,6 +4,14 @@
     tools/pixel-diff.py REF.png GOT.png                 report regions, exit 1 if over threshold
     tools/pixel-diff.py REF.png GOT.png --out DIR       also write diff.png / mask.png
     tools/pixel-diff.py REF.png GOT.png --tol 8 --max-pct 0.4
+    tools/pixel-diff.py REF.png GOT.png --crop 444,12,177,69
+
+`--crop X,Y,W,H` compares one region of both images instead of all of it, which
+is how a single control is held to a reference taken from Kontakt itself while
+the rest of the page is still allowed its own rasterisation: a 177x69 panel is
+6,000 px of signal where the whole page is 316,500 px of mostly-plate.
+Region coordinates are then reported in the image's own coordinates, not the
+crop's, so a finding can be named against the control it belongs to.
 
 A geometry harness answers "is the control where it is drawn". It cannot see a
 picture that resolved to nothing, a face that never painted, or a panel drawn in
@@ -121,11 +129,11 @@ def regions(mask, limit):
     return found[:limit]
 
 
-def describe(ref, got, area, x, y, w, h):
+def describe(ref, got, area, x, y, w, h, origin=(0, 0)):
     r = ref[y : y + h, x : x + w].reshape(-1, 3).mean(axis=0)
     g = got[y : y + h, x : x + w].reshape(-1, 3).mean(axis=0)
     return (
-        f"  {area:7d} px  {w:4d}x{h:<4d} at ({x:3d},{y:3d})"
+        f"  {area:7d} px  {w:4d}x{h:<4d} at ({x + origin[0]:3d},{y + origin[1]:3d})"
         f"   ref rgb({r[0]:3.0f},{r[1]:3.0f},{r[2]:3.0f})"
         f"   got rgb({g[0]:3.0f},{g[1]:3.0f},{g[2]:3.0f})"
     )
@@ -144,6 +152,8 @@ def main():
     ap.add_argument("--merge", type=int, default=3,
                     help="grow differences by this many px before grouping (default 3)")
     ap.add_argument("--max-regions", type=int, default=12)
+    ap.add_argument("--crop", metavar="X,Y,W,H",
+                    help="compare only this region of both images (page coordinates)")
     ap.add_argument("--out", help="write diff.png and mask.png here")
     args = ap.parse_args()
 
@@ -155,6 +165,8 @@ def main():
 
     try:
         ref = load(ref_path)
+        # --crop replaces --scale's job: the render is cut to the region, not
+        # resized to the reference, so the two are compared 1:1 in page pixels.
         if args.scale:
             got = load(got_path, scale_to=(ref.shape[1], ref.shape[0]))
         else:
@@ -162,6 +174,38 @@ def main():
     except Unreadable as e:
         print(f"pixel-diff: {e}", file=sys.stderr)
         return 2
+
+    origin = (0, 0)
+    ref_size, got_size = (ref.shape[1], ref.shape[0]), (got.shape[1], got.shape[0])
+    if args.crop:
+        try:
+            cx, cy, cw, ch = (int(v) for v in args.crop.split(","))
+        except ValueError:
+            print("pixel-diff: --crop wants X,Y,W,H in pixels", file=sys.stderr)
+            return 2
+
+        def cut(name, im):
+            if cw < 1 or ch < 1 or cx < 0 or cy < 0 or \
+                    cx + cw > im.shape[1] or cy + ch > im.shape[0]:
+                print(f"pixel-diff: crop {args.crop} does not fit the {name} "
+                      f"({im.shape[1]}x{im.shape[0]})", file=sys.stderr)
+                return None
+            return im[cy:cy + ch, cx:cx + cw]
+
+        # The render is cut to the region. The reference is cut too, unless it
+        # is already exactly the region's size -- a reference cut from Kontakt
+        # to the panel *is* that region, and cutting it again would be an
+        # out-of-bounds error rather than a comparison.
+        if (got.shape[1], got.shape[0]) != (cw, ch):
+            got = cut("render", got)
+            if got is None:
+                return 2
+        if (ref.shape[1], ref.shape[0]) != (cw, ch):
+            ref = cut("reference", ref)
+            if ref is None:
+                return 2
+        origin = (cx, cy)
+
     if got.shape != ref.shape:
         print(f"pixel-diff: sizes differ — reference {ref.shape[1]}x{ref.shape[0]}, "
               f"render {got.shape[1]}x{got.shape[0]}. Pass --scale to compare anyway.",
@@ -174,8 +218,11 @@ def main():
     total = mask.size
     pct = 100.0 * differing / total
 
-    print(f"reference {ref_path.name}: {ref.shape[1]}x{ref.shape[0]}")
-    print(f"render    {got_path.name}: {got.shape[1]}x{got.shape[0]}")
+    print(f"reference {ref_path.name}: {ref_size[0]}x{ref_size[1]}")
+    print(f"render    {got_path.name}: {got_size[0]}x{got_size[1]}")
+    if args.crop:
+        print(f"region    {args.crop} — {ref.shape[1]}x{ref.shape[0]} of it, "
+              f"at ({origin[0]},{origin[1]}) in the page")
     print(f"differing {differing} of {total} px ({pct:.3f}%), tolerance {args.tol}/channel, "
           f"ceiling {args.max_pct}%")
 
@@ -183,7 +230,7 @@ def main():
         found = regions(merge(mask, args.merge), args.max_regions)
         print(f"\n{len(found)} region(s), largest first:")
         for area, x, y, w, h in found:
-            print(describe(ref, got, area, x, y, w, h))
+            print(describe(ref, got, area, x, y, w, h, origin))
 
     if args.out:
         out = Path(args.out)
