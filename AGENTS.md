@@ -25,3 +25,11 @@ the extension, not the engine.
 **Before searching, ask the graph.** `trail ask "<question>" --source`, `trail callers
 <symbol>`, `trail skeleton <file>`, `trail grep "<literal>"`. Use it before grepping or
 opening files.
+
+**Never leave probe copies in a sample library.** Kontakt refuses an instrument
+outside its library, so measurement lanes must save copies inside one. That is
+113 MB of `control.nki` / `s2.nki` / `addr*.nki` sitting in the user's Electric
+Mint library, listed in their browser as instruments they do not own. If a probe
+needs an in-library copy: save it under `<library>/Instruments/__probe-<lane>/`,
+and delete that directory before you report — `tools/verify.sh` fails if any
+`__*` directory is left under that library's `Instruments/`.

@@ -141,6 +141,15 @@ else
     bad "build kontra-inspect" "see $LOGS/verify-inspect.log"
 fi
 
+echo "== layer 0: the sample library is not our scratch space =="
+LIB=$(dirname "$(dirname "$EMINT")")
+LEFTOVER=$(ls -d "$LIB"/Instruments/__* 2>/dev/null | head -1)
+if [ -n "$LEFTOVER" ]; then
+    bad "library free of probe copies" "left behind: $(basename "$LEFTOVER")"
+else
+    ok "library free of probe copies" "no __* directory under Instruments/"
+fi
+
 echo "== layer 2: the UI drives where it draws =="
 if CARGO_TARGET_DIR="$TARGET" cargo build --release -p ui-drive >"$LOGS/verify-drive.log" 2>&1; then
     if "$TARGET/release/ui-drive" "$EMINT" >"$LOGS/verify-drive.txt" 2>&1; then
