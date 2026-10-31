@@ -480,7 +480,16 @@ fn slot_effect(
         }),
         // The CompXT's static make-up only; its compression is reported
         // (supercharger.rs).
-        0x60 => Some(crate::supercharger::effect(&public, at, notes)),
+        0x60 => Some(crate::supercharger::effect(
+            &public,
+            at,
+            if params.bypass {
+                ir::Impact::Cosmetic
+            } else {
+                ir::Impact::Audible
+            },
+            notes,
+        )),
         id => crate::drive::effect(id, object.version, &public, at, notes),
     };
     // The legacy delay, chorus and flanger, Replika, the Gainer and Convolution mix

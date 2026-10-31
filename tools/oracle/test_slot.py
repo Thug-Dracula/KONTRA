@@ -32,7 +32,30 @@ def events(path):
     return out
 
 
+def install_case():
+    """slot.install: the directory above x64/, and nothing for a flat build.
+
+    `dump.py` builds `UserData/Settings.cfg` from it; a flat portable
+    (`…/kontakt-8.13.1-re/Kontakt 8.exe`) has no x64/ above it, and naming
+    `parents[2]` there aimed the settings path at whatever directory happened
+    to be two levels up.
+    """
+    with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as d:
+        root = Path(d)
+        nested = root / "Kontakt 8"
+        (nested / "x64").mkdir(parents=True)
+        exe = nested / "x64" / "Kontakt 8.exe"
+        exe.touch()
+        assert slot.install(exe) == nested, slot.install(exe)
+        assert slot.install(exe) / "UserData/Settings.cfg" == nested / "UserData/Settings.cfg"
+        flat = root / "kontakt-8.13.1-re"
+        flat.mkdir()
+        (flat / "Kontakt 8.exe").touch()
+        assert slot.install(flat / "Kontakt 8.exe") is None, "a flat build has no x64/ above it"
+
+
 def main():
+    install_case()
     # delta 0 note-on 60 (status 0x90), delta 0 note-on 62 via running status, delta 10 CC on channel 1,
     # then end of track
     track = bytes([0x00, 0x90, 60, 100, 0x00, 62, 100, 0x0A, 0xB0, 1, 127, 0x00, 0xFF, 0x2F, 0x00])

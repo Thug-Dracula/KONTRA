@@ -455,7 +455,7 @@ impl Envelope {
 }
 
 /// One modulation of a group. Scripts find it by `name` and address it by
-/// `slot`, the number the format gives it (Kontakt: its modulator slot).
+/// `slot`, the number the format gives it (its modulator slot).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mod {
     pub name: String,
@@ -592,7 +592,7 @@ pub struct Zone {
     pub keys: RangeInclusive<u8>,
     pub velocities: RangeInclusive<u8>,
     /// Velocity steps over which the zone fades in above its low edge and out
-    /// below its high edge (a linear amplitude ramp, Kontakt's measured law).
+    /// below its high edge (a linear amplitude ramp, the format's measured law).
     pub velocity_fade: (u8, u8),
     /// The same over keys.
     pub key_fade: (u8, u8),
@@ -603,7 +603,8 @@ pub struct Zone {
     /// Played frames of the sample.
     pub start: u64,
     pub end: u64,
-    /// Frames a start offset may move the start (Kontakt's S.Mod).
+    /// Frames a start offset may move the start (the format's start-modulation
+    /// range).
     pub start_mod: u64,
     /// Loops in play order. Each is entered when the playhead reaches its end.
     pub loops: Vec<Loop>,
@@ -686,7 +687,7 @@ pub enum EffectKind {
     Delay(Delay),
     /// A phaser (the wet path; `dry` mixes the input back).
     Phaser(Phaser),
-    /// Kontakt's Choral: seven modulated delay lines in one feedback ring
+    /// A multi-voice chorus: seven modulated delay lines in one feedback ring
     /// (the wet path; `dry` mixes the input back).
     Chorus(Chorus),
     /// A diffusion network (the wet path; `dry` mixes the input back).
@@ -782,9 +783,8 @@ pub struct Script {
     pub source: String,
     /// Saved persistent values in the dialect's own form (Lua: `widget=value`).
     pub saved: Vec<String>,
-    /// Library data files the script loads (Kontakt `load_array(%x, 2)`:
-    /// `data/x.nka`), by lowercase array name without its sigil. Lua: the
-    /// modules `require` may load, by their path in the library.
+    /// Library data files the script loads, by lowercase array name without its
+    /// sigil. Lua: the modules `require` may load, by their path in the library.
     pub data: Vec<(String, Vec<u8>)>,
     /// MIDI controllers that move this script's controls.
     pub links: Vec<CcLink>,

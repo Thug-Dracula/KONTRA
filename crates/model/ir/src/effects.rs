@@ -62,9 +62,9 @@ pub struct Limiter {
 }
 
 /// An amp head's tone stage: a pre-gain, `bands` in series and an output gain.
-/// Kontakt's Hot Solo (module 0x54) builds one from its saved record; the bands
-/// are the format's measured response in physical units, so another format can
-/// map its own amp onto the same stage.
+/// An amp module builds one from its saved record; the bands are the format's
+/// measured response in physical units, so another format can map its own amp
+/// onto the same stage.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Amp {
     /// Gain before the bands, linear.
@@ -129,8 +129,8 @@ pub struct Delay {
     pub phase: f32,
 }
 
-/// Choral, Kontakt's seven-voice modulated delay bank (module `0x5d`): seven
-/// lines in one feedback ring, each with its own LFO, filter and rotation.
+/// A multi-voice chorus: seven delay lines in one feedback ring, each with its
+/// own LFO, filter and rotation, read as one bank.
 ///
 /// The knobs are the effect's own parameters, all 0..=1 except `mode`; the DSP
 /// derives every coefficient from them (`kontra_dsp_delay::chorus`).
@@ -158,8 +158,7 @@ pub struct Chorus {
     pub invert: bool,
 }
 
-/// The stages a diffusion network runs in series (Kontakt's
-/// `NI::DSP::Diffuser` has eight).
+/// The stages a diffusion network runs in series: eight.
 pub const DIFFUSION_STAGES: usize = 8;
 
 /// The taps each stage reads from its four ring buffers.
@@ -173,10 +172,10 @@ pub const DIFFUSION_TAPS: usize = 4;
 /// [`Self::rate`]**: which saved knob sets the size and how the per-stage
 /// drift moves the taps inside its window is measured in part only, so the
 /// format, not the DSP, decides the positions. The rate is what makes those
-/// sample counts a time — Kontakt's `NI::DSP::Diffuser` bakes its table for
-/// 48 kHz, so the network scales them for the rate it is built at. Without it
-/// a 44.1 kHz render played every delay line 8.8 % short, while
-/// [`Self::relength_s`] next to it was already in seconds.
+/// sample counts a time — a format bakes its tap table for 48 kHz, so the
+/// network scales them for the rate it is built at. Without it a 44.1 kHz
+/// render played every delay line 8.8 % short, while [`Self::relength_s`] next
+/// to it was already in seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Diffusion {
     /// Per stage, the four taps' read distance in samples at [`Self::rate`]

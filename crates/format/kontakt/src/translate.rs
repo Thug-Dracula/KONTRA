@@ -8,8 +8,8 @@ use kontra_format::Notes;
 use kontra_ir as ir;
 use ni_file::kontakt::KontaktChunks;
 use ni_file::kontakt::objects::{
-    BParScript, Group, GroupList, InternalModArray16, LoopArray, Modulator, StartCriteriaParams,
-    VoiceGroups, VoiceLimit, ZoneList,
+    BParScript, Group, GroupList, InternalModArray16, LoopArray, Modulator, Program,
+    StartCriteriaParams, VoiceGroups, VoiceLimit, ZoneList,
 };
 
 use crate::Error;
@@ -78,92 +78,7 @@ pub(crate) fn instrument(
             &name,
         );
     }
-    let mut chunk_scripts = 0;
-    for (slot, chunk) in (program.0.children.iter().filter(|c| c.id == SCRIPT)).enumerate() {
-        let script = BParScript::try_from(chunk)
-            .and_then(|s| s.params())
-            .map_err(decode("script"))?;
-        match script.text {
-            _ if script.bypass => {}
-            Some(text) if !text.trim().is_empty() => {
-                out.scripts.push(ir::Script {
-                    name: script.description.unwrap_or_default(),
-                    slot,
-                    dialect: ir::Dialect::Ksp,
-                    data: data_files(&text, path, &mut resources),
-                    source: text,
-                    saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
-                        .unwrap_or(script.persistent),
-                    links: (links.iter())
-                        .filter(|(s, _)| usize::from(*s) == slot)
-                        .map(|&(_, l)| l)
-                        .collect(),
-                });
-                chunk_scripts += 1;
-            }
-            _ => {
-                if let Some(file) = script.textfile_name.filter(|n| !n.is_empty()) {
-                    notes.add(ir::Impact::Broken, "linked script file", file);
-                }
-            }
-        }
-    }
-    // Kontakt 8 writes the same BParScript objects inline in the program's
-    // private data, one per slot, instead of 0x06 chunks. Without them a
-    // library whose zone selection lives in the handlers matches only the
-    // zones its own start rules allow.
-    match crate::private_script::slots(&program.0.private_data) {
-        Some(private) => {
-            // A slot keeps its place even when it runs nothing: the engine
-            // counts slots, and a later script's `$CURRENT_SCRIPT_SLOT` must
-            // not move up towards an empty one.
-            let runs = |s: &crate::private_script::Slot| !s.bypass && !s.source.trim().is_empty();
-            let used = private.iter().rposition(runs).map_or(0, |last| last + 1);
-            for script in private.into_iter().take(used) {
-                let slot = script.slot;
-                if slot < chunk_scripts {
-                    notes.add(ir::Impact::Broken, "script saved twice", &script.name);
-                    continue;
-                }
-                if runs(&script) {
-                    out.scripts.push(ir::Script {
-                        name: script.name,
-                        slot,
-                        dialect: ir::Dialect::Ksp,
-                        data: data_files(&script.source, path, &mut resources),
-                        source: script.source,
-                        saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
-                            .unwrap_or(script.saved),
-                        links: (links.iter())
-                            .filter(|(s, _)| usize::from(*s) == slot)
-                            .map(|&(_, l)| l)
-                            .collect(),
-                    });
-                    continue;
-                }
-                if script.protected && script.source.trim().is_empty() {
-                    notes.add(ir::Impact::Broken, "protected script", &script.name);
-                }
-                out.scripts.push(ir::Script {
-                    name: script.name,
-                    slot,
-                    dialect: ir::Dialect::Ksp,
-                    source: String::new(),
-                    saved: Vec::new(),
-                    data: Vec::new(),
-                    links: Vec::new(),
-                });
-            }
-        }
-        None if program.0.private_data.windows(3).any(|w| w == [0, 0x60, 0]) => {
-            notes.add(
-                ir::Impact::Broken,
-                "script slots in the private data",
-                "the section does not read",
-            );
-        }
-        None => {}
-    }
+    out.scripts = scripts(&program, &links, saved, path, &mut resources, &mut notes)?;
     let groups = program
         .0
         .find_first(GROUP_LIST)
@@ -369,6 +284,110 @@ pub(crate) fn instrument(
     }
     out.samples.extend(responses);
     out.diagnostics = notes.finish();
+    Ok(out)
+}
+
+/// The program's scripts in slot order.
+///
+/// Older programs save each script as a `0x06` chunk; Kontakt 8 also writes the
+/// same `BParScript` objects inline in the program's private data, one per
+/// slot. Without the inline save a library whose zone selection lives in the
+/// handlers matches only the zones its own start rules allow, so a slot the
+/// private data carries is a second copy of the chunk's.
+fn scripts(
+    program: &Program,
+    links: &[(u8, ir::CcLink)],
+    saved: &[Vec<String>],
+    path: &Path,
+    resources: &mut Option<Resources>,
+    notes: &mut Notes,
+) -> Result<Vec<ir::Script>, Error> {
+    let decode = |what| move |e: ni_file::Error| Error::new(path, what, e);
+    let chunks = || program.0.children.iter().filter(|c| c.id == SCRIPT);
+    // Every chunk fills its slot, bypassed or empty: the chunk slots in use are
+    // the number of chunks, not the number that run a script.
+    let chunk_slots = chunks().count();
+    let mut out = Vec::new();
+    for (slot, chunk) in chunks().enumerate() {
+        let script = BParScript::try_from(chunk)
+            .and_then(|s| s.params())
+            .map_err(decode("script"))?;
+        match script.text {
+            _ if script.bypass => {}
+            Some(text) if !text.trim().is_empty() => {
+                out.push(ir::Script {
+                    name: script.description.unwrap_or_default(),
+                    slot,
+                    dialect: ir::Dialect::Ksp,
+                    data: data_files(&text, path, resources),
+                    source: text,
+                    saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
+                        .unwrap_or(script.persistent),
+                    links: (links.iter())
+                        .filter(|(s, _)| usize::from(*s) == slot)
+                        .map(|&(_, l)| l)
+                        .collect(),
+                });
+            }
+            _ => {
+                if let Some(file) = script.textfile_name.filter(|n| !n.is_empty()) {
+                    notes.add(ir::Impact::Broken, "linked script file", file);
+                }
+            }
+        }
+    }
+    match crate::private_script::slots(&program.0.private_data) {
+        Some(private) => {
+            // A slot keeps its place even when it runs nothing: the engine
+            // counts slots, and a later script's `$CURRENT_SCRIPT_SLOT` must
+            // not move up towards an empty one.
+            let runs = |s: &crate::private_script::Slot| !s.bypass && !s.source.trim().is_empty();
+            let used = private.iter().rposition(runs).map_or(0, |last| last + 1);
+            for script in private.into_iter().take(used) {
+                let slot = script.slot;
+                if slot < chunk_slots {
+                    notes.add(ir::Impact::Broken, "script saved twice", &script.name);
+                    continue;
+                }
+                if runs(&script) {
+                    out.push(ir::Script {
+                        name: script.name,
+                        slot,
+                        dialect: ir::Dialect::Ksp,
+                        data: data_files(&script.source, path, resources),
+                        source: script.source,
+                        saved: (saved.get(slot).filter(|s| !s.is_empty()).cloned())
+                            .unwrap_or(script.saved),
+                        links: (links.iter())
+                            .filter(|(s, _)| usize::from(*s) == slot)
+                            .map(|&(_, l)| l)
+                            .collect(),
+                    });
+                    continue;
+                }
+                if script.protected && script.source.trim().is_empty() {
+                    notes.add(ir::Impact::Broken, "protected script", &script.name);
+                }
+                out.push(ir::Script {
+                    name: script.name,
+                    slot,
+                    dialect: ir::Dialect::Ksp,
+                    source: String::new(),
+                    saved: Vec::new(),
+                    data: Vec::new(),
+                    links: Vec::new(),
+                });
+            }
+        }
+        None if program.0.private_data.windows(3).any(|w| w == [0, 0x60, 0]) => {
+            notes.add(
+                ir::Impact::Broken,
+                "script slots in the private data",
+                "the section does not read",
+            );
+        }
+        None => {}
+    }
     Ok(out)
 }
 
@@ -800,4 +819,124 @@ fn translate_zone(
         reverse,
         slot: 0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ni_file::kontakt::{Chunk, StructuredObject};
+
+    /// The program scalars the script section follows (nothing here reads them).
+    const SCALARS: usize = 65;
+    /// The fixed tail `private_script` allows after the last record.
+    const TAIL: usize = 16;
+
+    /// One `BParScript` as Kontakt 8 writes it inline in a private section:
+    /// flag `0`, version `0x60`, then the record (no password, no linked file,
+    /// no saved values).
+    fn record(source: Option<&str>, description: Option<&str>, bypass: bool) -> Vec<u8> {
+        let mut b = vec![0, 0x60, 0];
+        let push = |b: &mut Vec<u8>, s: Option<&str>| match s {
+            Some(s) => {
+                b.extend((s.len() as u32).to_le_bytes());
+                b.extend(s.as_bytes());
+            }
+            None => b.extend(u32::MAX.to_le_bytes()),
+        };
+        push(&mut b, source);
+        b.extend([0, 0, u8::from(bypass)]);
+        b.extend(0u32.to_le_bytes());
+        push(&mut b, description);
+        push(&mut b, None);
+        b.extend(0u32.to_le_bytes());
+        b
+    }
+
+    /// A private section: the scalars, the records, the tail.
+    fn private(records: &[Vec<u8>]) -> Vec<u8> {
+        let mut b = vec![0x5a; SCALARS];
+        for r in records {
+            b.extend(r);
+        }
+        b.resize(b.len() + TAIL, 0);
+        let end = b.len();
+        b[end - 4..].copy_from_slice(&u32::MAX.to_le_bytes());
+        b
+    }
+
+    /// A `0x06` chunk: a structured object whose public record is a
+    /// `BParScript`'s.
+    fn chunk(text: Option<&str>, bypass: bool) -> Chunk {
+        let mut public = Vec::new();
+        match text {
+            Some(t) => {
+                public.extend((t.len() as u32).to_le_bytes());
+                public.extend(t.as_bytes());
+            }
+            None => public.extend(u32::MAX.to_le_bytes()),
+        }
+        public.extend([0, 0, u8::from(bypass)]);
+        public.extend(0u32.to_le_bytes());
+        public.extend(u32::MAX.to_le_bytes());
+        public.extend(u32::MAX.to_le_bytes());
+        public.extend(0u32.to_le_bytes());
+        // Structured, version 0x50, no private section, the public record, no
+        // children.
+        let mut data = vec![1, 0x50, 0];
+        data.extend(0u32.to_le_bytes());
+        data.extend((public.len() as u32).to_le_bytes());
+        data.extend(&public);
+        data.extend(0u32.to_le_bytes());
+        Chunk { id: SCRIPT, data }
+    }
+
+    fn program_with(children: Vec<Chunk>, private_data: Vec<u8>) -> Program {
+        Program(StructuredObject {
+            version: 0x80,
+            public_data: Vec::new(),
+            private_data,
+            children,
+        })
+    }
+
+    /// A bypassed chunk fills its slot all the same. Counting only the chunks
+    /// that run left slot 1 — under a running chunk — looking like the first
+    /// free slot, so its inline save was taken as a second script.
+    #[test]
+    fn a_bypassed_chunk_still_fills_its_slot() {
+        let program = program_with(
+            vec![chunk(None, true), chunk(Some("on note\n"), false)],
+            private(&[
+                record(None, None, false),
+                record(Some("on note\n"), Some("Zone 1.01"), false),
+            ]),
+        );
+        let mut notes = Notes::default();
+        let mut resources = None;
+        let out = scripts(
+            &program,
+            &[],
+            &[],
+            Path::new("test.nki"),
+            &mut resources,
+            &mut notes,
+        )
+        .expect("both chunks read");
+        assert_eq!(
+            out.iter().map(|s| s.slot).collect::<Vec<_>>(),
+            [1],
+            "slot 1 is the running chunk's; its inline save is the same script"
+        );
+        let diagnostics = notes.finish();
+        let twice = diagnostics
+            .iter()
+            .find(|d| d.feature == "script saved twice")
+            .expect("both inline saves duplicate a chunk slot");
+        assert!(
+            twice.detail.starts_with("2×"),
+            "the bypassed chunk at slot 0 and the running one at slot 1 both \
+             duplicate: {}",
+            twice.detail
+        );
+    }
 }
