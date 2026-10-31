@@ -77,7 +77,20 @@ cargo run --release -p ui-drive -- [--scale <f>] [--out <dir>] <instrument>...
 ```
 
 Last run, Electric Mint at 1×: **39 controls checked on 1 page, 0 skipped, 35
-answered with an `Edit`, 2 painted under another control, every one `ok`.**
+answered with an `Edit`, 2 painted under another control, 1 press declined by a
+text field, 1 text field edited in place, 1 overlapping pair driven twice, every
+one `ok`.**
+
+A press has one owner: the front-most control under the pointer that would take
+it. A control that does not take *that* press hands it down — a label, an image
+or a disabled control has no surface at all, and a `ui_text_edit` is edited on a
+double click, so a plain click is not its. `ui-drive` drives every pair where a
+control is painted over another one: it opens the covered control (so its list
+is up), then presses the control over it. One press may make exactly one control
+react. Electric Mint's Sound Preset is the case: the name field sits over the
+preset menu's plate, so a click on the name is the menu's and opens the
+instrument's own list; a double click edits the name in place, the field itself
+taking the caret with no second window.
 
 A run that checks nothing is a failure, not a pass. When every widget lacks a
 drawn rect, or the instrument has no page at all, `ui-drive` prints `FAIL: no
@@ -87,7 +100,8 @@ it is a workspace member, so a compile break is a defect, and calling it
 "skipped" is how layer 2 could go unrun while the gate still said PASSED.
 
 **Acceptance:** a widget whose centre press does not select it is a failure
-naming the widget, the scale, and the point.
+naming the widget, the scale, and the point; so is any press that makes more
+than one control react.
 
 ---
 

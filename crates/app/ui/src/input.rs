@@ -6,7 +6,17 @@
 //! switch flips at the edge its source asks; a table sets the cells the
 //! pointer crosses; a menu floats its items. What the user asked comes back
 //! as [`Edit`]s for the host to write into the engine; the caller shows them
-//! at once with [`apply`]. A text edit takes typed text the same way.
+//! at once with [`apply`]. A text edit is edited in place, the field itself
+//! taking the caret on a double click; a value edit is typed into the same
+//! way.
+//!
+//! One press has one owner: the front-most control under the pointer that
+//! would take it, kept for the whole gesture so a drag that leaves its rect
+//! still belongs to the control it started on. A control that does not take
+//! that press — a label, a disabled control, or a text edit that only edits
+//! on a double click — hands it to the front-most control beneath. Electric
+//! Mint paints its preset name field over the Sound Preset menu exactly that
+//! way, and a click on the name is the menu's click, not the field's.
 
 use kontra_ui_model::{self as model, Interface, Kind, Orientation, PageRef, Sweep, WidgetRef};
 use mui::prelude::*;
@@ -45,6 +55,23 @@ pub struct Gesture {
     entry: Option<(usize, String, bool)>,
     /// The value edit whose arrow is held, its step, and when it steps next.
     arrow: Option<(usize, f64, f64)>,
+    /// The control a press belonged to, kept for the whole gesture so a drag
+    /// that leaves its rect still has an owner.
+    owner: Option<usize>,
+}
+
+impl Gesture {
+    /// The control being typed into, if one is.
+    #[must_use]
+    pub fn entry(&self) -> Option<usize> {
+        self.entry.as_ref().map(|(n, ..)| *n)
+    }
+
+    /// The control the press in flight belongs to, if one is.
+    #[must_use]
+    pub fn owner(&self) -> Option<usize> {
+        self.owner
+    }
 }
 
 /// A held arrow steps again after this, then every [`REPEAT_STEP`]
@@ -179,8 +206,98 @@ fn arrow(ui: &Ui, id: &str, w: &model::Widget, scale: f64) -> Option<f64> {
     (at.x >= size.width - 14. * scale).then_some(if at.y < size.height / 2. { unit } else { -unit })
 }
 
+/// The control a press belongs to: the front-most control that would take it.
+///
+/// `mui` gives a press to the topmost surface it tagged, and its capture is
+/// what a drag rides. That control may decline the press: a `ui_text_edit` is
+/// edited on a double click, so a single click belongs to the control beneath
+/// it. Electric Mint paints its preset name field over the Sound Preset menu
+/// exactly that way, and a click on the name is the menu's.
+fn owner(
+    ui: &Ui,
+    face: usize,
+    tree: &Interface,
+    page: PageRef,
+    g: &Gesture,
+    captured: Option<usize>,
+) -> Option<usize> {
+    if let Some(d) = captured {
+        // The field keeps the click that opened its editor: otherwise the
+        // release would be handed on and reopen the list it just closed.
+        let editing = g.entry.as_ref().is_some_and(|(n, ..)| *n == d);
+        if edits_on_double_click(tree, d) && !editing && !ui.double_click(surface(face, d).as_str())
+        {
+            // The press was offered to a control that does not take a single
+            // click. Keep the control it was handed to if the gesture is
+            // still in flight, so a wobbly click does not change target.
+            if let Some(m) = g.owner.filter(|&m| m != d) {
+                return Some(m);
+            }
+            let at = ui.pointer().pos?;
+            return scene_owner(ui, face, tree, page, at);
+        }
+        return Some(d);
+    }
+    // A gesture in flight keeps the control it was pressed on: `held` is the
+    // capture wherever the pointer is now. Once the click is read, nothing
+    // holds it any more and the owner is forgotten.
+    if let Some(n) = g.owner.filter(|&n| holds(ui, face, n)) {
+        return Some(n);
+    }
+    // A press mui gave to something that takes no input (a popup, a float):
+    // the press still belongs to the front-most control under the pointer.
+    let at = ui.pointer().pos?;
+    if !ui.pointer().buttons.contains(Button::Primary) {
+        return None;
+    }
+    scene_owner(ui, face, tree, page, at)
+}
+
+/// Whether a press on this control is a double click: a text edit takes a
+/// click only to edit in place, never to open anything.
+fn edits_on_double_click(tree: &Interface, n: usize) -> bool {
+    matches!(tree.widgets.get(n).map(|w| &w.kind), Some(Kind::TextEdit))
+}
+
+/// The widget mui is driving this frame: the one it pressed, holds, clicked
+/// or released. At most one control has a gesture at a time.
+fn captured(ui: &Ui, face: usize, tree: &Interface, page: PageRef) -> Option<usize> {
+    tree.draw_order(page)
+        .iter()
+        .copied()
+        .rev()
+        .filter(|&n| {
+            tree.widgets
+                .get(n.0)
+                .is_some_and(|w| takes_input(w) && tree.visible(n))
+        })
+        .find(|&n| holds(ui, face, n.0))
+        .map(|n| n.0)
+}
+
+fn holds(ui: &Ui, face: usize, n: usize) -> bool {
+    let r = ui.get(surface(face, n));
+    r.pressed || r.held || r.clicked || r.released
+}
+
+/// The front-most control whose drawn rect holds `at`, painted order being
+/// bottom to top. A text edit is not a candidate — it declines a single
+/// click, and one that did not could never hide the control beneath it.
+fn scene_owner(ui: &Ui, face: usize, tree: &Interface, page: PageRef, at: Point) -> Option<usize> {
+    let scene = ui.scene()?;
+    tree.draw_order(page).iter().rev().copied().find_map(|n| {
+        let w = tree.widgets.get(n.0)?;
+        if !takes_input(w) || !tree.visible(n) || edits_on_double_click(tree, n.0) {
+            return None;
+        }
+        let f = scene.surface(&surface(face, n.0))?.frame;
+        (at.x >= f.x && at.x <= f.x + f.size.width && at.y >= f.y && at.y <= f.y + f.size.height)
+            .then_some(n.0)
+    })
+}
+
 /// This frame's edits to the controls of `page` drawn at `scale`, and the
-/// open menu's or typed entry's popup, to float over the page.
+/// open menu's popup, or the field being typed into drawn over its control.
 pub fn read(
     ui: &mut Ui,
     face: usize,
@@ -190,6 +307,9 @@ pub fn read(
     g: &mut Gesture,
 ) -> (Vec<Edit>, Option<El>) {
     let mut edits = Vec::new();
+    let captured = captured(ui, face, tree, page);
+    let owner = owner(ui, face, tree, page, g, captured);
+    g.owner = owner;
     for n in tree.draw_order(page) {
         let Some(w) = tree.widgets.get(n.0).filter(|w| takes_input(w)) else {
             continue;
@@ -198,7 +318,37 @@ pub fn read(
             continue;
         }
         let id = surface(face, n.0);
-        let r = ui.get(id.clone());
+        let mut r = ui.get(id.clone());
+        // One press, one owner: a control painted under the one the press
+        // belongs to does not see that press, so it cannot open its popup,
+        // flip, or report an edit for a click that was not aimed at it.
+        if owner == Some(n.0) && captured != Some(n.0) {
+            // The control mui pressed declined it, so this control is handed
+            // the same gesture: the click on Electric Mint's name field is
+            // the preset menu's click.
+            if let Some(d) = captured {
+                let given = ui.get(surface(face, d));
+                r.pressed = given.pressed;
+                r.held = given.held;
+                r.clicked = given.clicked;
+                r.released = given.released;
+                r.press_mods = given.press_mods;
+                r.button = given.button;
+                r.dragged = false;
+                r.drag_delta = Vec2::ZERO;
+                r.drag_total = Vec2::ZERO;
+            }
+        } else if owner != Some(n.0) {
+            r.pressed = false;
+            r.held = false;
+            r.clicked = false;
+            r.released = false;
+            r.dragged = false;
+            r.drag_delta = Vec2::ZERO;
+            r.drag_total = Vec2::ZERO;
+            r.press_mods = Mods::default();
+            r.button = None;
+        }
         // Menus and value edits don't report keys (KSP manual, KEY_SHIFT).
         let keys = match w.kind {
             Kind::Menu { .. } | Kind::ValueEdit { .. } => model::UiModifiers::default(),
@@ -323,7 +473,13 @@ pub fn read(
             Kind::Menu { .. } if r.clicked || r.key_activated => {
                 g.menu = (g.menu != Some(n.0)).then_some(n.0);
             }
-            Kind::TextEdit if (r.clicked || r.key_activated) && g.entry.is_none() => {
+            // A text edit is edited in place on a double click; a single
+            // click was never its own (see `owner`).
+            Kind::TextEdit
+                if (ui.double_click(id.as_str()) || r.key_activated) && g.entry.is_none() =>
+            {
+                // Editing the name puts the list away; the field is on top.
+                g.menu = None;
                 type_into(ui, g, n.0, &id, w.text.clone());
             }
             _ => {}
@@ -408,7 +564,15 @@ fn menu(
         return None;
     };
     let id = surface(face, m);
-    if ui.dismissed(&[&id, &format!("{id}-popup")]) {
+    let popup = format!("{id}-popup");
+    // The plate is only "inside" while the menu owns the press: a control
+    // painted over the plate (Electric Mint's name field) takes the press,
+    // and a press it owns is a press away from the list.
+    let mut outside: Vec<&str> = vec![&popup];
+    if g.owner == Some(m) {
+        outside.push(&id);
+    }
+    if ui.dismissed(&outside) {
         g.menu = None;
         return None;
     }
@@ -476,8 +640,23 @@ fn entry(
     let typed = text_edit(ui, field.as_str(), &mut text, TextOpts::default());
     if !typed.changed.submitted {
         g.entry = Some((m, text, selected));
-        // In a row: the popup names its content, and the field keeps its own id.
-        return Some(kit::popup(&id, row![typed.el.w(TEXT * 6.)]));
+        // In place: the field itself, over the control it edits, with no
+        // panel around it. Kontakt's text entry is the control taking the
+        // caret, not a second copy of the control in a window.
+        // As wide as the field and one line tall: the field's own height when
+        // it has room for the font, centred on it otherwise. Forcing a short
+        // field's height would scroll its text out of the box.
+        let wide = ui
+            .scene()
+            .and_then(|s| s.surface(&id))
+            .map_or(TEXT * 6., |s| s.frame.size.width);
+        let editor = row![typed.el.w(wide)]
+            .w(wide)
+            // Measure one line tall, then sit centred on the control: a float
+            // left to the parent's stretch would take the page's height.
+            .anchor(Align::Start, Align::Start)
+            .pin(Pin::to(id.clone()).area(Area::Center));
+        return Some(editor.id(format!("{id}-popup")));
     }
     ui.blur();
     let set = |to| Edit {

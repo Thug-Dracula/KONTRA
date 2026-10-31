@@ -282,7 +282,9 @@ fn library_controls_answer_the_pointer_as_kontakt_plays_them() {
         f.tree.widgets[4].value,
         Some(model::Value::Integers(vec![50; 4]))
     );
-    // A click on a text edit floats a field; Enter sends what was typed.
+    // A text edit is edited in place on a double click (a single click is
+    // not its own: Kontakt's name fields sit over menus); Enter sends it.
+    f.click(&input::surface(0, 5), Mods::default());
     f.click(&input::surface(0, 5), Mods::default());
     f.frame(Input {
         text: "Hi".into(),

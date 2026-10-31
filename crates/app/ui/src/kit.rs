@@ -573,6 +573,11 @@ pub fn popup(anchor: &str, content: El) -> El {
         .stroke(hairline())
         .stroke_width(1)
         .pad(TIGHT)
+        // A float that hugs its content: a stretched float would take the
+        // room its parent offered and a small field's popup became the page.
+        .align(Align::Start)
+        .justify(Justify::Start)
+        .anchor(Align::Start, Align::Start)
         .float()
         .pin(
             Pin::to(anchor.to_owned())
