@@ -43,6 +43,7 @@ pub fn rack_only(kind: ir::EffectKind) -> bool {
             | ir::EffectKind::Limiter(_)
             | ir::EffectKind::Delay(_)
             | ir::EffectKind::Phaser(_)
+            | ir::EffectKind::Diffusion(_)
             | ir::EffectKind::Transient(_)
             | ir::EffectKind::Cascade(_)
             | ir::EffectKind::Clocked(_)
@@ -98,6 +99,7 @@ pub fn matrix(e: &ir::Effect) -> Gain {
         | ir::EffectKind::Reverb(_)
         | ir::EffectKind::Delay(_)
         | ir::EffectKind::Phaser(_)
+        | ir::EffectKind::Diffusion(_)
         | ir::EffectKind::Cascade(_)
         | ir::EffectKind::Clocked(_)
         | ir::EffectKind::Clipper(_) => [[0.0; 2]; 2],

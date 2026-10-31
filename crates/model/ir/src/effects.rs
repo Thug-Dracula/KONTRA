@@ -129,6 +129,33 @@ pub struct Delay {
     pub phase: f32,
 }
 
+/// The stages a diffusion network runs in series (Kontakt's
+/// `NI::DSP::Diffuser` has eight).
+pub const DIFFUSION_STAGES: usize = 8;
+
+/// The taps each stage reads from its four ring buffers.
+pub const DIFFUSION_TAPS: usize = 4;
+
+/// A diffusion network: [`DIFFUSION_STAGES`] stages in series, each four
+/// ring buffers read at four fractional taps, mixed by a 4×4 whose rows are
+/// built from one angle (docs/re/engine/k-replika-diffusion.md §11).
+///
+/// The tap distances arrive as data, in samples: which saved knob sets the
+/// size and how the per-stage drift moves the taps inside its window is
+/// measured in part only, so the format, not the DSP, decides the positions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Diffusion {
+    /// Per stage, the four taps' read distance in samples (fractional).
+    pub taps: [[f32; DIFFUSION_TAPS]; DIFFUSION_STAGES],
+    /// The mixing rows' angle, radians (measured: π/2 − SIZE).
+    pub angle: f32,
+    /// Seconds between the network's re-length ticks; 0 for none
+    /// (measured: a quarter, 12 000 frames at 48 kHz).
+    pub relength_s: f32,
+    /// The re-length generator's state at construction.
+    pub seed: u32,
+}
+
 /// A phaser in physical units: `stages` first-order allpasses whose corner
 /// the LFO sweeps, `hz + spread_hz·(e^(exponent·lfo) − 1)`, around a
 /// feedback loop.

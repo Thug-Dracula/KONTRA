@@ -26,9 +26,11 @@
 //! v0x11 does not carry keep the values the v0x12 INIT record stores
 //! (0.5/0.5/0.3 and the flip off), which are the ones a fresh object holds.
 //!
-//! Only Modern (mode 0) is modelled; Analogue, Tape, Vintage and Diffusion
-//! (1..4, the five strings in 8.13.1 at `0x14744cc8`) run different lines and
-//! are reported, not rendered.
+//! Modern (mode 0) maps onto [`ir::Delay`], Diffusion (mode 4) onto
+//! [`ir::Diffusion`] — the eight-stage network `NI::DSP::Diffuser` from
+//! docs/re/engine/k-replika-diffusion.md. Analogue, Tape and Vintage (1..3,
+//! the five strings in 8.13.1 at `0x14744cc8`) run lines that are not read
+//! and are reported, not rendered.
 
 use kontra_ir as ir;
 
@@ -45,6 +47,16 @@ pub(crate) struct Replika {
     pub high_cut: f32,
     /// The modulation's depth; its law is unmeasured.
     pub depth: f32,
+    /// BBDTYPE (field 18), unused by the two modes modelled.
+    pub bbdb: f32,
+    /// AMOUNT (field 19): Diffusion's mixing gain, `g = 0.95·AMOUNT + 0.05`.
+    pub amount: f32,
+    /// SIZE (field 20): Diffusion's row angle, `π/2 − SIZE`.
+    pub size: f32,
+    /// MODULATION (field 21): Diffusion's tap spread, `g·MODULATION·0.02`.
+    pub modulation: f32,
+    /// DENSE (field 22): the second stage bank instead of the first.
+    pub dense: bool,
     pub stereo: bool,
     pub pingpong: bool,
     pub flip: bool,
@@ -64,6 +76,11 @@ pub(crate) const INIT: Replika = Replika {
     low_cut: 0.0,
     high_cut: 0.95,
     depth: 0.0,
+    bbdb: 1.0,
+    amount: 0.5,
+    size: 0.5,
+    modulation: 0.5,
+    dense: true,
     stereo: true,
     pingpong: false,
     flip: false,
@@ -100,6 +117,9 @@ pub(crate) fn saved(version: u16, public: &[u8]) -> Option<Replika> {
         Some(f32::from_le_bytes(bytes)).filter(|v| v.is_finite())
     };
     let flag = |n: usize| public.get(n).map(|&b| b != 0);
+    // Fields 18..22 (BBDTYPE, AMOUNT, SIZE, MODULATION, DENSE) sit at bytes
+    // 60..77; a record cut short keeps the INIT values the object holds.
+    let tail = |n: usize, default: f32| f(n).unwrap_or(default);
     Some(Replika {
         mode: i32::from_le_bytes(public.get(..4)?.try_into().ok()?),
         ms: f(4)?,
@@ -113,6 +133,11 @@ pub(crate) fn saved(version: u16, public: &[u8]) -> Option<Replika> {
         // Fields 23..32 are v0x12 only. A v0x11 object keeps what the v0x12
         // INIT record stores there: centred, half width, LR offset 0.3, no
         // flip.
+        bbdb: tail(60, 1.0),
+        amount: tail(64, 0.5),
+        size: tail(68, 0.5),
+        modulation: tail(72, 0.5),
+        dense: public.get(76).is_none_or(|&b| b != 0),
         pan: if full { f(89)? } else { 0.5 },
         width: if full { f(93)? } else { 0.5 },
         offset: if full { f(97)? } else { 0.3 },
@@ -120,13 +145,18 @@ pub(crate) fn saved(version: u16, public: &[u8]) -> Option<Replika> {
     })
 }
 
-/// What the Modern mode does that is not run, for the gap log.
+/// What the two rendered modes do that is not run, for the gap log.
 pub(crate) fn lost(r: Replika) -> impl Iterator<Item = &'static str> {
     let mode = MODE_NAMES
         .get(usize::try_from(r.mode).unwrap_or(usize::MAX))
         .copied();
     [
-        (r.mode != 0, mode),
+        // Diffusion renders; the other three are only named.
+        (!matches!(r.mode, 0 | 4), mode),
+        // The captured network's taps move inside their window every quarter
+        // second; which products land where is unread, so the port holds
+        // them still (docs/re/engine/k-replika-diffusion.md §11.4).
+        (r.mode == 4, Some("Replika diffusion tap drift")),
         (r.depth > 0.0, Some("Replika modulation")),
         (r.beats.is_some(), Some("Replika tempo sync")),
         (!r.stereo && !r.pingpong, Some("Replika mono mode")),
@@ -140,6 +170,46 @@ pub(crate) fn lost(r: Replika) -> impl Iterator<Item = &'static str> {
 const HIGH_CUT_HZ: [f32; 11] = [
     203.0, 2201.0, 4115.0, 6212.0, 8169.0, 10103.0, 11958.0, 13822.0, 15567.0, 16849.0, 22000.0,
 ];
+
+/// The stage lengths `NI::DSP::Diffuser`'s ctor bakes (measured, samples at
+/// 48 kHz; the ctor's own table, oracle capture of stages 0..7).
+const DIFFUSION_LENGTHS: [[f32; 4]; 8] = [
+    [577.0, 859.0, 587.0, 857.0],
+    [643.0, 977.0, 647.0, 971.0],
+    [877.0, 1301.0, 881.0, 1297.0],
+    [1019.0, 1531.0, 1033.0, 1523.0],
+    [1823.0, 2711.0, 1831.0, 2707.0],
+    [2293.0, 3389.0, 2309.0, 3371.0],
+    [3541.0, 2377.0, 3547.0, 2371.0],
+    [3823.0, 2579.0, 3833.0, 2557.0],
+];
+
+/// The saved knobs' effect on the network, all measured
+/// (`0x141ac54b0`, cases 0..3): the rows turn by `π/2 − SIZE`, the taps of a
+/// stage scale by `g − g·MODULATION·0.02` with `g = 0.95·AMOUNT + 0.05`, and
+/// the network re-lengths a quarter second apart.
+pub(crate) fn diffusion(r: Replika) -> ir::Diffusion {
+    let g = 0.95 * r.amount.clamp(0.0, 1.0) + 0.05;
+    let spread = g * r.modulation.clamp(0.0, 1.0) * 0.02;
+    let scale = g - spread;
+    let taps = DIFFUSION_LENGTHS.map(|lengths| lengths.map(|length| length * scale));
+    ir::Diffusion {
+        taps,
+        angle: std::f32::consts::FRAC_PI_2 - r.size.clamp(0.0, 1.0),
+        relength_s: 0.25,
+        seed: 0,
+    }
+}
+
+/// The mode's effect: Modern its delay, Diffusion its network, the rest
+/// named only.
+pub(crate) fn effect(r: Replika) -> Option<ir::EffectKind> {
+    match r.mode {
+        0 => delay(r).map(ir::EffectKind::Delay),
+        4 => Some(ir::EffectKind::Diffusion(diffusion(r))),
+        _ => None,
+    }
+}
 
 /// The Modern mode's delay; `None` for another mode.
 pub(crate) fn delay(r: Replika) -> Option<ir::Delay> {
@@ -294,12 +364,71 @@ mod tests {
         assert_eq!(r.beats, Some(0.125));
         // Absent from a v0x11 record: the object keeps the v0x12 INIT values.
         assert_eq!((r.pan, r.width, r.offset, r.flip), (0.5, 0.5, 0.3, false));
-        // Mode 4 is Diffusion: a different line, so no Modern delay is claimed.
+        // Mode 4 is Diffusion: no Modern delay is claimed, its own network is.
         assert_eq!(delay(r), None);
+        assert!(matches!(effect(r), Some(ir::EffectKind::Diffusion(_))));
         assert_eq!(
             lost(r).collect::<Vec<_>>(),
-            ["Replika Diffusion mode", "Replika tempo sync"]
+            ["Replika diffusion tap drift", "Replika tempo sync"]
         );
         assert_eq!(saved(0x13, &bytes(V11_RECORD)), None);
+    }
+
+    /// Diffusion maps onto the network through the laws measured on the
+    /// module: SIZE turns the rows, AMOUNT and MODULATION scale the taps
+    /// (docs/re/engine/k-replika-diffusion.md §11.3).
+    #[test]
+    fn diffusion_lands_on_the_captured_network() {
+        // The values the module held while the impulse response was captured
+        // (g 0.417960644, spread 0.00375891, angle 0.5707964): a v0x11 record
+        // cut short keeps the object's own SIZE/AMOUNT/MODULATION, so they
+        // are passed in rather than read.
+        let r = Replika {
+            mode: 4,
+            size: 1.0,
+            amount: (0.417_960_6 - 0.05) / 0.95,
+            modulation: 0.449_673,
+            dense: true,
+            ..INIT
+        };
+        let Some(ir::EffectKind::Diffusion(d)) = effect(r) else {
+            panic!("type 4 must render as a diffusion network");
+        };
+        assert!((d.angle - 0.570_796_4).abs() < 1e-6);
+        assert!((d.relength_s - 0.25).abs() < 1e-9);
+        // Stage 0's taps against the capture (241.15866, 356.00998, 245.3382,
+        // 355.18109): the capture's taps sat inside the window, the port
+        // uses its floor, so they agree to the window's width.
+        let want = [241.158_66, 356.009_98, 245.338_2, 355.181_09];
+        for (tap, want) in d.taps[0].iter().zip(want) {
+            assert!((tap - want).abs() < 0.02 * want, "{tap} vs {want}");
+        }
+        // The last stage is the longest pair.
+        assert!(d.taps[7][0] > 1500.0 && d.taps[7][1] > 1000.0);
+        // And SIZE 0 turns the rows a quarter turn further.
+        let open = diffusion(Replika { size: 0.0, ..r });
+        assert!((open.angle - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    /// The three other types are named in the gap log instead of landing on
+    /// Modern's line or on the diffusion network. The saved type is an enum
+    /// of five values, mapped by identity in the reader's first field
+    /// (`0x140a847f0`); Diffusion (4) is the one §11 renders.
+    #[test]
+    fn the_other_three_types_are_named_not_rendered() {
+        for (mode, name) in MODE_NAMES.iter().enumerate().skip(1) {
+            let r = Replika {
+                mode: i32::try_from(mode).expect("a type fits an i32"),
+                ..INIT
+            };
+            let diffusion = mode == 4;
+            assert_eq!(effect(r).is_some(), diffusion, "{name}");
+            assert_eq!(effect(r).is_none(), !diffusion, "{name}");
+            assert_eq!(
+                lost(r).any(|what| what == *name),
+                !diffusion,
+                "{name} in the gap log"
+            );
+        }
     }
 }

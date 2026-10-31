@@ -2,6 +2,7 @@
 //! delays, dynamics, drives, a cascade) and the summed EQ and filter stages,
 //! with their settings in DSP terms. Not real-time unless a function says so.
 
+use kontra_dsp::delay::diffusion::{self, Diffusion};
 use kontra_dsp::delay::{MAX_MS, ModDelay, Phaser, PhaserSettings};
 use kontra_dsp::drive::{self, Circuit, Clipper, Shaper};
 use kontra_dsp::dynamics::{
@@ -144,6 +145,12 @@ impl Wet for ModDelay {
     }
 }
 
+impl Wet for Diffusion {
+    fn process(&mut self, io: &mut [[f32; 2]]) {
+        Diffusion::process(self, io);
+    }
+}
+
 impl Wet for Phaser {
     fn process(&mut self, io: &mut [[f32; 2]]) {
         Phaser::process(self, io);
@@ -270,6 +277,18 @@ fn delay(d: ir::Delay, tempo: f32) -> kontra_dsp::delay::Settings {
     }
 }
 
+/// The diffusion network's settings: the taps the format measured, the
+/// angle, and the re-length clock (a quarter second, measured).
+fn network(d: ir::Diffusion, rate: u32) -> diffusion::Settings {
+    diffusion::Settings {
+        taps: d.taps,
+        angle: d.angle,
+        // `+0x12a8 = trunc(sample rate · 0.25)`, `0x1448569e4`.
+        relength: (rate as f32 * d.relength_s).max(0.0) as u32,
+        seed: d.seed,
+    }
+}
+
 fn phaser(p: ir::Phaser, tempo: f32) -> PhaserSettings {
     PhaserSettings {
         stages: p.stages,
@@ -362,6 +381,7 @@ pub fn processor(
             wet(Box::new(ModDelay::new(delay(d, 120.0), rate, max_ms)))
         }
         Some(ir::EffectKind::Phaser(p)) => wet(Box::new(Phaser::new(phaser(p, 120.0), rate))),
+        Some(ir::EffectKind::Diffusion(d)) => wet(Box::new(Diffusion::new(network(d, rate)))),
         Some(ir::EffectKind::Cascade(c)) => wet(Box::new(Cascade::new(cascade(c), rate))),
         Some(ir::EffectKind::Clocked(c)) => {
             let shape = match c.shape {

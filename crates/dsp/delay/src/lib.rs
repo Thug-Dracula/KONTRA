@@ -1,8 +1,10 @@
-//! One modulated delay line (an echo, a chorus, a flanger) and one phaser;
-//! design in docs/architecture-v3/03-DSP.md. Formats load their laws into
-//! [`Settings`] and [`PhaserSettings`]. Both put out the wet signal only.
+//! One modulated delay line (an echo, a chorus, a flanger), one phaser and one
+//! diffusion network; design in docs/architecture-v3/03-DSP.md. Formats load
+//! their laws into [`Settings`], [`PhaserSettings`] and
+//! [`diffusion::Settings`]. All three put out the wet signal only.
 
 pub mod chorus;
+pub mod diffusion;
 
 use std::f64::consts::TAU;
 
