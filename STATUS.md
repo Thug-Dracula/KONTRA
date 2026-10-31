@@ -17,6 +17,9 @@ given so it can be re-run rather than believed.
 | The plugin a host loads is the one that was tested | gate builds `kontra-plugin`, asserts `clap_entry` is exported, and installs to **both** `~/.clap` and `~/.vst3` |
 | Electric Mint plays end to end | gate render: completes, 0 missing frames, 0 clipped, `actions_unhandled` 55, `init unanswered` 51 |
 | The rendered audio is reproducible | fingerprint `7fd5a1ae59790ffc` (stable run to run; has moved five times as stages were modelled: Hot Solo+, Choral, Diffusion, the diffusion knob order and the Supercharger make-up) |
+| A `ui_xy` answers the pointer | `Kind::Xy` is an input target, reports both axes 0..=1 across its own rect, and names its mouse event — `$NI_MOUSE_EVENT_TYPE` used to answer 0 always, which gated every table row's whole `on ui_control` body. 220 of 3712 readable instruments declare `ui_xy`, so this was never one instrument's bug |
+| One press has one owner | a control under a non-taking one still receives the press; a text field declines a single click and forwards it, and a drag keeps the control it started on |
+| The gate drives both pages | `ui-drive` presses Buttons, Switches **and pads**, on Electric Mint (39 controls) and Electric Mint (Melody) (44). One page was never a UI: Melody's eight rows were dead while the main instrument passed |
 | The page hit-tests where it is drawn | `tools/ui-drive` — 39 controls checked on Electric Mint, 44 on Electric Mint (Melody) including its eight `ui_xy` rows, every press lands on the rect it was drawn in, a press 2 points outside selects nothing |
 | The page looks like the reviewed page | `tools/pixel-diff.py` against `tools/kontakt-reference/electric-mint-page.png` — 0 of 316500 px differ |
 | A stock Kontakt preset's impulse resolves | `/presets/…` is walked under a discovered factory root and a member inside `K4IR.nkx` (387 MB, opened by index) decodes to 477306 frames of real audio; `KONTRA_KONTAKT_PRESETS` overrides the root and the error names every root tried |
@@ -94,6 +97,10 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 - **`wave_r` is not a parity statistic** for a single note: Kontakt correlates
   0.604 against itself within a session.
 - **Click coordinates in the oracle are fixed**, not resolution-independent.
+- **A `ui_xy`'s cursors are not drawn.** The click changes the instrument's state
+  (`$CONTROL_PAR_ACTIVE_INDEX`, the keyswitch), but KONTRA has no pass that draws
+  a pad's cursor or its `$CONTROL_PAR_CURSOR_PICTURE`, so a selected row does not
+  light up on screen.
 - **`dump.py` does not run as shipped** — its default EXE path does not exist on
   this machine and its `WINEDLLOVERRIDES=…=b` override is the wined3d assumption
   the oracle disproved.
