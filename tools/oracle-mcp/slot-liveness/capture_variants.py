@@ -122,7 +122,7 @@ def main() -> int:
     files = {"orig": DEFAULT_NKI}
     variant_dir = Path(args.variant_dir)
     for name in ("control", "sup2", "chor6", "diff4", "both46", "addr2", "addr4", "addr6",
-                 "s0", "s1", "s3", "s5", "s7", "s137",
+                 "s0", "s1", "s2", "s12", "s3", "s5", "s7", "s137", "all",
                  "volwrite", "vol0", "volm6", "volp6"):
         files[name] = variant_dir / f"{name}.nki"
 
