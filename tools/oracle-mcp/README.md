@@ -16,7 +16,9 @@ tools/oracle-mcp/
   client.py      a small stdio MCP client; runs a JSONL script of tool calls
   ksp_text.lua   the Lua probe oracle_dump_script uses to return KSP text
   smoke.sh       up -> load -> shot -> click -> render -> down, with checks
-  parity.py      one parity datum: the same note through Kontakt and through KONTRA
+  parity.py      one parity datum with a pass/fail verdict: Kontakt against KONTRA
+  noise.py       Kontakt against itself: the noise floor parity's limits sit above
+  sweep.py       a sample of the installed library, ranked worst first (SWEEP.md)
   README.md      this file
 ```
 
@@ -277,8 +279,10 @@ MIDI — a launch listens on Port A immediately, and `aplaymidi -p 14` reaches t
 Exit status is 0 only when every step produced the expected outcome.
 
 `tools/oracle-mcp/parity.py` renders one note through Kontakt (via this server) and through
-KONTRA (this repo's `kontra-host --example render`), prints both sha256s and then uses
-`tools/oracle/compare.py`'s own alignment/band functions on the pair. Measured 2026-10-30,
+KONTRA (`kontra-render`, this repo's own audio renderer), prints both sha256s and then uses
+`tools/oracle/compare.py`'s own alignment/band functions on the pair. It also has a **verdict**:
+a level, per-band and envelope-lag tolerance, each set above Kontakt's measured noise against
+itself (`tools/oracle-mcp/noise.py`), and a non-zero exit when one is exceeded. Measured 2026-10-30,
 Electric Mint, key 60 velocity 100 held 1.5 s, 2 s window:
 
 | | Kontakt | KONTRA |
@@ -300,11 +304,19 @@ the change metric, the display guard, the page verdict) with no Kontakt and no d
 ## What this cannot do
 
 - **`kontra-inspect play` cannot produce an audio file**, so parity is hashed against
-  `crates/app/host/examples/render.rs` instead: `play` reports playback observations, and
-  only `play --oracle` writes a WAV — and that path shells out to `capture.py` inside
-  `oracle-slot`, which needs `~/.wine-oracle` slot prefixes and a VST3 Kontakt in `~/.wine`.
-  Neither exists on this machine (checked), so `--oracle` fails; `parity.py` states this and
-  uses the repo's actual WAV renderer with the same note.
+  `kontra-render` (`cargo build --release -p kontra-host --bin kontra-render`) instead:
+  `play` reports playback observations, and only `play --oracle` writes a WAV — and that
+  path shells out to `capture.py` inside `oracle-slot`, which needs `~/.wine-oracle` slot
+  prefixes and a VST3 Kontakt in `~/.wine`. Neither exists on this machine (checked), so
+  `--oracle` fails; `parity.py` uses the repo's actual WAV renderer with the same note.
+- **Only NICNT-registered libraries load in this oracle's Kontakt.** `Kontakt 8.14.1
+  Portable` has exactly one registered library (Session Guitarist - Electric Mint); any other
+  `.nki` that belongs to a library answers *"This instrument belongs to a library that is not
+  installed currently!"* and is refused, whatever path it is copied to. Non-NICNT instruments
+  (`#Non NICNT/…`) load normally, which is what `sweep.py`'s plan uses. Registering a library
+  is a licensing step (Settings.cfg entry plus the content DB), not a path or symlink trick:
+  symlinking the library into `Libraries/` and copying the entry across did not make Kontakt
+  accept it.
 - **`tools/kontakt-oracle/dump.py` cannot run as-is**: its default EXE is
   `~/.wine/drive_c/…/Portapotty/Kontakt 8/x64/Kontakt 8.exe` (not present), and it forces
   `WINEDLLOVERRIDES=…=b`, which on this wine install finds DXVK PEs where it expects wine
