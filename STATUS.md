@@ -48,7 +48,7 @@ libraries and the factory library could not be reached.
 
 | instrument | level | band RMS | what it is |
 |---|---|---|---|
-| Electric Mint | −0.01 dB | 0.85 dB | passes |
+| Electric Mint (full chain, current build) | −0.26 dB | 0.90 dB | **passes**, but only because two stages' errors cancel — see below |
 | VSTBuzz Cyber | | 0.01 dB | passes |
 | VSTBuzz Legendary | | 0.25 dB | passes |
 | Electric Mint (Melody) | | 5.38 dB | **inside the instrument's own round-robin spread** (Kontakt differs from itself by 9.60 dB) — not a KONTRA defect |
@@ -65,7 +65,8 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 
 | Gap | Why it is open | What closes it |
 |---|---|---|
-| **Choral moves Electric Mint and has not been re-measured against Kontakt** | Choral is now decoded (`0x5d`, reader `0x140d00630`, v0x51, 34 bytes), carried as `ir::Chorus` and routed, and Electric Mint stores it at insert slot 6 — its render moved (peak −11.5%) and the fingerprint to `8e664c1f9088be9f`. The parity measurements for Electric Mint predate this | re-run `parity.py` on Electric Mint with Choral active; the oracle is held by the diffuser lane |
+| **Choral and Diffusion each make Electric Mint's parity worse** | measured on the delivered tree: Choral contributes **−1.25 dB** and Diffusion **+1.54 dB**, both flat across 500 Hz–16 kHz, against a 0.04 dB level floor. With neither in, the level error is **0.02 dB**; with both, **0.27 dB** — they cancel rather than combine. Either our gain law for each stage is wrong, or Kontakt does not run one of them (the bus slot 7 phantom's shape) | bypass each slot **in Kontakt** and re-render. If a bypass changes Kontakt's output the slot is live and our gain is the target; if it changes nothing, KONTRA should not run it. `oracle_click` does not operate the KSP-drawn Amps & FX page, so this needs the KSP `$ENGINE_PAR_EFFECT_BYPASS` route |
+| **Replika Diffusion's tail does not match** | its rows are exact to 6 ulp and the interpolation to the capture's precision, but the impulse-response tail correlates 0.012 because the tap-to-drift mapping is unread; the port holds the taps at the window floor and logs `Replika diffusion tap drift` | read the tap-to-drift mapping |
 | **Replika Diffusion mode** | Electric Mint's record is type 4. The network is now **located and structurally read**: `NI::DSP::Diffuser` (vtable `0x1479aa618`, ctor `0x141a7eda0`) embedded twice at `+0x11600`/`+0x12a80`, 8 stages in series each with four ring buffers, dense/non-dense banks from tables `0x141a7ef1f`/`0x141a7f038`, and all four setter laws (Size, Amount, case 2, Dense) read with their constants. It does **not** ship because the stage's 4×4 coefficient rows and the ring interpolation are only partly decoded — writing them from a partial read would be invented DSP | one debugger capture on a live type-4 Replika (Electric Mint is one): break at `0x141aa73d0` with `[filter+4] != 0` and dump one stage's rows `+0x00..+0x78`, its four ring descriptors, `+0x90..+0x9c` for a frame, `+0x12c4/+0x12d4/+0x12d8/+0x12d0`, and one impulse response per channel. The capture list is in `docs/re/engine/k-replika-diffusion.md` §10.4 |
 | **Hot Solo+ is one operating point** | the module's coefficient recalculation (`0x140ad5440`, 14.5 KB of SIMD) is unread, so the stage is a *measured transfer function* fitted as biquads | read the recalculation; until then any record that differs from Electric Mint's is **reported** as unmodelled, never silently drawn with the same curve |
 | **Hot Solo+ tone knobs, overdrive, mono** | same | the `.nki` knob sweep is possible (`preset_patch.rs` rewrites a copy) but needs an audio-capable Kontakt session |
