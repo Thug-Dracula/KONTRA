@@ -186,10 +186,9 @@ AMOUNT/SIZE/MODULATION and finish the law table. That is a bounded job now, not 
 
 Diffusion is a distinct network, so rendering the record as Modern would indeed be wrong - and
 so would any "amount" knob on the three-head line. A faithful model needs, per channel pair:
-eight stages with the lengths above (or the law that turns Size into lengths,
-`0x141abc760`/`0x141abc560`), the allpass coefficient law (cases 1/2), the LCG re-lengthing
-every `+0x12a8` frames, and the two-bank Dense switch. All of those now have addresses; none of
-them is measured, and none should be approximated from the description strings.
+eight series stages with the lengths above, the 4x4 mixing rows, the interpolation, the LCG
+re-lengthing every `+0x12a8` frames, and the two-bank Dense switch. Section 10 records how far
+that got, and exactly which of those still resists.
 
 `replika.rs` still returns `None` for type 4. That remains correct until the law table in §7 is
 read.
@@ -205,3 +204,78 @@ read.
   `0x141ac5993`, `+0x840 + 4*28`; see §6.
 - "If `0x141aca715` is the type writer (unproven)": it is; §6.
 - The earlier notes on `+0x93c` (four values, BBD type) and the 4000 ms TIME clamp stand.
+
+## 10. Implementation pass: structure read, the mixing kernel does not ship
+
+Second pass, 8.13.1. What was read end to end this time, and what stopped the port.
+
+### 10.1 The setters, and the laws that are now exact
+
+`0x141ac54b0`, switch on the index argument (cases 0..3):
+
+| Case | Site | Law |
+|---|---|---|
+| 0 | `0x141ac562a` | `+0x12c0 = v`, `+0x12c4 = 1.5707964 - v` (`0x144714960` = pi/2); then every stage of the active bank is re-lengthed with that scale: `0x141abc760` (bank A, `0x180` records) or `0x141abc560` (bank B, `0xc0` records) |
+| 1 | `0x141ac55db` | `g = 0.95*v + 0.05` (`0x144737744`, `0x1447148c0`) into `+0x12c8`; `spread = g * [+0x12cc] * 0.02` (`0x1447148b8`) into `+0x12d4`; `+0x12d8 = g - spread` |
+| 2 | `0x141ac5594` | the same with `[+0x12cc] = v`: `spread = [+0x12c8] * v * 0.02` |
+| 3 | `0x141ac54e5` | `+0x12d0 = (v >= 0.5)` (`0x14470bad0`); rebuilds bank A (`+0x40`, 8 x `0x180`, `0x141abc760` + `0x141ab9e80`) or bank B (`+0xc40`, 8 x `0xc0`, `0x141abc560` + `0x141ab9de0`) |
+
+The three coefficients the process consumes are therefore `+0x12c4` (length scale),
+`+0x12d8` (mixing gain) and `+0x12d4` (tap spread). Which saved knob feeds case 0 / 1 / 2 is
+still open (Size is the shape of case 0, Amount the shape of case 1/2).
+
+### 10.2 The process, read to the bottom
+
+`0x141aa73d0`:
+
+- Every `+0x12a8` frames (`+0x12ac` counts down) it draws one LCG value per stage,
+  `state = state * 0x19fb4787 + 0x16d1b86b` (`0x141aa74c0`), and compares it against
+  `+0x12b8 = 0.5` to choose between the two lengths a stage can take.
+- It then computes tap read positions: for every stage, four integers plus four fractional
+  remainders, written into per-stage arrays (`[+0x170]`, `[+0x2f0]`, `[+0x470]`, ...) from the
+  stage's integer lengths (`[+0x158]`, `[+0x2d8]`, `[+0x458]`, ...) scaled by
+  `g + spread`, `g - spread` and their L/R mirrors.
+- Dense (`+0x12d0 != 0`) runs the `0x180` bank: a loop of **8 stages, stride `0x180`**
+  (`0x141aa7c5c`..`0x141aa7cac`), each stage processed by `0x141aa36c0`, chained in series (the
+  stage's output pair is stored back into the input pair for the next iteration,
+  `0x141aa7c93`). Non-dense runs the `0xc0` bank from `0x141aa7cb3`, two taps per stage instead
+  of four.
+
+### 10.3 The stage kernel `0x141aa36c0`, and why it blocks the port
+
+This is not an allpass. It is a 4-tap feedback node:
+
+- four tap samples in `+0x90`, `+0x94`, `+0x98`, `+0x9c`, each broadcast and multiplied by a
+  coefficient row at `+0x00`, `+0x10`, `+0x20`, `+0x30`, summed into `+0x80`;
+- input injection through the rows at `+0x40` and `+0x50`, added to that sum;
+- the output at `+0xe0` / `+0xe4` from the rows at `+0x60`..`+0x78`, then written into **four
+  ring buffers** per stage (readers at `+0x100`: rings at `+0`, `+0x30`, `+0x60`, `+0x90`, each
+  with its own write index, mask and length), after which the ring heads advance
+  (`0x141aa3864`..`0x141aa3908`);
+- the taps are read back at integer offsets with a 2-sample bias and at least two taps per ring
+  (`0x141aa398b` onward).
+
+So the running object is 8 series stages x 4 taps x 4 rings: 32 delay lines per channel pair.
+The rows above are filled by `0x141abc760`, which calls `0x1443c95d0` once (a sin/cos pair in
+xmm0 lanes 0 and 1), builds `c*c`, `s*c`, `s*s` with a single sign-mask XOR
+(`0x2c58331` = `0x80000000`) at `0x141abc859`..`0x141abc886`, and then replicates the 4x4 block
+with vectorised copies.
+
+**What resists:** which matrix entry receives which product, the sign pattern beyond the three
+stores read, and the interpolation the ring reads use. Those are the coefficients of the
+network; writing them from intuition would be invented DSP, so nothing was shipped.
+
+### 10.4 What a watchpoint would need to capture
+
+A live Replika (the oracle lane) with a debugger on the diffuser object would settle this in one
+session. Break at the process entry (`0x141aa73d0`) with `[filter+4] != 0` and dump:
+
+1. one bank-A stage (`0x180` bytes): rows `+0x00`..`+0x78`, the four ring descriptors at
+   `+0x100` (base, length, mask), and `+0x90`..`+0x9c` for one frame;
+2. `+0x12c4`, `+0x12d4`, `+0x12d8`, `+0x12d0` and the 8 integer lengths, for two or three
+   known Size/Amount/Dense settings - that turns the "which entry gets which product" question
+   into a fit against `sin`/`cos`;
+3. one impulse response per channel with Dense 0 and 1, to pin the tap assignment and the
+   interpolation.
+
+With those, the shared DSP can be written from data rather than from a reading of the vectoriser.
