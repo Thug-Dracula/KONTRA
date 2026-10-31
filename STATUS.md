@@ -16,7 +16,7 @@ given so it can be re-run rather than believed.
 | The workspace builds and every test suite passes | `tools/verify.sh` — engine, host, ui, mui, native-host, plugin, ui-pictures and dsp-delay suites, 0 failures (the counts in the gate's own table are the authority; they grow) |
 | The plugin a host loads is the one that was tested | gate builds `kontra-plugin`, asserts `clap_entry` is exported, and installs to **both** `~/.clap` and `~/.vst3` |
 | Electric Mint plays end to end | gate render: completes, 0 missing frames, 0 clipped, `actions_unhandled` 55, `init unanswered` 51 |
-| The rendered audio is reproducible | fingerprint `7f606e026bb07c2e` (stable run to run; has moved five times as stages were modelled: Hot Solo+, Choral, Diffusion, the diffusion knob order and the Supercharger make-up) |
+| The rendered audio is reproducible | fingerprint `7fd5a1ae59790ffc` (stable run to run; has moved five times as stages were modelled: Hot Solo+, Choral, Diffusion, the diffusion knob order and the Supercharger make-up) |
 | The page hit-tests where it is drawn | `tools/ui-drive` — 39 controls checked, every press lands on the rect it was drawn in, a press 2 points outside selects nothing |
 | The page looks like the reviewed page | `tools/pixel-diff.py` against `tools/kontakt-reference/electric-mint-page.png` — 0 of 316500 px differ |
 | A stock Kontakt preset's impulse resolves | `/presets/…` is walked under a discovered factory root and a member inside `K4IR.nkx` (387 MB, opened by index) decodes to 477306 frames of real audio; `KONTRA_KONTAKT_PRESETS` overrides the root and the error names every root tried |
