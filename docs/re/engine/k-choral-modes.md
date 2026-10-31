@@ -204,6 +204,47 @@ few ulps. The residual is the emulator's own `sincos` at `0x1443c9bd0`, which re
 `0.9510565148` for `cos 18°` where libm returns `0.95105651629515`, plus the f32
 rounding of the output.
 
+
+## The saved record, and how it is wired
+
+Module `0x5d`'s saved record is read by `0x140d00630` (the only version it takes is `0x51`;
+`docs/re/kontakt-catalog/reader_schemas.tsv` line 197 records the schema as `Fx7BBI`). It reads, in
+order, seven f32 into the parameter object's `+0x08`, `+0x0c`, `+0x10`, `+0x14`, `+0x18`, `+0x1c`,
+`+0x20`, two bytes into `+0x24`/`+0x25`, then an enum into `+0x28` and throws outside 0..=3. The
+`BParFXChoral` engine-par rows (`docs/re/kontakt-bindings/fx_other.tsv`, lines 65..73) name each of
+those offsets, which fixes the record:
+
+| record | object | parameter | law |
+| --- | --- | --- | --- |
+| `0x00` | `+0x08` | `$ENGINE_PAR_CHORAL_AMOUNT` | 0..=1 identity → `Chorus::set`'s `amount` |
+| `0x04` | `+0x0c` | `$ENGINE_PAR_CHORAL_RATE` | 0..=1 identity → `rate` |
+| `0x08` | `+0x10` | `$ENGINE_PAR_CHORAL_DELAY` | 0..=1 identity → `delay` |
+| `0x0c` | `+0x14` | `$ENGINE_PAR_CHORAL_VOICES` | 0..=1 identity → `voices` |
+| `0x10` | `+0x18` | `$ENGINE_PAR_CHORAL_WIDTH` | 0..=1 identity → `width` |
+| `0x14` | `+0x1c` | `$ENGINE_PAR_CHORAL_FEEDBACK` | 0..=1 identity → `feedback` |
+| `0x18` | `+0x20` | `$ENGINE_PAR_CHORAL_MIX` | 0..=1 identity → `mix` |
+| `0x1c` | `+0x24` | `$ENGINE_PAR_CHORAL_INVERT_PHASE` | bool → `invert` |
+| `0x1d` | `+0x25` | `$ENGINE_PAR_CHORAL_SCATTER` | bool → `scatter` |
+| `0x1e` | `+0x28` | the bank | 0..=3, the index into [`MODES`] |
+
+A record is 34 bytes and carries every field in every version, so nothing is defaulted. Electric
+Mint's Choral (instrument insert slot 6, both `.nki`) is
+`a4c3bb3e 54e3253e 0952993e 4d4b943e 69e46b3f 00000000 ab5bcd3e 00 01 00000000` —
+amount 0.366727, rate 0.162, delay 0.299454, voices 0.289637, width 0.921454, feedback 0, mix 0.40109,
+invert off, scatter on, bank 0.
+
+The chain out of the format:
+
+- `crates/format/kontakt/src/chorus.rs` — `saved()` reads the 34 bytes, `kind()` builds the IR;
+  `crates/format/kontakt/src/effects.rs` matches module `0x5d` to it.
+- `ir::EffectKind::Chorus(ir::Chorus)` — the format-neutral knobs plus the bank.
+- `crates/engine/effects/src/processors.rs` — `impl Wet for Chorus` runs
+  `kontra_dsp_delay::chorus::Chorus`, built once per slot (`Chorus::new(mode, fs)`: the ring is
+  3.7 MB at 48 kHz, so it is allocated off the audio thread, like every other slot's processor) and
+  re-knobbed per block through `Wet::set`; a bank move goes through `Chorus::set_bank`, which keeps
+  the ring and the filter state, as the native mode setter does. `matrix.rs` treats the slot as a
+  wet path, so its dry level mixes the input back.
+
 ## What is still unread
 
 Nothing on the audio path. Still open, and inert for this effect:

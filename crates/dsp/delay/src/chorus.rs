@@ -358,6 +358,8 @@ impl std::fmt::Debug for Line {
 #[derive(Clone, Debug)]
 pub struct Chorus {
     bank: Mode,
+    /// The knobs last applied, so a bank change can re-derive the voices.
+    settings: Settings,
     fs: f64,
     /// `A`, the wet polarity, `core+0x1b80`.
     a: f64,
@@ -415,6 +417,7 @@ impl Chorus {
             .next_power_of_two();
         let mut c = Self {
             bank: mode,
+            settings: Settings::default(),
             fs,
             a: 1.0,
             wet: 0.0,
@@ -455,7 +458,9 @@ impl Chorus {
                 tap: f64::from(mode.voices[i].tap),
             }),
         };
-        c.set(Settings::default());
+        // `set` would early out here (the knob record already holds the
+        // defaults), and an underived bank has no coefficients at all.
+        c.derive();
         c
     }
 
@@ -465,11 +470,42 @@ impl Chorus {
     /// `0x14193a3e0` (voices), `0x14193a4a0` (width), `0x14193ae70` (feedback),
     /// `0x14193a620` (scatter), `0x14193a6a0` (invert), `0x14193a6d0` (mix) and
     /// `0x14193e160`, which maps the bank onto the voices.
+    pub fn set(&mut self, s: Settings) {
+        // `Wet::set` calls this every block; re-deriving seven voices' worth of
+        // `pow`/`tan`/`sincos` for unchanged knobs is wasted work.
+        if self.settings == s {
+            return;
+        }
+        self.settings = s;
+        self.derive();
+    }
+
+    /// Swaps the bank, as the native's mode setter does, keeping the ring and
+    /// the filters' state; the knobs it was last given are re-applied.
     #[expect(
         clippy::indexing_slicing,
         reason = "voices are indexed over MODES[..].voices and the arrays sized 7"
     )]
-    pub fn set(&mut self, s: Settings) {
+    pub fn set_bank(&mut self, bank: usize) {
+        self.bank = MODES[bank.min(MODES.len() - 1)];
+        self.derive();
+    }
+
+    /// The bank in use, 0..=3.
+    #[must_use]
+    pub fn bank(&self) -> usize {
+        MODES
+            .iter()
+            .position(|m| m == &self.bank)
+            .unwrap_or_default()
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "voices are indexed over MODES[..].voices and the arrays sized 7"
+    )]
+    fn derive(&mut self) {
+        let s = self.settings;
         let fs = self.fs;
         // The kernel evaluates these laws in f64 from the f32 knobs; the f32
         // helpers above are the same laws rounded, and are not used here.
@@ -795,6 +831,17 @@ mod tests {
         let mut io = vec![[0.0f32; 2]; 256];
         c.process(&mut io);
         assert!(io.iter().all(|f| f == &[0.0, 0.0]));
+    }
+
+    /// A fresh effect is already initialised: its defaults are audible. An
+    /// underived bank would have zero coefficients and pass the dry signal.
+    #[test]
+    fn a_new_effect_is_derived() {
+        let mut c = Chorus::new(0, 48_000.0);
+        let mut io: Vec<[f32; 2]> = (0..256).map(|i| [((i as f32) * 0.1).sin(), 0.0]).collect();
+        let want = io.clone();
+        c.process(&mut io);
+        assert_ne!(io, want, "the default knobs give a wet signal");
     }
 
     /// `mix` 0 is the dry signal, to the last bit the kernel produced.

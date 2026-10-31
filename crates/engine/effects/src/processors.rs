@@ -2,6 +2,7 @@
 //! delays, dynamics, drives, a cascade) and the summed EQ and filter stages,
 //! with their settings in DSP terms. Not real-time unless a function says so.
 
+use kontra_dsp::delay::chorus::{Chorus, Settings as ChorusSettings};
 use kontra_dsp::delay::{MAX_MS, ModDelay, Phaser, PhaserSettings};
 use kontra_dsp::drive::{self, Circuit, Clipper, Shaper};
 use kontra_dsp::dynamics::{
@@ -140,6 +141,23 @@ impl Wet for ModDelay {
     fn set(&mut self, kind: ir::EffectKind, tempo: f32) {
         if let ir::EffectKind::Delay(d) = kind {
             ModDelay::set(self, delay(d, tempo));
+        }
+    }
+}
+
+impl Wet for Chorus {
+    fn process(&mut self, io: &mut [[f32; 2]]) {
+        Chorus::process(self, io);
+    }
+
+    fn set(&mut self, kind: ir::EffectKind, _tempo: f32) {
+        if let ir::EffectKind::Chorus(c) = kind {
+            // The bank is the one thing the DSP cannot re-derive from a knob,
+            // so a mode move swaps it before the knobs land.
+            if self.bank() != usize::from(c.mode) {
+                self.set_bank(usize::from(c.mode));
+            }
+            Chorus::set(self, chorus(c));
         }
     }
 }
@@ -299,6 +317,21 @@ fn cascade(c: ir::Cascade) -> CascadeSettings {
     }
 }
 
+/// Choral's knobs as the DSP takes them.
+fn chorus(c: ir::Chorus) -> ChorusSettings {
+    ChorusSettings {
+        amount: c.amount,
+        rate: c.rate,
+        delay: c.delay,
+        voices: c.voices,
+        width: c.width,
+        feedback: c.feedback,
+        mix: c.mix,
+        scatter: if c.scatter { 1.0 } else { 0.0 },
+        invert: if c.invert { 1.0 } else { 0.0 },
+    }
+}
+
 fn settings(r: ir::Reverb) -> Settings {
     Settings {
         seconds: r.seconds,
@@ -362,6 +395,11 @@ pub fn processor(
             wet(Box::new(ModDelay::new(delay(d, 120.0), rate, max_ms)))
         }
         Some(ir::EffectKind::Phaser(p)) => wet(Box::new(Phaser::new(phaser(p, 120.0), rate))),
+        // Choral's ring is three and a half megabytes at 48 kHz, so it is built
+        // once and its knobs are re-applied per block (`Wet::set`).
+        Some(ir::EffectKind::Chorus(c)) => {
+            wet(Box::new(Chorus::new(usize::from(c.mode), f64::from(rate))))
+        }
         Some(ir::EffectKind::Cascade(c)) => wet(Box::new(Cascade::new(cascade(c), rate))),
         Some(ir::EffectKind::Clocked(c)) => {
             let shape = match c.shape {

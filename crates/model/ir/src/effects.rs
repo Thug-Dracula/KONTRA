@@ -129,6 +129,35 @@ pub struct Delay {
     pub phase: f32,
 }
 
+/// Choral, Kontakt's seven-voice modulated delay bank (module `0x5d`): seven
+/// lines in one feedback ring, each with its own LFO, filter and rotation.
+///
+/// The knobs are the effect's own parameters, all 0..=1 except `mode`; the DSP
+/// derives every coefficient from them (`kontra_dsp_delay::chorus`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Chorus {
+    /// Which of the four banks, 0..=3.
+    pub mode: u8,
+    /// The modulation depth.
+    pub amount: f32,
+    /// The LFO rate.
+    pub rate: f32,
+    /// The delay, scaling every voice's base time.
+    pub delay: f32,
+    /// How many of the seven voices are heard.
+    pub voices: f32,
+    /// The stereo rotation's width.
+    pub width: f32,
+    /// The feedback into the delay lines.
+    pub feedback: f32,
+    /// Dry (0) to wet (1).
+    pub mix: f32,
+    /// Cross-feed the voices into each other.
+    pub scatter: bool,
+    /// Flip the wet path's polarity.
+    pub invert: bool,
+}
+
 /// A phaser in physical units: `stages` first-order allpasses whose corner
 /// the LFO sweeps, `hz + spread_hz·(e^(exponent·lfo) − 1)`, around a
 /// feedback loop.
