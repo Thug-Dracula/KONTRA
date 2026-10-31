@@ -47,6 +47,11 @@ The two Supercharger rows are Kontakt against itself, one slot apart. Their 0.64
 is the compressor's level dependence, and it is the whole of the "0.82/0.68" pair:
 `0.817 = 0.170 (Eq) + 0.647 (the boost the compressor removes)`.
 
+The 0.68 decomposes the same way: with the compressor out the same chain reads **−0.211 dB**
+(KONTRA *loud*), and with it in, at the lower input level, it reads **+0.678 dB**;
+`+0.678 = −0.211 + 0.889`, and 0.889 is the Supercharger's error at that input level
+(−2.453 applied against Kontakt's −1.571). There is no 0.68 dB of missing voice-path gain.
+
 ## 1. Why the old ablation could not see this
 
 Slot order is 1 Eq → 2 Supercharger → 3 Hot Solo → 4 Diffusion → 5 — → 6 Choral → 7 Convolution.
@@ -172,8 +177,20 @@ KONTRA_RENDER=/var/tmp/tgt-eq/release/kontra-render python3 tools/oracle-mcp/par
 
 ## 6. Fingerprints
 
-No source under `crates/` changes in this record, so every render is byte-identical to
-`feat/integration` at `9019bb2`: `kontra-render` of `control.nki` sha256
-**`585f5f7dbb10c28c…`** (unchanged), Haunted Strings 2 `06cf13eee3f8f54e…` and Cherry Electric
-Bass `0279ba0fd86927bd…` unchanged (they are the stored captures of the previous lane; this
-lane's builds reproduce them because no code differs).
+No library or binary source changes in this record — the only file added under `crates/` is the
+`dump_fx` example, which is its own binary and is not in any render. So every render is
+byte-identical to `feat/integration` at `9019bb2`, and that was **checked, not assumed**: the same
+three instruments rendered with the build made at `9019bb2` (`/var/tmp/tgt-base`, worktree
+`feat/mint-base-gain` at that commit) and with this branch's build, key 62 velocity 100 held 1.5 s:
+
+| instrument | sha256 (both builds) |
+|---|---|
+| Haunted Strings 2 | `0b0a1a8344baa5e524820af102563c5bbcfb6c0d865c3403e683cb55eab378ce` |
+| Cherry Electric Bass | `4b0eca7c03ba1f2f7f8a4c2f9043c7820f2f0a23a9f2de3bcdddf57bbb64a105` |
+| Electric Mint | `f591fd129b02bd0c54161d93250c581af03bc8ea17b4aa3700b3e9fa9e380c08` |
+
+(`feat/mint-base-gain`'s head *is* `feat/integration`'s head, `9019bb2`, so that is the base tree
+itself; the `06cf13ee…` / `0279ba0f…` hashes in `STATUS.md` are the previous lane's *before* images
+and are a different render configuration.) `kontra-render` of `control.nki`, key 60, is
+`585f5f7dbb10c28c4c12c5f4aa49f132ec3600e9798bfe0c42abbe6e95678f2b`, the value
+`electric-mint-base-gain-2026-10-31.md` §7 recorded.
