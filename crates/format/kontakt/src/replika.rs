@@ -302,4 +302,23 @@ mod tests {
         );
         assert_eq!(saved(0x13, &bytes(V11_RECORD)), None);
     }
+
+    /// Every non-Modern type is named in the gap log instead of landing on
+    /// Modern's line. The saved type is an enum of five values, mapped by
+    /// identity in the reader's first field (`0x140a847f0`); Diffusion's
+    /// network is not recovered (docs/re/engine/k-replika-diffusion.md).
+    #[test]
+    fn the_other_four_types_are_named_not_rendered() {
+        for (mode, name) in MODE_NAMES.iter().enumerate().skip(1) {
+            let r = Replika {
+                mode: i32::try_from(mode).expect("a type fits an i32"),
+                ..INIT
+            };
+            assert_eq!(delay(r), None, "{name} must not be played as Modern");
+            assert!(
+                lost(r).any(|what| what == *name),
+                "{name} missing from the gap log"
+            );
+        }
+    }
 }

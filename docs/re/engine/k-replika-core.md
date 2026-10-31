@@ -15,6 +15,10 @@ Corrections to `docs/re/engine/k-replika.md` (not applied there):
 - T4 index offset is +1200 (`144fc4b50`). The -60 is the index-18 scale (`144fc4d50`).
 - Index 29 is confirmed as the saturation target (glided into the amount `+0x142ac`).
 - Core vtable is `1479aaea8` (class `FXFDelayLight@DSP@NI`); `144e962d8` is the wrapper.
+- `+0x93c` ("mode 0..3") is a four-value control whose values match the four BBD models, not
+  the five saved delay types; the saved type reaches the core through the five-value selector
+  `141aca670` (scale 5.0 at `1447149f0`) and the writer `141aca715`. See
+  `k-replika-diffusion.md`.
 
 ## Entry points
 
