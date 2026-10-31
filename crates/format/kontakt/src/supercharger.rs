@@ -42,8 +42,14 @@ use kontra_ir as ir;
 /// `0x1479b6048` f64); the measured flat transfer is this to four decimals.
 pub(crate) const MAKEUP: f32 = 1.071_653_6;
 
-/// The record's SATURATION byte (field 1, `$ENGINE_PAR_SUPERGT_SATURATION`).
-const SATURATION: usize = 12;
+/// The record's SATURATION field (index 1, `$ENGINE_PAR_SUPERGT_SATURATION`).
+///
+/// `fx_other.tsv` gives its object offset as 12, and a record's payload starts
+/// at object +8 -- the same convention Choral's reader follows, where
+/// `$ENGINE_PAR_CHORAL_AMOUNT` at object 8 is payload `f(0)`. So the field is
+/// payload 4. Reading 12 reached CHARACTER (object 20) instead, which is why
+/// the fixture could not tell them apart: Electric Mint stores 0 in both.
+const SATURATION: usize = 4;
 
 /// The slot's effect: the module's make-up as a gain, at the reading the
 /// measured vector covers.
@@ -98,6 +104,28 @@ mod tests {
 
     /// Electric Mint's record stores SATURATION 0, so the flat law holds and
     /// only the compression is reported missing.
+    /// SATURATION is payload 4 and CHARACTER payload 12, and the fixture above
+    /// stores 0 in both -- so it passes whichever of the two the reader looks
+    /// at. These two records differ only in which of the pair is set.
+    #[test]
+    fn saturation_is_read_from_its_own_field_not_characters() {
+        let saturating = bytes("000000000000803f0000000000000000");
+        let character = bytes("0000000000000000000000000000803f");
+        let fired = |r: &[u8]| {
+            let mut notes = Notes::default();
+            let _ = effect(r, "slot 2", &mut notes);
+            notes
+                .finish()
+                .into_iter()
+                .any(|n| n.feature.contains("saturation"))
+        };
+        assert!(fired(&saturating), "field 1 set must report saturation");
+        assert!(
+            !fired(&character),
+            "field 3 (CHARACTER) must not be mistaken for saturation"
+        );
+    }
+
     #[test]
     fn the_saved_saturation_is_off_and_only_the_compression_is_reported() {
         let record = bytes(RECORD);
