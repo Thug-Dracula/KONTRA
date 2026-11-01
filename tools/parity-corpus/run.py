@@ -34,6 +34,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -539,7 +540,7 @@ def record(args, doc):
             "level_db": m["level_db"],
             "band_rms_db": m["band_rms_db"],
             "align_ms": m["lag_ms"],
-            "measured": "2026-11-01",
+            "measured": time.strftime("%Y-%m-%d"),
             "kontra_sha256": (summary or {}).get("sha256"),
         }
         print(f"{case['id']:26s} baseline level {m['level_db']:+.2f}  band {m['band_rms_db']:.2f}  "
@@ -641,7 +642,15 @@ def capture(args, doc):
             if rc == 0 and out_wav.exists():
                 kern, _ = read_wav(out_wav)
                 m = compare(a, kern)
-                case["align_ms"] = m["lag_ms"]
+                # The baseline is recorded with the reference: a capture without the delta it
+                # implies would leave the case unable to say whether anything moved.
+                case["baseline"] = {
+                    "level_db": m["level_db"],
+                    "band_rms_db": m["band_rms_db"],
+                    "align_ms": m["lag_ms"],
+                    "measured": time.strftime("%Y-%m-%d"),
+                    "kontra_sha256": (summary or {}).get("sha256"),
+                }
                 print(f"   threshold {case['threshold']}  align {m['lag_ms']:+.0f} ms  "
                       f"KONTRA now {m['level_db']:+.2f} dB / {m['band_rms_db']} dB")
             else:
