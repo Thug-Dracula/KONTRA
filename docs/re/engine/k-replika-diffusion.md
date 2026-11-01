@@ -1,6 +1,6 @@
 # Kontakt 8 Replika Delay, saved TYPE 4 (Diffusion): the diffuser, and how the type reaches it
 
-Status: **answered**. Replika contains a real diffusion network: `NI::DSP::Diffuser`, embedded
+Status: **answered, one residual in the tail**. Replika contains a real diffusion network: `NI::DSP::Diffuser`, embedded
 twice inside `FXFDelayLight`, switched into the signal path by the saved type. "Diffusion" is
 therefore not a parameter-only variant of the three-head line - it inserts an eight-stage
 diffusion network into both filter stages.
@@ -405,7 +405,8 @@ Rings: each `Ring` is `{write: u64, data: ptr, end: ptr, capacity: ptr, length: 
 at `+0x00..+0x28`, stride `0x30`; the mask is a power of two minus one (1023, 2047 or 4095 in
 the capture), and the write wraps at the mask, not at `length`.
 
-Tap positions (`0x141bea589`, per stage, once every re-length tick):
+Tap positions (`0x141bea589`, per stage, **every frame** — the recompute sits outside the
+re-length branch):
 
 ```
 scale_j = (g − spread) + spread·drift_j          drift_j in −1..1
@@ -413,10 +414,10 @@ whole_j = trunc(length_j · scale_j)              frac_j = length_j·scale_j −
 ```
 
 with `g = 0.95·AMOUNT + 0.05`, `spread = g·MODULATION·0.02` (`0x1448798ec`, `0x1448569c0`,
-`0x1448569b8`) and the parity of `drift_j`: taps 0 and 2 take the stage pair's cosine, taps 1
-and 3 its sine. The captured tap table (`docs/re/engine/vectors/replika-diffusion-taps.tsv`)
-shows the window: stage 0's scales are 0.4142/0.4104/0.4140/0.4103 inside
-`[g − 2·spread, g] = [0.41044, 0.41796]`.
+`0x1448569b8`). `drift_j` is a component of one of two rotors; §11.4 gives the mapping. The
+captured tap table (`docs/re/engine/vectors/replika-diffusion-taps.tsv`) shows one window:
+stage 0's scales are 0.4179526/0.4144470/0.4179526/0.4144470 inside
+`[g − spread, g + spread] = [0.4142017, 0.4217196]`.
 
 The stage lengths are the ctor's table, not the knobs: 577/859/587/857, 643/977/647/971,
 877/1301/881/1297, 1019/1531/1033/1523, 1823/2711/1831/2707, 2293/3389/2309/3371,
@@ -424,27 +425,78 @@ The stage lengths are the ctor's table, not the knobs: 577/859/587/857, 643/977/
 (0x223, 0x335, ... in §3) belongs to a construction with the dense flag set, which
 `FXFDelayLight` never does (§2) — which is why the lengths are the same in both banks.
 
-### 11.4 The re-length tick, and the drift
+### 11.4 The two rotors, and which ring takes which — read (fourth pass)
 
-Every `trunc(rate·0.25)` frames (`+0x12a8`, `0x1448569e4` = 0.25) `0x141bea3f0` draws one LCG
-value per stage, `state = state·0x19fb4787 + 0x16d1b86b`, and when the drawn double is below
-0.5 it **flips the sign** of that stage's rotation step (`xorps` with `0x8000_0000` at
-`0x141bea43f`) — the rotation reverses, it does not choose a length. The per-stage state is
-`{a, c, cos, sin}` at `+0x1240 + 0x30·stage` (six doubles) and the global pair `{x, y}` plus its
-step at `+0x1270`/`+0x1280`; each tick rotates both by their step, and the taps are recomputed
-from the **new** values.
+The question §11.3 left open was narrow: given `g ± spread` and the LCG, **which of the four
+rings of a stage gets which drift, and from which rotor**. It is answered now, twice over — once
+from the process, once from the live object's own numbers.
 
-**What is unread**: which of the two rotated quantities drives which tap. The process reads the
-stage pair for one pair of taps and the global pair (or its mirror) for the other; with
-`drift = cos`-of-stage and `drift = ±1` the captured scales are reproducible to the truncation
-window, but the mapping that produces exactly 0.4142/0.4104 was not pinned. The port therefore
-sets `drift = 0`, i.e. every tap at `length × (g − spread)`, and *says so* — see §11.5.
+**The state.** Two rotors, not one per stage: `+0x1240` and `+0x1270`, `0x30` bytes each, six
+doubles — `{x, y, cos δ, sin δ, δ, 1}`. `(x, y)` is the unit vector `(cos θ, sin θ)`; `δ` is the
+step; `sin δ` carries the direction and is what the tick flips. The ctor zeroes the blocks and
+the rate setter (`0x141be4080`) fills them from `0x141c074b0`:
+
+```
+δ₁ = 2π · (1.5 − MODULATION) / rate
+δ₂ = 10/7 · δ₁                  // literally: (1 − MOD)·10/7 + 5/7
+```
+
+and then rotates `(x, y)` by `(cos δ, sin δ)` **once per frame** (`0x141bea454`), after which the
+taps are recomputed. So the drift is a 1.05 Hz and a 1.5 Hz motion at Electric Mint's MODULATION,
+not a per-tick choice, and the taps move ~0.002 samples a frame on the longest ring.
+
+**The mapping** (`0x141bea589` onward, eight stage blocks in order, each with its four scale
+values in ring order):
+
+| stage | ring 0 | ring 1 | ring 2 | ring 3 |
+|---|---|---|---|---|
+| 0 | F + s·sin θ₁ | F + s·cos θ₁ | F + s·sin θ₁ | F + s·cos θ₁ |
+| 1 | F − s·sin θ₁ | F − s·cos θ₁ | F − s·sin θ₁ | F − s·cos θ₁ |
+| 2 | F + s·cos θ₁ | F + s·sin θ₁ | F + s·cos θ₁ | F + s·sin θ₁ |
+| 3 | F − s·cos θ₁ | F − s·sin θ₁ | F − s·cos θ₁ | F − s·sin θ₁ |
+| 4 | F + s·sin θ₂ | F + s·cos θ₂ | F + s·sin θ₂ | F + s·cos θ₂ |
+| 5 | F − s·sin θ₂ | F − s·cos θ₂ | F − s·sin θ₂ | F − s·cos θ₂ |
+| 6 | F + s·cos θ₂ | F + s·sin θ₂ | F + s·cos θ₂ | F + s·sin θ₂ |
+| 7 | F − s·cos θ₂ | F − s·sin θ₂ | F − s·cos θ₂ | F − s·sin θ₂ |
+
+with `F = g − spread`, `s = spread`. In words: **rings 0 and 2 of a stage read the same drift,
+rings 1 and 3 the other**; stages 0–3 and 4–7 use the two different rotors; stages 2–3 and 6–7
+swap the pair; odd stages negate it. `crates/dsp/delay/src/diffusion.rs`'s `DRIFT` table is this
+table, and `every_ring_takes_the_distance_the_capture_read` holds all 32 distances of the live
+tap table to under **0.01 sample**.
+
+The captured object agrees digit for digit: its blocks held `θ₁ = 1.5055020`, `θ₂ = 1.6651271`,
+`δ₁ = −1.3748749e-4`, `δ₂ = +1.9641049e-4` (per frame at 48 kHz, directions as the last ticks
+left them), and `floor 0.41420174`, `spread 0.003758912`; with those, stage 0's four distances
+come out 241.15866 / 356.00998 / 245.3382 / 355.18109. The zero-phase start is `(x, y) = (1, 0)`:
+the rate setter rotates the pair by its step and adds 1.0 along x, which is where a freshly
+prepared object begins, so a render that starts from phase 0 starts where Kontakt does.
+
+**The tick** (`0x141bea3f0`): every `trunc(rate·0.25)` frames each rotor draws **two** LCG values
+(`state = state·0x19fb4787 + 0x16d1b86b`, taken as the two words of a 64-bit uniform) and, when
+that draw is below `+0x12b8` (0.5), flips the sign of its step — the rotation reverses. Two draws,
+not one per stage: the sign is per rotor, and four of the eight stages inherit it.
+
+**A second correction from the same kernel**: the two output rows are stored **by lane, not by
+channel** — lane `k` keeps its `(left, right)` weights at `+0x60 + 8k` / `+0x64 + 8k`. With the
+captured values (`+0x60 = +0x74 = 0.841471`) that makes
+
+```
+out[0] = taps[0] · 0.841471 + direct · in[0]
+out[1] = taps[2] · 0.841471 + direct · in[1]
+```
+
+so the right channel reads **lane 2** — the 245-sample ring — and not lane 1. §11.3's "ch 1 uses
+tap 1" was the reading of the rows as if they were row-major; the live capture's right-channel
+echoes sit at 244/265/364/426, the `tap 2` distances plus their Catmull offset, which is what
+settled it.
 
 ### 11.5 The port
 
 `crates/dsp/delay/src/diffusion.rs` implements the network as a shared DSP effect (buffers in
 `new`, no allocation in `process`, f32 throughout): eight stages × four rings × four taps,
-Catmull–Rom reads, the `M·R` rows, `direct = sin angle`, the re-length counter and its LCG.
+Catmull–Rom reads, the `M·R` rows, `direct = sin angle`, the tap law and both rotors of §11.4
+(rotated every frame, reversed on the tick), the re-length counter and its LCG.
 `ir::EffectKind::Diffusion` carries it; `crates/format/kontakt/src/replika.rs` maps the saved
 record onto it (§ below), and `crates/engine/effects` builds it per slot.
 
@@ -456,7 +508,8 @@ Kontakt's record, fields as `k-replika.md` numbers them:
 | AMOUNT (19) | 68 | `g = 0.95·AMOUNT + 0.05` |
 | MODULATION (21) | 72 | `spread = g·MODULATION·0.02` |
 | DENSE (22) | 76 | carried (the port runs bank A; bank B is unread) |
-| — | — | `taps = lengths · (g − spread)` |
+| — | — | `lengths` = the ctor's table, `window = (g − spread, g·MODULATION·0.02)` |
+| — | — | `rotor_hz = (1.5 − MODULATION, ×10/7)`, `rotor_phase = (0, 0)` |
 
 The stream order is **BBDTYPE, SIZE, AMOUNT, MODULATION** (bytes 60, 64, 68, 72), not the
 field-number order; §11.5 first wrote AMOUNT at 64 and SIZE at 68, which put Electric Mint's angle
@@ -470,27 +523,53 @@ A record cut short of those bytes keeps the object's own INIT values
 capture's live values had to be passed in by hand: Electric Mint's saved tail is not in the
 repo's copy.
 
-Type 4 is rendered; Analogue, Tape and Vintage (1..3) are still named, not rendered, and so is
-the tap drift (`Replika diffusion tap drift` in the gap log).
+Type 4 is rendered, taps moving; Analogue, Tape and Vintage (1..3) are still named, not
+rendered. The gap log no longer carries `Replika diffusion tap drift` — the drift is in.
 
 ### 11.6 The impulse response, and the residual in it
 
 `docs/re/engine/vectors/replika-diffusion-ir-l.f32` / `-r.f32` are 4096 frames of the network's
 response to a one-sample impulse, captured by zeroing bank A's rings and stepping the engine
 one frame at a time (§11.1). `replika-diffusion-taps.tsv` is the tap table in force during it.
+The capture harness read the object's block state once, at its first frame, so the rotors'
+angles, steps and directions at frame 0 are known (`cap5/diffuser.bin`, `cap5/stages.txt`) — the
+test builds the network at exactly that instant.
 
-Against the port, with the captured taps supplied as data:
+Measured in `crates/dsp/delay/src/diffusion.rs`, correlation against the stored vectors:
 
-- the direct path through all eight stages is exact to `1e-8` (`0.0072626495`),
-- stage 0's first echo lands at samples 239-241 in the right shape (`-0.0002764 / 0.0047714 /
-  0.0005933`, the port within 1 %),
-- **the full vector does not match**: correlation 0.012, block energies 0.7..1.1, so the echo
-  *pattern* past the first stage has the right magnitude and the wrong positions. That is the
-  tap drift of §11.4 showing up: the capture ran with `drift ≠ 0` on stages whose mapping the
-  port does not have, and a stage's taps being a few samples off decorrelates the tail.
+| | left, all | right, all | left, 0..537 | right, 0..537 | left, 0..2048 |
+|---|---|---|---|---|---|
+| §11.5's static taps (before this pass) | 0.0122 | 0.0196 | 0.9804 | 0.9759 | 0.0658 |
+| the tap law + lane 2 (after) | −0.0121 | −0.0082 | **1.0000** | **1.0000** | 0.0159 |
 
-So the test file pins the direct path and the first echo, and says plainly that the rest is not
-yet reproduced — the one number that would close it is the tap-to-drift mapping of §11.4.
+So the half second that carries the direct path and the echo train of the first four stages is
+now reproduced **exactly** — both channels — where the old port was 2 % out and the right
+channel was reading the wrong ring entirely. The first divergence is at sample 484, and it is a
+*sign*: the port has `−2.2e-5` where the capture has `+2.2e-5`, in a component that sensitivity
+traces to the lane-2 feedback column (`mix[0][2]`, `input[1][2]`, −0.005838143 and −0.01416052).
+From there the two decorrelate.
+
+**What that means, stated plainly:** the tail is still not reproduced, and the tap mapping was
+not the last thing in the way. What is left, and what a fifth capture would need:
+
+- **The one sign.** A path arriving at 484–486 differs in sign, in a term that only lane 2 (the
+  245-sample ring's feedback into lane 0) touches. Every single-entry sign flip, all 16 whole-lane
+  negations, and 12 column permutations of the mixing and input rows were tried against the
+  capture; none of them improves the correlation past 0.52, so it is not one transcription error
+  in the rows. The next capture should dump, for one frame, the four taps at `+0x90` *and* the
+  feedback vector at `+0x80` **and** the four ring values each tap read — one frame is enough to
+  see which product the kernel actually formed, instead of inferring it from the echo train.
+- **Whether the 4096 recorded frames are consecutive.** The harness drops a frame when the other
+  diffuser's entry clears its `pending` flag (`ir_capture.py`, `if rcx != d: pending = False`),
+  so a single interleaved call is lost while the network still advances. Dropping up to three
+  frames at any position in 300..1600 was replayed against the capture and does not explain the
+  residual, so this is not *the* cause — but the capture does not prove the timeline is
+  contiguous either, and the next one should count entries as well as record returns.
+- **The stage-4..7 echoes.** The capture has no first-order arrival at stage 4's 761, 5's 941,
+  6's 1465 or 7's 1584, while it *does* have stage 4's lane-2 arrival at 766. Every eight-stage
+  model that reproduces its first 512 frames puts those arrivals in. Until a capture shows the
+  chain running all eight stages with the rings zeroed at frame 0, the stored vector cannot be
+  called a complete impulse response of this network.
 
 ### 11.7 What moved, and the fingerprint
 
@@ -505,7 +584,8 @@ after the port:
 | rms after release | 0.0623 | 0.0737 |
 | sha256 | `9b6c798f…a4dbfb9b` | `a6f31865…831b6c72` |
 
-The after hash is reproducible run to run (checked twice, and again after the last edit). The
+The after hash of the tap-law pass is recorded in §12. The after hash here is reproducible run
+to run (checked twice, and again after the last edit). The
 render moves because a type-4 Replika used to drop out of the chain entirely (its slot had no
 `EffectKind`), and now puts the diffusion network in, which is louder here by about 1.9 dB rms
 and carries the smeared tail the network is for. Which other library instruments move was not
@@ -514,3 +594,48 @@ scan (682 nki) that this pass did not run.
 
 The native path (`sampler-core`'s `dsp/replika`, `PARITY_MATRIX.md`) is untouched: this is the
 IR effect path, and its own TYPE 4 handling is a separate question there.
+
+### 11.8 How the mapping was captured (the fourth pass's method)
+
+No new oracle session: the state was already on disk, and the disassembly gave the law that reads
+it. In order:
+
+1. **The object's block state** — `cap5/diffuser.bin` is the whole `NI::DSP::Diffuser` (`0x12e0`
+   bytes) read at the capture's first entry, so `+0x1240`/`+0x1270` are the two rotors at frame 0
+   and `+0x12c0`..`+0x12d8` are SIZE/AMOUNT/MODULATION/DENSE as the module held them.
+2. **The mapping, from the code** — `0x141bea454` rotates both pairs every frame and then
+   `0x141bea589`.. writes eight stages' worth of `(whole, frac)` arrays, each stage consuming the
+   scale values in a fixed order. Reading which `xmm` each stage's four `mulss` uses gives the
+   table in §11.4 directly, including the pair swap at stages 2–3/6–7 and the negation at odd
+   stages.
+3. **The rate law, from the code** — `0x141c074b0`, called from the rate setter, builds `δ` from
+   the rate and `MODULATION`, and the `+1.0` into the pair's x is the zero-phase start.
+4. **The check** — the two independently (dump vs. table) and the tap table agree: every one of
+   the 32 distances comes out of the law at the dumped angles, to under 0.01 sample. That is
+   `every_ring_takes_the_distance_the_capture_read`, and it is the test the tail hung on.
+5. **The output rows** — the same kernel's output multiply reads `+0x60 + 8k` / `+0x64 + 8k` per
+   lane, which the capture's right-channel arrivals at 244/265/364/426 (the lane-2 distances)
+   confirm.
+
+The pulse-response vector itself was then re-run against the port: §11.6 has the numbers and
+says what is left.
+
+## 12. What the tap law moved
+
+Both tools, 48 kHz, key 60, 1.5 s, `feat/integration` before this pass against it after:
+
+| render | before | after |
+|---|---|---|
+| `kontra-inspect play` (the gate's fingerprint) | `7fd5a1ae59790ffc` | `318df4e82ab353d7` |
+| `kontra-render`, peak / rms | `585f5f7dbb10c28c`, 0.3161 / 0.04910 | `4ee80cd3b66d9bb1`, 0.3134 / 0.04926 |
+| Haunted Strings 2 (`kontra-render`) | `06cf13eee3f8f54e` | `06cf13eee3f8f54e` |
+| Cherry Electric Bass (`kontra-render`) | `0279ba0fd86927bd` | `0279ba0fd86927bd` |
+
+Electric Mint moves because its Replika's taps now move: at the record's MODULATION (0.449673)
+the window is ±0.9 % of each length — 3.3 samples on stage 0's 859 ring — and the two rotors
+turn 1.05 Hz and 1.5 Hz, so the tail breathes instead of sitting at the window floor. Peak
+−0.085 dB, rms +0.002 dB: the network's energy is the same, its smearing is not.
+
+The two instruments that store no Replika are byte-identical, as they must be: nothing else in
+the chain was touched. `tools/verify.sh`: **VERIFY PASSED** (all layers; `kontra-dsp-delay` 31
+tests, render complete, 0 missing frames, 0 clipped).

@@ -11,7 +11,9 @@
 //!
 //! - four taps are read from the stage's four rings at `(write − d + k) & mask`
 //!   with `k` 2, 1, 0, −1, then interpolated (Catmull–Rom, below);
-//! - `out = taps·output[0 or 1] + direct·in`;
+//! - `out = [taps[0]·c + direct·in[0], taps[2]·c + direct·in[1]]` — the two
+//!   output weights are stored by lane, not by channel, so channel 1 reads
+//!   lane 2;
 //! - `feedback = taps·mix + in·input`, written into the four rings.
 //!
 //! The rows (`0x141bff690`) are `M(angle)` rotated 0.02 rad in the (0,2) and
@@ -523,13 +525,6 @@ pub fn angle(size: f32) -> f32 {
     FRAC_PI_2 - size
 }
 
-/// The first rotor's rate: `2π(1.5 − MODULATION)` a second (`0x141c074b0`).
-#[must_use]
-pub fn rotor_hz(modulation: f32) -> (f32, f32) {
-    let first = 1.5 - modulation;
-    (first, first * 10.0 / 7.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,11 +621,9 @@ mod tests {
     /// in the wrong place.
     #[test]
     fn every_ring_takes_the_distance_the_capture_read() {
+        // The dumped rotors are the state the capture's tap table was read
+        // from, so the constructor's own layout is directly comparable.
         let net = Diffusion::new(settings());
-        // One rotation puts the taps where the captured angles already were
-        // one step ago; the capture's table was read after the same turn.
-        let one_step: [f32; STAGES] = std::array::from_fn(|_| 1.0);
-        let _ = one_step;
         for (stage, want) in CAPTURED_TAP_TABLE.iter().enumerate() {
             let got = net.taps_at(stage);
             for (tap, &(length, whole, frac)) in got.iter().zip(want) {
