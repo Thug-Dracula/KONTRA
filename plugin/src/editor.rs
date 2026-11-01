@@ -382,6 +382,7 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
     match action {
         Action::Load { library, preset } => {
             let Some(path) = browser.preset(library, preset) else {
+                unresolved(browser, library, preset, report);
                 return;
             };
             let loaded = match rack.free() {
@@ -395,9 +396,19 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
         }
         // Replaces the part's instrument with another of its library's.
         Action::Switch { part, preset } => {
-            let library = (rack.parts().get(part).and_then(Option::as_ref))
+            let found = (rack.parts().get(part).and_then(Option::as_ref))
                 .and_then(|p| browser.find(p.path.as_deref()?));
-            let Some(path) = library.and_then(|(l, _)| browser.preset(l, preset)) else {
+            let Some((library, _)) = found else {
+                let number = (part + 1).to_string();
+                let which = preset.to_string();
+                report.push(format!(
+                    "part {number}: its library is not listed, so preset {which} cannot be found"
+                ));
+                crate::session::error("preset_missing", &[("part", &number), ("preset", &which)]);
+                return;
+            };
+            let Some(path) = browser.preset(library, preset) else {
+                unresolved(browser, library, preset, report);
                 return;
             };
             match rack.load(part, &path) {
@@ -411,6 +422,7 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
             preset,
         } => {
             let Some(path) = browser.preset(library, preset) else {
+                unresolved(browser, library, preset, report);
                 return;
             };
             match rack.load(part, &path) {
@@ -422,6 +434,12 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
             let found = (rack.parts().get(part).and_then(Option::as_ref))
                 .and_then(|p| browser.find(p.path.as_deref()?));
             let Some((library, preset)) = found else {
+                let number = (part + 1).to_string();
+                let step = by.to_string();
+                report.push(format!(
+                    "part {number}: its library is not listed, so it cannot step {step}"
+                ));
+                crate::session::error("preset_missing", &[("part", &number), ("by", &step)]);
                 return;
             };
             let count = browser
@@ -430,6 +448,7 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
                 .get(library)
                 .map_or(0, |l| l.presets.len());
             if count == 0 {
+                unresolved(browser, library, preset, report);
                 return;
             }
             let step = by.unsigned_abs() as usize % count;
@@ -456,6 +475,33 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
     }
 }
 
+/// Says that a browser action named a preset the catalog cannot resolve, in
+/// the editor's report and the session log. A click that loads nothing must
+/// not be silent. The library is named when its index still resolves, which
+/// also tells whether the catalog was rescanned under the action.
+fn unresolved(browser: &Browser, library: usize, preset: usize, report: &mut Vec<String>) {
+    let name = browser
+        .catalog
+        .libraries
+        .get(library)
+        .map(|l| l.name.as_str());
+    let line = name.map_or_else(
+        || format!("preset {preset} of library {library} not found: the library list changed"),
+        |name| format!("preset {preset} of \"{name}\" (library {library}) not found"),
+    );
+    report.push(line);
+    let index = library.to_string();
+    let which = preset.to_string();
+    crate::session::error(
+        "preset_missing",
+        &[
+            ("library", name.unwrap_or("")),
+            ("library_index", &index),
+            ("preset", &which),
+        ],
+    );
+}
+
 /// A library's interface for the editor, laid out, its pictures read off the
 /// UI thread from the library at `path`, else from `source` (the instrument
 /// the part came from: a preset may sit outside its library). A picture that
@@ -464,10 +510,14 @@ pub fn browse(rack: &mut Rack, browser: &mut Browser, action: Action, report: &m
 fn face(tree: &Interface, path: Option<PathBuf>, source: Option<PathBuf>) -> Face {
     let tree = resolved(tree);
     let told = crate::session::picture_failures(path.clone());
-    let pictures = Pictures::new(Box::new({
-        let loader = Loader::new([path, source], told);
-        move |p: &str| loader.read(p)
-    }));
+    let undecoded = crate::session::picture_undecodable(path.clone());
+    let pictures = Pictures::reporting(
+        Box::new({
+            let loader = Loader::new([path, source], told);
+            move |p: &str| loader.read(p)
+        }),
+        undecoded,
+    );
     Face {
         tree,
         pictures,

@@ -288,6 +288,34 @@ pub fn picture_failures(instrument: Option<PathBuf>) -> FailureSink {
     })
 }
 
+/// A picture whose bytes were read but did not decode, for the face of
+/// `instrument`: the first with its asset, then one line per 64 with the
+/// running count. The event is `picture_missing`'s, so one place lists every
+/// picture a page lost; the reason says the library held the file.
+pub fn picture_undecodable(instrument: Option<PathBuf>) -> kontra_ui::pictures::Undecoded {
+    /// Failures between two counted lines.
+    const PICTURES_PER_LINE: usize = 64;
+    let seen = AtomicUsize::new(0);
+    let instrument = instrument.map_or_else(String::new, |p| p.display().to_string());
+    Box::new(move |asset: &str| {
+        let n = seen.fetch_add(1, Ordering::Relaxed) + 1;
+        if n == 1 || n.is_multiple_of(PICTURES_PER_LINE) {
+            error(
+                "picture_missing",
+                &[
+                    (
+                        "reason",
+                        "the bytes read for that path are not a picture this decodes",
+                    ),
+                    ("asset", asset),
+                    ("instrument", &instrument),
+                    ("count", &n.to_string()),
+                ],
+            );
+        }
+    })
+}
+
 /// A picture too big for the renderer's atlas, said once: past that size
 /// vello draws nothing and the page loses it without a word.
 pub fn picture_too_large(side: u32, limit: u32) {
