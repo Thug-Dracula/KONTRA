@@ -115,10 +115,13 @@ preset menu's plate, so a click on the name is the menu's and opens the
 instrument's own list; a double click edits the name in place, the field itself
 taking the caret with no second window.
 
-A run that checks nothing is a failure, not a pass. When every widget lacks a
-drawn rect, or the instrument has no page at all, `ui-drive` prints `FAIL: no
-control was checked … this run proves nothing` and exits non-zero, and the gate's
-`ui-drive` row fails with it. The gate also fails when `ui-drive` does not build:
+A run that checks nothing is a failure, not a pass — **per page, not per run**.
+When every widget of a page lacks a drawn rect, or the instrument has no page at
+all, `ui-drive` prints `FAIL: … checked no control … ` naming the page and exits
+non-zero, and the gate's `ui-drive` row fails with it. The count is per page
+because one total over every page is the wrong question: 39 controls on one
+instrument's page and none on the next summed to 39, and the run read as a pass
+for both. The gate also fails when `ui-drive` does not build:
 it is a workspace member, so a compile break is a defect, and calling it
 "skipped" is how layer 2 could go unrun while the gate still said PASSED.
 
@@ -139,6 +142,11 @@ the ceiling, and 2 when the two cannot be compared at all (missing, unreadable, 
 a size mismatch without `--scale`). The gate fails on 1 and on 2, and prints
 pixel-diff's own message for a 2 instead of an empty reason.
 
+`--scale` and `--crop` do not combine (`--crop` compares one region 1:1 in page
+pixels; `--scale` resizes the whole page), and asking for both exits 2 with the
+reason: comparing a region of a resized page against a region of the original is
+a wrong comparison, and it must not be quiet.
+
 **This is not a comparison with Kontakt.** `tools/kontakt-reference/*-page.png` is
 the reviewed page as this tree draws it: the check catches a page that changed,
 not a page that was wrong to begin with. The live comparison is layer 6's
@@ -146,7 +154,10 @@ instrument, run on demand.
 
 **Acceptance:** the render differs from the capture by less than `MAX_PIXEL_PCT`
 (0.5%) of the page. `ALLOW_NO_PIXEL_REF=1` turns the check off and the table says
-`OFF` rather than `ok`: an admission, not a pass.
+`OFF` rather than `ok`: an admission, not a pass. The opt-out is read *before* the
+reference is looked for, so it also covers a machine with no capture at all —
+otherwise it could not work in the one case it exists for. A reference that is
+missing with no opt-out still fails the row.
 
 ---
 
