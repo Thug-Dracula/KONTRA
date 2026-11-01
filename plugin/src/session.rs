@@ -203,11 +203,21 @@ fn admit(last: &AtomicU64, now: u64) -> bool {
 /// The `last` a slot holds before it has written anything.
 const NEVER: u64 = 0;
 
+/// How long a slot waits between writes of the same event, milliseconds.
+///
+/// One second is what makes the log readable: a script that sets a control in
+/// `on note` would otherwise write a line per sample-accurate edit. Raising it
+/// costs detail for the first quarter second of a change; lowering it costs
+/// lines, and the file's cap is what turns that into lost history rather than
+/// disk. The boundary test repeats this value deliberately -- it asserts the
+/// boundary, so a policy change must be reflected there on purpose.
+const RATE_LIMIT_MS: u64 = 1000;
+
 /// Whether an event whose slot last wrote at `last` ms may write at `now`:
-/// once before it has ever written, then at most once a second. `last == 0`
-/// reading as "never" is why [`info`] stores `now.max(1)`.
+/// once before it has ever written, then at most once per [`RATE_LIMIT_MS`].
+/// `last == 0` reading as "never" is why [`info`] stores `now.max(1)`.
 fn due(last: u64, now: u64) -> bool {
-    last == NEVER || now.saturating_sub(last) >= 1000
+    last == NEVER || now.saturating_sub(last) >= RATE_LIMIT_MS
 }
 
 /// FNV-1a over the whole event name, reduced to a rate-limit slot. Stable
@@ -438,8 +448,16 @@ mod tests {
             Level::Off,
             "off turns the log off"
         );
-        assert_eq!(Level::of(Some(OsStr::new("1"))), Level::Verbose);
-        assert_eq!(Level::of(Some(OsStr::new("debug"))), Level::Verbose);
+        assert_eq!(
+            Level::of(Some(OsStr::new("1"))),
+            Level::Verbose,
+            "1 is a level, not a truthy value to be read as quiet"
+        );
+        assert_eq!(
+            Level::of(Some(OsStr::new("debug"))),
+            Level::Verbose,
+            "\"debug\" is the named form of verbose"
+        );
     }
 
     /// The first state change of a session happens at t = 0, when the load
@@ -452,11 +470,20 @@ mod tests {
         let slot = AtomicU64::new(NEVER);
         assert!(admit(&slot, 0), "an event at t = 0 must write once");
         assert!(!admit(&slot, 0), "two events in the first millisecond");
-        assert!(!admit(&slot, 1_000), "the write at 0 counts as 1 ms");
-        assert!(admit(&slot, 1_001));
+        assert!(
+            !admit(&slot, RATE_LIMIT_MS),
+            "the write at 0 counts as 1 ms, so the limit has not elapsed at {RATE_LIMIT_MS}"
+        );
+        assert!(
+            admit(&slot, RATE_LIMIT_MS + 1),
+            "one millisecond past the limit must write"
+        );
 
         // And a slot nothing has written to yet is never held back.
-        assert!(admit(&AtomicU64::new(NEVER), 500));
+        assert!(
+            admit(&AtomicU64::new(NEVER), 500),
+            "a slot that has never written is always admitted, whatever the clock"
+        );
         // The limit is one second, measured from the last write.
         let slot = AtomicU64::new(NEVER);
         assert!(admit(&slot, 500));

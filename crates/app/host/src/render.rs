@@ -344,8 +344,21 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
     // every note this render plays, the single note included (see
     // [`note_events`]), so a knob sweep can move velocity without editing the
     // command line. Unset, the front end's own `--velocity` / `--hold` stand.
-    let velocity_override = env("KONTRA_VELOCITY");
-    let hold_override = env("KONTRA_HOLD");
+    // A mistyped override must not silently measure a different note: velocity
+    // outside 1..=127 would leave the MIDI range, and a hold that is not a
+    // positive finite duration would schedule the NoteOff at frame 0 (or wrap).
+    // An invalid value is ignored, with a line saying so, rather than clamped --
+    // clamping would render a note nobody asked for and call it a measurement.
+    let asked_velocity = env("KONTRA_VELOCITY");
+    let asked_hold = env("KONTRA_HOLD");
+    let velocity_override = checked_velocity(asked_velocity);
+    let hold_override = checked_hold(asked_hold);
+    if asked_velocity.is_some() && velocity_override.is_none() {
+        invalid("KONTRA_VELOCITY", "1..=127");
+    }
+    if asked_hold.is_some() && hold_override.is_none() {
+        invalid("KONTRA_HOLD", "a positive number of seconds");
+    }
     let velocity = f64::from(velocity_override.unwrap_or(100.0)) / 127.0;
     // KONTRA_CONTROL=name=value,...: each script control (a KSP one named
     // without its type prefix, a UVI widget or macro by its name) moves there
@@ -419,13 +432,13 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
         }
         None => Some(req.note),
     };
-    if let Some(note) = single {
-        events.extend(note_events(
-            note,
-            rate as f32,
-            velocity_override,
-            hold_override,
-        ));
+    // The note that is actually played. `Summary.note` reports this, not the
+    // request: a run with KONTRA_VELOCITY set once recorded the requested
+    // velocity beside a WAV rendered at another, which is a measurement that
+    // cannot be reproduced from its own description.
+    let effective = single.map(|note| effective_note(note, velocity_override, hold_override));
+    if let Some(note) = effective {
+        events.extend(note_events(note, rate as f32, None, None));
     }
     // The wheel (the example's fourth positional argument) moves at 1 s.
     if let Some(value) = req.wheel {
@@ -647,7 +660,7 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
         rms: round(f64::from(rms)),
         rms_dbfs: round(dbfs(f64::from(rms))),
         sha256,
-        note: single.map(|n| NoteSummary {
+        note: effective.map(|n| NoteSummary {
             key: n.key,
             velocity: n.velocity,
             hold_s: n.hold_s,
@@ -717,6 +730,35 @@ type FrameEvent = (usize, Event);
 /// for. They exist so a sweep can move velocity or length without rebuilding a
 /// command line, and a render that names neither is exactly the front end's
 /// note.
+/// A velocity override inside the MIDI range, or `None`. 0 is a note-off and
+/// 128 does not exist, so neither is a velocity a caller can have meant.
+fn checked_velocity(v: Option<f32>) -> Option<f32> {
+    v.filter(|x| (1.0..=127.0).contains(x))
+}
+
+/// A hold override that is a positive, finite number of seconds, or `None`.
+/// Anything else would schedule the NoteOff at frame 0 or wrap the index.
+fn checked_hold(v: Option<f32>) -> Option<f32> {
+    v.filter(|x| x.is_finite() && *x > 0.0)
+}
+
+/// The note that will actually be played: the request with any override applied.
+/// The events and [`Summary::note`] both come from this, so a run cannot describe
+/// an input it did not use.
+fn effective_note(note: Note, velocity: Option<f32>, hold: Option<f32>) -> Note {
+    Note {
+        key: note.key,
+        velocity: velocity.map_or(note.velocity, |v| v as u8),
+        hold_s: hold.unwrap_or(note.hold_s),
+    }
+}
+
+/// Says an override was ignored, and what it should have been. A silently
+/// dropped override is how a sweep renders the wrong note for an hour.
+fn invalid(name: &str, want: &str) {
+    eprintln!("{name}: ignoring an out-of-range value; it must be {want}");
+}
+
 fn note_events(note: Note, rate: f32, velocity: Option<f32>, hold: Option<f32>) -> [FrameEvent; 2] {
     let velocity = velocity.unwrap_or(f32::from(note.velocity));
     let hold = hold.unwrap_or(note.hold_s);
@@ -992,6 +1034,37 @@ fn install_requests(engine: &mut Engine, plan: &Plan, rate: u32, diag: &mut dyn 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mistyped override is ignored, not clamped: rendering 127 for a requested
+    /// 200 would be a measurement of a note nobody asked for.
+    #[test]
+    fn an_out_of_range_override_is_rejected_rather_than_clamped() {
+        assert_eq!(checked_velocity(Some(200.0)), None, "200 is not a velocity");
+        assert_eq!(checked_velocity(Some(0.0)), None, "0 is a note-off");
+        assert_eq!(checked_velocity(Some(-5.0)), None);
+        assert_eq!(checked_velocity(Some(40.0)), Some(40.0));
+        assert_eq!(checked_hold(Some(0.0)), None, "a zero hold is a click");
+        assert_eq!(checked_hold(Some(-1.0)), None);
+        assert_eq!(checked_hold(Some(f32::NAN)), None);
+        assert_eq!(checked_hold(Some(0.5)), Some(0.5));
+    }
+
+    /// The summary describes the note that was rendered, not the one requested.
+    #[test]
+    fn the_summary_reports_the_effective_note() {
+        let asked = Note {
+            key: 60,
+            velocity: 100,
+            hold_s: 1.5,
+        };
+        let played = effective_note(asked, Some(40.0), Some(0.5));
+        assert_eq!(played.velocity, 40, "the override reached the events");
+        assert_eq!(played.hold_s, 0.5);
+        assert_eq!(played.key, 60, "the key is not overridable");
+        // and with no overrides the request stands
+        assert_eq!(effective_note(asked, None, None).velocity, 100);
+        assert_eq!(effective_note(asked, None, None).hold_s, 1.5);
+    }
 
     /// The oracle's own MIDI writer shape: one tempo event, note on at 0 and off at 720 ticks.
     fn one_note_midi() -> Vec<u8> {
