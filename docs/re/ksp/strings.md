@@ -44,8 +44,12 @@ law: the spectrum was wrong because most of the organ was not sounding.
 
 ## What was implemented
 
-- The lexer treats `\` as escaping the next character inside a string, so an
-  escaped quote does not end it.
+- Inside a string the lexer skips `\` together with the character after it, so an
+  escaped quote does not end the string — **unless that character is a newline**,
+  which is not an escape: the scan stops there.
+- A string that reaches a newline or the end of the file without a closing quote
+  is a compile error (`unterminated string`, `lex.rs:131`), not a string that
+  runs to the end of the line.
 - `unescape` resolves `\"` to `"` and leaves every other backslash pair exactly
   as written.
 - String keys are interned as owned `String`s rather than borrowed from the

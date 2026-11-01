@@ -79,13 +79,13 @@ sounding range, the exact MIDI, and **two Kontakt reference WAVs** (36.5 MB, com
 threshold per case is the spread between those two takes, floored at 0.5 dB level / 1.0 dB band
 RMS. `tools/parity-corpus/run.py` renders the same MIDI in KONTRA offline and exits non-zero on
 drift; `tools/verify.sh` runs the **three-case subset** (Glory Days, Fredonia, Electric Mint) as
-the `parity corpus` row in 6.2 s, printing each case's level/band delta. Ten of the twenty already
+the `parity corpus` row in 6.2 s, printing each case's level/band delta. Nine of the twenty already
 disagree with Kontakt beyond their threshold; those print as `finding (unchanged)` on every run,
 with their absolute deltas, instead of failing the build. Measured today: EEB Rick Bridge **−3.91 /
 23.06**, Spitfire Horns a4 **−29.72 / 15.07** (Kontakt really is at 0.0035), Vintage Organs C3 Jazz
 **−2.04 / 13.97**, Electric Mint **+1.03 / 0.93**, Melody **+1.67 / 1.28**, Cherry **−0.31 / 2.07**,
 Unity **−0.16 / 1.99**, Session Horns Keyswitch **+0.15 / 1.53**, Stadium Kit **+2.24 / 0.98**.
-Clean: Fredonia Grand Organ **+0.16 / 0.38** (was −15.97 / 24.01 — KONTRA 16 dB **quiet**, since the corpus records Kontakt minus KONTRA: the console
+Clean: Fredonia Grand Organ **+0.16 / 0.38** (was −15.97 / 24.01 — KONTRA 16 dB **louder**, since the corpus records Kontakt minus KONTRA, and with the console script dead every zone sounded instead of the stops: the console
 script did not compile, see below), Trumpet 1 (−0.03 /
 0.03), Trombone 1 chord (0.00 / 0.24), Harpsichord (−0.19 / 1.00), Haunted Strings 2 (−0.47 /
 0.28), Eminent Trombone (−0.12 / 0.10). Two census "silent" instruments are silent only in KONTRA:
