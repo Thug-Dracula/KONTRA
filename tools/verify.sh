@@ -428,14 +428,23 @@ if CARGO_TARGET_DIR="$TARGET" cargo build --release -p kontra-host --bin kontra-
         PARITYROW=$(python3 - "$LOGS/verify-parity.json" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))["cases"]
-parts = []
+parts, findings = [], []
 for r in rows:
     m = r.get("metrics") or {}
     if m.get("level_db") is None or m.get("band_rms_db") is None:
         parts.append(f"{r['id']} {r['status']}")
+    elif str(r.get("status", "")).startswith("finding"):
+        parts.append(f"{r['id']} {m['level_db']:+.2f}/{m['band_rms_db']:.2f} dB FINDING")
+        findings.append(r["id"])
     else:
         parts.append(f"{r['id']} {m['level_db']:+.2f}/{m['band_rms_db']:.2f} dB")
-print(f"{len(rows)} cases, level/band: " + "; ".join(parts))
+# A case that matches its baseline but still disagrees with Kontakt is a
+# finding, not a pass. Printing the deltas under an unqualified "ok" is how a
+# row teaches people to stop reading it -- and the whole point of the corpus is
+# that these ten numbers are the to-do list, not a footnote.
+lead = (f"{len(rows)} cases, {len(findings)} finding"
+        f"{'' if len(findings) == 1 else 's'} (disagrees with Kontakt, recorded): ")
+print(lead + "; ".join(parts))
 PY
 )
         ok "parity corpus (3 cases)" "${PARITYROW:-(no summary)}"
