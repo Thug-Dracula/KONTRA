@@ -45,12 +45,15 @@ reference review remain unresolved; a successful build is not clearance.
 
 ## The v3 refactor
 
-A large restructuring happens on the `v3` branch, planned in
-[docs/architecture-v3](docs/architecture-v3/README.md). Its work is split into
-issues labelled `v3`, each with a brief, owned paths and gate commands; PRs for
-them target `v3`, not `main`. Read
-[12-WORKFLOW.md](docs/architecture-v3/12-WORKFLOW.md) before picking one up, and
-comment on the issue to claim it. Fixes for current users still go to `main`.
+The v3 restructuring that [docs/architecture-v3](docs/architecture-v3/README.md)
+describes has **landed** — `crates/{base,model,dsp,engine,script,format,app}` is
+the tree that ships. There is no `v3` branch; the work is integrated on
+`feat/integration` and reaches `main` as one PR (#1274), with the gate as the
+authority. The plan tooling (`docs/architecture-v3/tasks.toml`,
+`tools/plan/plan.py`) still describes the work in tasks with owned paths and
+gate commands, and [12-WORKFLOW.md](docs/architecture-v3/12-WORKFLOW.md) is worth
+reading before a large change — but its branch naming (`v3-<task>-<slug>`) is
+not what this repository's history uses. Fixes for current users go to `main`.
 
 ## Local workflow
 
@@ -102,8 +105,9 @@ Update the compatibility notes when supported behavior or a known limit changes.
 
 ## Version and changelog policy
 
-The root `[package].version` in `Cargo.toml` is authoritative. The root package in
-`Cargo.lock`, plugin descriptors and bundle metadata must agree. Do not add a
+The workspace root `Cargo.toml` is virtual (no `[package]`); **`plugin/Cargo.toml`'s
+`version` is the authoritative one** and the shipped plugin reads it. `Cargo.lock`,
+plugin descriptors and bundle metadata must agree with it. Do not add a
 separate version literal or a `moose.toml` override. Published snapshots keep their
 original identity; the reviewed fix ledger starts after the shipped `0.3.0` baseline.
 
@@ -209,4 +213,4 @@ See [Apple's distribution guidance](https://developer.apple.com/documentation/xc
 
 ## One engine
 
-DSP is shared, not per product. New emulation work extends the engine in `sampler-core` and maps parameters in the format crate. Read [docs/ENGINE.md](docs/ENGINE.md) first.
+DSP is shared, not per product. New emulation work extends the engine in `crates/dsp/` (or `crates/engine/`) and maps parameters in the format crate under `crates/format/`. Read [docs/ENGINE.md](docs/ENGINE.md) first.

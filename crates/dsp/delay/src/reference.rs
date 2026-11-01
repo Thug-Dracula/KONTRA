@@ -1,11 +1,12 @@
 //! The captured impulse response, and how the port is held to it.
 //!
-//! `docs/re/engine/vectors/replika-diffusion-ir-{l,r}.f32` are Kontakt 8.14.1's
-//! own answer to a one-sample impulse through the eight-stage network
-//! (`NI::DSP::Diffuser`, `docs/re/engine/k-replika-diffusion.md` §11.6),
-//! captured with the live object's rotors and re-length clock where §11.7
-//! leaves them. `docs/re/engine/vectors/replika-diffusion-taps.tsv` is the tap
-//! table those rotors were at.
+//! The vectors are a reference network's own answer to a one-sample impulse
+//! through eight stages, captured with the rotors and the re-length clock left
+//! where the capture found them. Provenance — the product, the version, the
+//! object and the section of the reverse-engineering record — is in
+//! `docs/re/engine/k-replika-diffusion.md` §11.6, and the capture itself in
+//! `docs/re/engine/vectors/`: `replika-diffusion-ir-{l,r}.f32` for the response
+//! and `replika-diffusion-taps.tsv` for the tap table the rotors were at.
 
 use crate::diffusion::{Diffusion, Rotor, STAGES, Settings, TAPS, Window};
 
@@ -75,8 +76,8 @@ pub fn impulse(settings: Settings) -> ([f32; 4096], [f32; 4096]) {
     (l, r)
 }
 
-/// The network Kontakt ran for the capture: its stage lengths, its tap window,
-/// and the two rotors' phases read out of `+0x1240`/`+0x1270` at that frame.
+/// The network the capture ran: its stage lengths, its tap window, and the two
+/// rotors' phases as read at that frame (recorded in `k-replika-diffusion.md` §11.6).
 pub fn captured_settings() -> Settings {
     Settings {
         lengths: CAPTURED_LENGTHS,
@@ -100,7 +101,7 @@ pub fn captured_settings() -> Settings {
     }
 }
 
-/// The stage lengths the capture read (the ctor's table, `+0x158` onward).
+/// The stage lengths the capture read (the constructor's table).
 pub const CAPTURED_LENGTHS: [[f32; TAPS]; STAGES] = [
     [577.0, 859.0, 587.0, 857.0],
     [643.0, 977.0, 647.0, 971.0],
