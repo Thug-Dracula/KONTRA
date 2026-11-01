@@ -502,7 +502,11 @@ impl Diffusion {
                     *cell = taps.iter().zip(row).map(|(tap, c)| tap * c).sum();
                 }
                 for (cell, (a, b)) in feedback.iter_mut().zip(in_l.iter().zip(in_r)) {
-                    *cell += x[0] * a + x[1] * b;
+                    // Flushed like the reverb's lines (`crate::flush`, 1e-20): this
+                    // is a feedback loop, so a silent tail decays towards the
+                    // subnormal range and then costs far more per sample than it
+                    // is worth. The value is inaudible long before the threshold.
+                    *cell = crate::flush(*cell + x[0] * a + x[1] * b);
                 }
                 for (ring, value) in stage.rings.iter_mut().zip(feedback) {
                     ring.push(value);
