@@ -78,6 +78,16 @@ row() { ROWS+=("$(printf '%-42s %s' "$1" "$2")"); }
 bad() { row "$1" "FAIL  $2"; FAILED=1; }
 ok()  { row "$1" "ok    $2"; }
 
+# Does a captured string contain a substring? A `case` rather than
+# `printf ... | grep -q`, because with `pipefail` a grep that exits at its first
+# match makes the writer take SIGPIPE, the pipeline returns 141, and
+# `! printf ... | grep -q` then reads as "not found". That misfired on cargo
+# fmt's 200 KB of diffs: the row reported "could not run" while holding the
+# diffs in its hand. Under 64 KB (the pipe buffer) the same pattern works, which
+# is why the older `test result:` checks below never showed it -- latent until a
+# test log is big.
+has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+
 # Print the table and exit, for both modes. A function rather than two copies of
 # the tail, so the portable path can never drift into printing the delivery
 # gate's success line.
@@ -157,9 +167,9 @@ run_tests() {
     # A crate that fails to COMPILE prints no result line at all, so "no
     # result" is a failure, not a pass -- that is how a broken test file once
     # reported ok.
-    if printf '%s\n' "$out" | grep -qE "^test result: FAILED"; then
+    if has "$out" "test result: FAILED"; then
         bad "tests: $crate" "${line:-some tests failed}"
-    elif ! printf '%s\n' "$out" | grep -qE "^test result:"; then
+    elif ! has "$out" "test result:"; then
         bad "tests: $crate" "did not compile or did not run"
     else
         ok "tests: $crate" "${line:-no result line}"
@@ -179,7 +189,7 @@ lint_fmt() {
     if [ -n "$diffs" ]; then
         bad "rustfmt" "$(printf '%s\n' "$diffs" | wc -l) first-party file(s) not formatted"
         printf '%s\n' "$diffs" | head -5 | sed 's/^/      /'
-    elif [ "$status" -ne 0 ] && ! printf '%s\n' "$out" | grep -q '^Diff in '; then
+    elif [ "$status" -ne 0 ] && ! has "$out" "Diff in "; then
         bad "rustfmt" "could not run: $(printf '%s\n' "$out" | head -1)"
     else
         ok "rustfmt" "first-party code is formatted (vendor/ excluded)"
@@ -236,9 +246,9 @@ PARITY=${KONTRA_TEST_LIBRARY:-${HOME}/Armory/VSTs/Kontakt1}
 if [ -d "$PARITY" ]; then
     out=$(CARGO_TARGET_DIR="$TARGET" timeout "$STEP_TIMEOUT" cargo test -p kontra-host --test parity_regressions -- --ignored 2>&1)
     line=$(printf '%s\n' "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6} END {print p" passed, "f" failed"}')
-    if printf '%s\n' "$out" | grep -qE "^test result: FAILED"; then
+    if has "$out" "test result: FAILED"; then
         bad "tests: parity regressions" "${line:-some tests failed}"
-    elif ! printf '%s\n' "$out" | grep -qE "^test result:"; then
+    elif ! has "$out" "test result:"; then
         bad "tests: parity regressions" "did not compile or did not run"
     else
         ok "tests: parity regressions" "${line:-no result line}"
