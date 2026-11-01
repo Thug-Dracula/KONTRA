@@ -88,28 +88,33 @@ ok()  { row "$1" "ok    $2"; }
 # test log is big.
 has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
-# Print the table and exit, for both modes. A function rather than two copies of
-# the tail, so the portable path can never drift into printing the delivery
-# gate's success line.
-finish() {
-    echo
-    printf '%s\n' "${ROWS[@]}"
-    echo
-    echo "logs: $LOGS"
-    if [ "$FAILED" -ne 0 ]; then
-        echo "VERIFY FAILED -- do not deploy"
-        exit 1
-    fi
-    # The play dump is a few hundred MB of per-voice detail that nothing reads
-    # after the rows above, and /tmp is a 16 GB tmpfs here. Keep it (and the
-    # rest) only when something failed and it is worth reading.
-    rm -f "$LOGS/verify-play.json"
-    if [ "$MODE" = portable ]; then
-        echo "PORTABLE PASSED -- not a delivery gate: the library, render, ui-drive"
-        echo "and pixel rows did not run. tools/verify.sh (no flag) is what gates a deploy."
-        exit 0
-    fi
-    echo "VERIFY PASSED -- safe to deploy with tools/deploy.sh"
+# The load summary's total of unhandled init actions, or "" when the line is
+# absent or malformed -- which the caller treats as a failure, because "no
+# measurement" must never read as "nothing unanswered".
+#
+# A present and *empty* list is 0. That is the state the ceiling exists to
+# reach, and the gate used to fail on it: `grep -o ', (n)'` finds nothing in
+# `[]`, so the sum came back empty and the row said "load printed no counts" on
+# the one load that had nothing left to answer.
+init_unanswered() {
+    python3 - "$1" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], errors="replace").read()
+m = re.search(r"init unanswered: \[([^\]]*)\]", text)
+if not m:
+    raise SystemExit(0)                     # no line: print nothing
+inner = m.group(1).strip()
+if not inner:
+    print(0)                                # present and empty: all handled
+    raise SystemExit(0)
+# Strict: every entry must be a pair. A partial match must not report a partial
+# sum -- "4 of the 51" is a measurement of something else.
+if not re.fullmatch(r"\([^(),]+, \d+\)(?:, \([^(),]+, \d+\))*", inner):
+    raise SystemExit(0)
+print(sum(int(count) for count in re.findall(r", (\d+)\)", inner)))
+PY
 }
 
 # Print the table and exit, for both modes. A function rather than two copies of
@@ -223,6 +228,18 @@ print(" ".join("--exclude " + p["name"] for p in m["packages"]
     fi
 }
 
+echo "== layer 0: the gate reads its own output correctly =="
+# The gate is the authority, so its parsers are checked like any other code. This
+# row caught a real one on the day it was written: `init unanswered: []` -- an
+# instrument that answered everything, which is the state the ceiling exists to
+# reach -- read as "no measurement" and failed the gate. It runs here so a change
+# to a parser cannot be the thing that makes the gate quiet.
+if bash "$REPO/tools/test_verify.sh" >"$LOGS/verify-parsers.log" 2>&1; then
+    ok "gate parsers" "$(tail -1 "$LOGS/verify-parsers.log")"
+else
+    bad "gate parsers" "see $LOGS/verify-parsers.log"
+fi
+
 echo "== layer 0/1: tests =="
 # kontra-plugin and kontra-ui-pictures are here because the plugin is what
 # ships: a page that renders in the harness and not in the host is exactly how
@@ -304,7 +321,7 @@ if CARGO_TARGET_DIR="$TARGET" cargo build --release -p kontra-inspect >"$LOGS/ve
     # A sum over nothing is 0, which used to read as "nothing unanswered" when
     # the load had failed, the instrument was missing, or the output changed
     # shape. An empty sum is now distinguishable from a measured zero.
-    INIT=$(printf '%s' "$LOAD" | python3 -c 'import re,sys; n=re.findall(r", (\d+)\)", sys.stdin.read()); print(sum(int(i) for i in n) if n else "")')
+    INIT=$(init_unanswered "$LOGS/verify-load.txt")
     if [ "$LOADSTATUS" -ne 0 ]; then
         bad "init unanswered" "kontra-inspect load exited $LOADSTATUS; see $LOGS/verify-load.txt"
     elif [ -z "$LOAD" ] || [ -z "$INIT" ]; then
