@@ -68,6 +68,37 @@ fn render(instrument: &Path, key: u8, name: &str) -> (f64, String) {
     )
 }
 
+/// Renders one note with the mod wheel moved to `wheel` one second in.
+#[expect(
+    clippy::unwrap_used,
+    reason = "a failed render is this regression test's failure"
+)]
+fn render_wheel(instrument: &Path, key: u8, wheel: u8, name: &str) -> (f64, String) {
+    assert!(
+        instrument.is_file(),
+        "{} is not installed; set KONTRA_TEST_LIBRARY or KONTRA_GLORY_DAYS",
+        instrument.display()
+    );
+    let out = std::env::temp_dir().join(format!("kontra-parity-{name}.wav"));
+    let request = Request {
+        instrument: instrument.to_path_buf(),
+        out,
+        note: Note {
+            key,
+            velocity: 100,
+            hold_s: 1.5,
+        },
+        wheel: Some(wheel),
+        ..Request::default()
+    };
+    let mut diagnostics = Vec::new();
+    let summary = run(&request, &mut diagnostics).unwrap();
+    (
+        summary.peak,
+        String::from_utf8_lossy(&diagnostics).into_owned(),
+    )
+}
+
 #[test]
 #[ignore = "needs the installed Kontakt library; run with --ignored"]
 fn cherry_electric_bass_reports_its_saved_filter_and_renders_audio() {
@@ -103,6 +134,47 @@ fn cherry_electric_bass_reports_its_saved_filter_and_renders_audio() {
     assert!(
         (0.10..=1.00).contains(&peak),
         "peak {peak:.3} is outside 0.10..=1.00 (fixed 0.398, buzzing-only 0.009):\n{diagnostics}"
+    );
+}
+
+#[test]
+#[ignore = "needs the installed Kontakt library; run with --ignored"]
+fn glory_days_sounds_at_its_saved_dynamics_and_tracks_the_wheel() {
+    let instrument = instrument(
+        "KONTRA_GLORY_DAYS",
+        "Glory Days - Big Band Horns/Instruments/GDH - Glory Days - Big Band Horns 1.0/\
+         Multi Instruments/01. Trumpet 1/01. Trumpet 1 Multi.nki",
+    );
+    // The instrument's dynamics knob is a saved persistent value of 66, so a
+    // note with no controller sent is the "out of the box" case, and Kontakt
+    // measures it at -28.20 dBFS.
+    let (quiet, diagnostics) = render(&instrument, 60, "glory-days");
+    assert!(
+        diagnostics.contains("scripts: 5 slots [\"C.A.P.S.U.L.E.\", \""),
+        "the five-slot engine is missing from the load report:\n{diagnostics}"
+    );
+    let (loud, _) = render_wheel(&instrument, 60, 127, "glory-days-wheel");
+    // Measured 2026-10-31 against Kontakt: 0.039028 (-28.17 dBFS) with no
+    // controller against Kontakt's -28.198, and 0.070683 (-23.01 dBFS) with
+    // CC1 at 127 against Kontakt's -19.701 for a note held under it the whole
+    // time (this render moves the wheel one second in).
+    //
+    // Both were exact silence before the fix: the crossfade curve lives in 409
+    // PGS keys and the engine stopped creating them at 64, so only CC1 = 127
+    // reached an endpoint the script sets itself. A window on one render alone
+    // would not see that, so this pins the *difference* the wheel makes as well
+    // as audibility.
+    let peak_db = |p: f64| 20.0 * p.max(1e-12).log10();
+    assert!(
+        quiet > 0.02 && loud > 0.02,
+        "peak {quiet:.6} / {loud:.6}: the instrument is silent (0.039028 / 0.070683 \
+         measured, exact 0 before the PGS key table was fixed)"
+    );
+    assert!(
+        peak_db(loud) - peak_db(quiet) > 2.0,
+        "the mod wheel moves the level by {:.2} dB (measured 5.16 dB): the dynamics \
+         curve is collapsed",
+        peak_db(loud) - peak_db(quiet)
     );
 }
 

@@ -91,17 +91,27 @@ load cost and not a render cost.
 
 ### The symptom
 
-`01. Trumpet 1 Multi`, one note key 60 vel 100, same MIDI into both engines:
+`01. Trumpet 1 Multi`, one note key 60 vel 100, CC11 (expression) at 127 and
+CC1 (the instrument's dynamics knob) swept, same MIDI into both engines:
 
 | CC1 | Kontakt peak | KONTRA peak (before) | KONTRA peak (after) |
 |---|---|---|---|
-| 0 | silent | silent | silent |
-| 32 | −68.454 | **silent** | −68.42 |
-| 64 | −46.386 | **silent** | −46.36 |
-| 96 | −30.995 | **silent** | −30.98 |
+| no CC sent at all | −28.198 | **silent** | −28.17 |
+| 0 | −36.35 | **silent** | −36.31 |
+| 32 | −32.535 | **silent** | −32.50 |
+| 64 | −28.528 | **silent** | −28.50 |
+| 96 | −23.703 | **silent** | −23.69 |
 | 127 | −19.701 | −19.70 | −19.70 |
 
 A cliff at exactly 127 — the one point the instrument defines for itself.
+
+**The trap that cost an hour:** the first probe MIDI set CC1 *and* CC11 to the
+same value. With CC11 = 0 both engines are silent (expression at zero is silence,
+in Kontakt too — `oracle_render` reported "the render is silent (peak 0)" for the
+same file), which looks exactly like "the instrument needs the mod wheel". Only
+after the PGS fix did the no-controller render come out at −28.17 instead of
+−205 dBFS, which is what showed the two controllers were being conflated. Sweep
+one controller at a time.
 
 ### The chain, read from the instrument's own scripts
 
@@ -152,12 +162,28 @@ So the 64 was invented, and the 256 was already right. The table is now a plain
 
 ## 3. Level, on the same MIDI, both engines
 
-Key 60, velocity 100, `CC1 = CC11 = 127` at t=0, note on at 0.10 s for 1.0 s.
-Kontakt 8.14.1 through `tools/oracle-mcp`; KONTRA through `kontra-render`.
+Key 60, velocity 100, note on at 0.10 s for 1.0 s. Kontakt 8.14.1 through
+`tools/oracle-mcp`; KONTRA through `kontra-render`.
+
+Trumpet 1 Multi, the whole dynamics curve (peak, dBFS):
+
+| CC1 (CC11 = 127) | Kontakt | KONTRA | Δ |
+|---|---|---|---|
+| no controller sent | −28.198 | −28.17 | 0.03 |
+| 0 | −36.35 | −36.31 | 0.04 |
+| 32 | −32.535 | −32.50 | 0.04 |
+| 64 | −28.528 | −28.50 | 0.03 |
+| 96 | −23.703 | −23.69 | 0.01 |
+| 127 | −19.701 | −19.70 | 0.00 |
+
+The no-controller row is the real "out of the box" test: the instrument's saved
+dynamics knob (`%_2d_gui_element_values[1]`, a persistent value) is **66**, and
+both engines start there without being told.
+
+Three more instruments, one note, CC1 = CC11 = 127:
 
 | instrument | Kontakt peak | KONTRA peak | Δ | Kontakt RMS | KONTRA RMS | Δ |
 |---|---|---|---|---|---|---|
-| Trumpet 1 Multi | −19.701 | −19.70 | 0.00 | −34.16 | −35.26 | 1.10 |
 | Alto Sax 1 Multi | −17.63 | −17.63 | **0.00** | −34.52 | −34.36 | **+0.16** |
 | Trumpet 1 Bucket Legato + Doits | −29.774 | −29.77 | 0.00 | −44.91 | −46.15 | 1.24 |
 | Trombone 2 Bucket Staccatissimo | −31.362 | −31.36 | 0.00 | −51.50 | −52.73 | 1.23 |
