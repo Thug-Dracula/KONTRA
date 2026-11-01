@@ -274,6 +274,31 @@ fn note_callback_plays_waits_and_reads_event() {
     assert_eq!(r.host.calls[3], (Action::NoteOff, vec![2000, 0]));
 }
 
+/// KSP names are case-sensitive (KSP reference, "Variables and Constants"), so
+/// a declaration that differs only in case does not hide a system variable:
+/// Harpsichord declares `$event_id` and then calls `ignore_event($EVENT_ID)`,
+/// and native Kontakt ignores the host note there.
+#[test]
+fn a_declaration_in_another_case_is_not_a_system_variable() {
+    let mut r = Run::new(
+        "on init
+            declare $event_id
+        end on
+        on note
+            ignore_event($EVENT_ID)
+            set_event_par($EVENT_ID, $EVENT_PAR_0, 1)
+        end on",
+    );
+    assert_eq!(r.callback(CallbackKind::Note, None), Step::Done);
+    assert_eq!(
+        r.host.calls,
+        [
+            (Action::IgnoreEvent, vec![1000]),
+            (Action::SetEventPar, vec![1000, 0, 1]),
+        ]
+    );
+}
+
 #[test]
 fn constants_symbols_and_conditions() {
     let source = "on init
