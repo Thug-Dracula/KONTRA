@@ -80,6 +80,9 @@ PAGE_SD_MIN = 0.10
 PAGE_COLOURS_MIN = 40
 UI_SD_MIN = 0.05
 UI_COLOURS_MIN = 200
+# A second load must move the page: a refused load leaves the old instrument painted, and
+# its own page passes the verdict above. Measured whole-page differences are >10,000 px.
+LOAD_CHANGE_MIN = 1000
 
 
 # --------------------------------------------------------------------------- logging
@@ -1066,6 +1069,16 @@ def tool_load(nki: str) -> dict:
     xd(display, "click", "1")
     time.sleep(0.7)
 
+    # Loading a second instrument replaces the page, so "an instrument page is up" is not
+    # evidence on its own: a refused load leaves the previous instrument painted exactly as
+    # it was and the wait below succeeds on the old page (measured 2026-10-31: a refused
+    # Electric Sunburst Deluxe was reported as loaded while Electric Mint was on screen).
+    # When an instrument is already up, the page must therefore change.
+    before = None
+    if SESSION.instrument and Path(SESSION.instrument) != path:
+        before = crop(capture_root(SESSION.addr() / "load-before-root.png"),
+                      SESSION.addr() / "load-before.png", g)
+
     def open_dialog() -> int | None:
         xd(display, "key", "ctrl+o")
         t0 = time.monotonic()
@@ -1098,6 +1111,7 @@ def tool_load(nki: str) -> dict:
     t0 = time.monotonic()
     page = None
     shot = None
+    client = None
     while time.monotonic() - t0 < 60:
         time.sleep(2.0)
         shot = capture_root(SESSION.addr() / "load-root.png")
@@ -1118,6 +1132,16 @@ def tool_load(nki: str) -> dict:
             f"oracle_load: {path.name} never painted an instrument page within 60s "
             f"(client sd={None if page is None else page.get('client')}); "
             f"last shot {shot}; log: {read_log_tail(SESSION.wine_log)}")
+    if before is not None:
+        moved = changed_pixels(before, client)
+        if moved < LOAD_CHANGE_MIN:
+            raise ToolError(
+                f"oracle_load: {path.name} was requested but the page did not change "
+                f"({moved} changed pixels, threshold {LOAD_CHANGE_MIN}): the previous "
+                f"instrument ({Path(SESSION.instrument).name if SESSION.instrument else '?'}) "
+                f"is still on screen, so nothing was loaded. Kontakt reports a refused "
+                f"library as a modal dialog, not as a failed call. Last shot {shot}; "
+                f"log: {read_log_tail(SESSION.wine_log)}")
     if SESSION.wine and SESSION.wine.poll() is not None:
         raise ToolError(f"oracle_load: wine died (rc={SESSION.wine.returncode}): "
                         f"{read_log_tail(SESSION.wine_log)}")

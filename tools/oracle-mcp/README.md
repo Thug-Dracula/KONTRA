@@ -90,11 +90,26 @@ What it copies, and what it deliberately does not (all measured 2026-10-31):
 | the whole `Settings.cfg` | **no, and harmful** | it also carries `windowPos_*` and the audio device. Inheriting the user's placement moved the window away from the geometry every pixel metric in this server assumes (`KEYBOARD_STRIP`, the click coordinates), so only the library sections are merged. |
 
 Measured result: 102 library sections from the user's install, 97 distinct content roots,
-**5,207 of the 6,024 `.nki` files under `~/Armory/VSTs/Kontakt1`** reachable, in 5–35 s each.
-Six of seven sampled instruments across libraries load (see "Verification"); the one refusal
-is a registration in the user's own install that points one directory above the library that
-holds the `.nicnt` (`Action Strings 2`), and its instruments under that registered root do
-load. Non-NICNT instruments (`#Non NICNT/…`) load with or without any of this.
+**5,207 of the 6,024 `.nki` files under `~/Armory/VSTs/Kontakt1`** reachable. A sample taken
+one instrument per fresh session (so "an instrument page is up" can only mean that
+instrument), through `oracle_load` — the same path parity uses:
+
+| instrument | library | loaded |
+|---|---|---|
+| Electric Mint | Session Guitarist - Electric Mint | yes, 5.1 s |
+| Electric Sunburst Deluxe | Session Guitarist - Electric Sunburst Deluxe | yes, 4.9 s |
+| 40s Very Own - Drums | 40s Very Own - Drums | yes, 2.6 s |
+| ALLURE Modern Upright | ALLURE Modern Upright | yes, 19.9 s |
+| Evolution Jazz Archtop | Evolution Jazz Archtop | yes, 7.3 s |
+| Showroom Violin | `#Non NICNT` (no library at all) | yes, 7.2 s |
+| Action Strings 2 | Action Strings 2 | **no**, 60 s timeout — see below |
+
+The one refusal is a registration in the user's own install that points one directory above
+the folder holding the `.nicnt` (`ContentDir=…\Action Strings 2 v1.2.0`, library inside
+`…\Action Strings 2 v1.2.0\Action Strings 2 Library`). The copy of its instrument under the
+registered root (`…\Action Strings 2 v1.2.0\Instruments\`) does load, in 34 s; the copy in
+`Action Strings 2 Library\Instruments\` is the one refused. Nothing here changes that — the
+registration is the user's, and copying it faithfully copies the mistake.
 
 Only the oracle's own install is written; the source install is read-only throughout (verified
 by comparing size+mtime of all 10,778 entries of `Kontakt 8 Portable` before and after).
