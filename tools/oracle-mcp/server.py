@@ -366,9 +366,16 @@ def midi_port() -> int:
 
 
 def winpath(p: Path) -> str:
-    """Kontakt wants a DOS path. Every path we handle is under / (drive Z:)."""
+    """Kontakt wants a DOS path, always through drive Z: (`/` in this prefix).
+
+    Measured: the Ctrl+O load dialog accepts `Z:\\home\\...` and silently ignores a path
+    on another mapped drive (`X:\\VSTs\\...` typed into it does nothing and Kontakt logs
+    no load attempt), so the spelling is not free to choose. `Z:` is the whole filesystem
+    in every prefix here, so it always names the file the caller asked for.
+    """
     s = str(Path(p).resolve())
     return "Z:" + s.replace("/", "\\")
+
 
 
 def find_window() -> int | None:
