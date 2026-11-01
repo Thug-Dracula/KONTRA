@@ -11,7 +11,8 @@ change makes it false. The corpus turns those claims into files that fail a buil
 
 ```
 tools/parity-corpus/
-  cases.json          the twenty cases: path, key, MIDI, expectation, references, threshold, why
+  cases.json          the twenty cases: instrument (relative to `library_root`), key, MIDI,
+                      expectation, references, threshold, why
   kontakt/*.wav       the references, two takes per case, captured from real Kontakt
   run.py              the gate: render in KONTRA, align, compare, exit non-zero on drift
   README.md           this file
@@ -133,7 +134,9 @@ key-dependence on one instrument is itself the kind of thing this corpus exists 
    run it came from.
 3. Add the entry to `cases.json` with `expect` (`matches`, `expected-refusal`, `expected-silent`),
    an empty `threshold`, `align_ms: null`, and a **one-line `why`** saying what code path the case
-   exists to catch. A case nobody can justify in one line is a case to delete.
+   exists to catch. A case nobody can justify in one line is a case to delete. Write `instrument`
+   **relative to `library_root`** (`Glory Days - Big Band Horns/Instruments/…nki`), never as an
+   absolute path: a case that hardcodes one machine's library runs on that machine only.
 4. `python3 tools/parity-corpus/run.py --capture --case <id>` — two oracle sessions, writes
    `kontakt/<id>-a.wav`, `-b.wav`, the measured threshold and the alignment offset.
 5. Run it: `python3 tools/parity-corpus/run.py --case <id>`. If it drifts, that is a finding: say
