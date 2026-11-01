@@ -67,6 +67,7 @@ compared on demand.
 | Glory Days – Trumpet 1 Multi | peak **±0.00 dB … 0.04 dB** | | the whole dynamics curve, five points: CC1 = 0/32/64/96/127 at CC11 127 reads −36.31/−32.50/−28.50/−23.69/−19.70 against Kontakt's −36.35/−32.54/−28.53/−23.70/−19.70, and with no controller sent at all −28.17 against −28.20 |
 | Glory Days – Trumpet 1 Bucket Legato | peak **−29.77 vs −29.774** | | a "quiet" articulation that is genuinely quiet, not a level bug |
 | Glory Days – Trombone 2 Bucket Staccatissimo | peak **−31.36 vs −31.362** | | same |
+| Glory Days – Trombone 1 Multi, a four-note voicing | peak **+0.11 dB** | RMS +0.07 dB | keys 55/60/64/67 held together, aligned at the measured onset over one second. The chord is only 0.4 dB above a single note on the same instrument — and Kontakt's is 0.39 dB above its own — so the layers are level-compensated, in both engines |
 
 Ruled out while chasing those rows, so nobody re-chases them: the 93.6 Hz cutoff is **not** a default (a real v0x80 record, round-tripped by the native decoder), and the 432 "purged" groups are **saved purge state, not a parse gap**.
 

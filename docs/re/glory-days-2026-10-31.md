@@ -188,6 +188,15 @@ Three more instruments, one note, CC1 = CC11 = 127:
 | Trumpet 1 Bucket Legato + Doits | −29.774 | −29.77 | 0.00 | −44.91 | −46.15 | 1.24 |
 | Trombone 2 Bucket Staccatissimo | −31.362 | −31.36 | 0.00 | −51.50 | −52.73 | 1.23 |
 
+And a four-note voicing (keys 55/60/64/67 held together), aligned at the measured
+onset over one second, Trombone 1 Multi: **RMS +0.07 dB, peak +0.11 dB**. The
+interesting part of that render is what it does *not* do — the chord is only
+0.4 dB above a single note on the same instrument, and Kontakt does exactly the
+same (+0.39 dB), so the multis are per-instrument voices with level-compensated
+layers rather than four independently summed samples. "Sounds like one sample"
+was the right thing to check and the wrong thing to conclude: it is one
+instrument, and it is the same instrument in both engines.
+
 The RMS column is measured over a common window on the two WAVs for Alto Sax (the
 oracle trims relative to its own onset); the other three RMS figures are the two
 tools' own windows and are **not** aligned, so only the peaks are comparable
