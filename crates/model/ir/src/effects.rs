@@ -193,9 +193,10 @@ pub struct Diffusion {
     /// The two drift rotors' rates, Hz (measured: `1.5 − MODULATION`, and
     /// exactly ten sevenths of it).
     pub rotor_hz: (f32, f32),
-    /// The rotors' phases at construction, radians. Kontakt starts them both
-    /// at 0 when the object is prepared; they are carried here so a capture
-    /// can be held to its own instant.
+    /// The rotors' phases at construction, radians. A prepared network starts
+    /// them both at 0 (the translator records which product does that and
+    /// where); they are carried here so a capture can be held to its own
+    /// instant.
     pub rotor_phase: (f32, f32),
     /// The mixing rows' angle, radians (measured: π/2 − SIZE).
     pub angle: f32,

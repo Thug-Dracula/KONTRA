@@ -23,6 +23,14 @@ jobs:
         run: |
           python3 -m unittest discover -s .github/scripts -p 'test_*.py'
           python3 -m unittest discover -s tools/release -p 'test_*.py'
+      # The oracle is the instrument every parity number is measured with, so its
+      # own tests are not optional: a wrong MIDI writer or WAV reader makes every
+      # comparison wrong in a way no gate row would see. Run here rather than in
+      # the gate because they need no sample library, no display and no Kontakt.
+      - name: Oracle tooling tests
+        run: |
+          python3 tools/test_oracle_mcp.py
+          python3 -m unittest discover -s tools/oracle-mcp -p 'test_*.py'
 
   v3:
     uses: ./.github/workflows/v3-verify.yml

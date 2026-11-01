@@ -300,14 +300,13 @@ fn delay(d: ir::Delay, tempo: f32) -> kontra_dsp::delay::Settings {
 /// scaled by, the two drift rotors, the angle, and the re-length clock (a
 /// quarter second, measured).
 fn network(d: ir::Diffusion, rate: u32) -> diffusion::Settings {
-    // The lengths are Kontakt's own table, in samples at `d.rate`; a network
-    // built at another rate reads them short (8.8 % at 44.1 kHz) unless they
-    // are scaled. At the rate they were measured at the factor is exactly 1.
+    // The lengths are a sample count at `d.rate`; a network built at another
+    // rate reads them short (8.8 % at 44.1 kHz) unless they are scaled. At the
+    // rate they were measured at the factor is exactly 1.
     let playing = rate.max(1) as f32;
     let scale = playing / d.rate.max(1) as f32;
     // The rotors turn a fixed number of radians a second, so a frame's step is
-    // shorter the faster the network runs — `2π·hz / rate` (`0x141c074b0`
-    // divides by the rate it stores at `+0x12a0`).
+    // shorter the faster the network runs: `2π·hz / rate`.
     let step = |hz: f32| std::f32::consts::TAU * hz / playing;
     let (floor, spread) = d.window;
     diffusion::Settings {
@@ -324,7 +323,7 @@ fn network(d: ir::Diffusion, rate: u32) -> diffusion::Settings {
             },
         ],
         angle: d.angle,
-        // `+0x12a8 = trunc(sample rate · 0.25)`, `0x1448569e4`.
+        // A quarter second, in frames, at the rate the network runs at.
         relength: (rate as f32 * d.relength_s).max(0.0) as u32,
         seed: d.seed,
     }
