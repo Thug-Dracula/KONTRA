@@ -23,17 +23,25 @@ portable build has neither for the user's libraries:
                                     these sections absent, the same instrument is still
                                     refused.
 
-The content database `komplete.db3` is *not* required: it indexes files for the browser,
-but a 92 MB copy of the user's database made no difference to loading, so the oracle keeps
-its own (1.4 MB) file. Copying the user's `Settings.cfg` wholesale is also wrong — it
-carries window placement and the audio device, which move the window the oracle measures
-against — so only the library sections are merged in.
+The content database `komplete.db3` gates nothing: a 92 MB copy of the user's database made
+no difference to loading. It is still installed (a) because it indexes the libraries' files
+for the browser - 45,195 presets instead of an empty page - and (b) so the oracle runs the
+same content database the user's install has. Kontakt 8.14 migrates it in place on first
+launch without changing `db3_master.version` or the file size (see `copy_database`), which
+makes the copy one-way: never copy it back into the source install. `--no-database` skips
+this step.
+
+Copying the user's `Settings.cfg` wholesale is wrong even so - it carries window placement
+and the audio device, which move the window the oracle measures against - so only the
+library sections are merged in.
 
 The source (`ORACLE_MCP_LIBRARY_SOURCE`, default: the known portable installs, richest
 first) is only ever read. The target is backed up before it is written
-(`Settings.cfg.pre-libraries-<UTC>`, `LibraryHints.xml.pre-libraries-<UTC>`).
+(`Settings.cfg.pre-libraries-<UTC>`, `LibraryHints.xml.pre-libraries-<UTC>`,
+`komplete.db3.pre-populated-<UTC>`).
 
-Run it once after the oracle's Kontakt is installed or updated, then `oracle_up`.
+Run it once after the oracle's Kontakt is installed or updated, then `oracle_up`. The oracle
+stays on 8.14.1 (the version upstream measures against); nothing here launches the 8.8 build.
 `ensure_settings()` in server.py edits `Settings.cfg` for the null sink and the MIDI port
 and Kontakt rewrites it on exit; both keep unknown sections, so this is idempotent.
 """
@@ -42,7 +50,10 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
+import sqlite3
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -112,6 +123,55 @@ def backup(path: Path) -> Path:
     return dst
 
 
+def copy_database(source: Path, target: Path, dry_run: bool) -> int:
+    """Install the source's content database, folding its WAL in first.
+
+    The database indexes the libraries' files for the browser (45,195 presets here). It is
+    *not* required for loading - see the module docstring - but with it the browser shows the
+    libraries instead of an empty list, which is what an agent comparing browser behaviour
+    needs.
+
+    Kontakt 8.14 migrates it on first launch, in place, without changing `db3_master.version`
+    or the file size: it drops the two `p_sound_info_Leap_*` tables (8.8 wrote them; one held
+    10 rows) with their indexes and triggers and widens the Instrument triggers to accept
+    `.nkl`. That makes the copied file one-way: never copy it back into the 8 Portable
+    install, or the user's build inherits an 8.14-shaped schema minus those rows.
+
+    The source is only ever read: the copy is made first, then its WAL is checkpointed.
+    """
+    src = source / "UserData/Kontakt 8/komplete.db3"
+    dst = target / "UserData/Kontakt 8/komplete.db3"
+    if not src.exists():
+        print("  database: source has none, left alone")
+        return 0
+    if dst.exists() and dst.stat().st_size >= src.stat().st_size // 2:
+        print(f"  database: target already populated ({dst.stat().st_size // 2**20} MB), left alone")
+        return 0
+    print(f"  database: {src.stat().st_size // 2**20} MB from {src.parent.parent.parent.name}")
+    if dry_run:
+        return 1
+    scratch = Path(tempfile.mkdtemp(prefix="oracle-db-"))
+    try:
+        work = scratch / "komplete.db3"
+        shutil.copyfile(src, work)
+        if (src.parent / "komplete.db3-wal").exists():
+            shutil.copyfile(src.parent / "komplete.db3-wal", scratch / "komplete.db3-wal")
+        con = sqlite3.connect(work)
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.close()
+        for stale in (dst, dst.with_name("komplete.db3-wal"), dst.with_name("komplete.db3-shm")):
+            if stale.exists():
+                moved = stale.with_name(f"{stale.name}.pre-populated-"
+                                        f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}")
+                print(f"    backup {moved.name}")
+                stale.replace(moved)
+        shutil.copyfile(work, dst)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return 1
+
+
 def merge_settings(source: Path, target: Path, keep_missing: bool, dry_run: bool) -> int:
     target_text = target.read_text(errors="surrogateescape")
     have = {name for name, _ in sections(target_text)}
@@ -173,6 +233,8 @@ def main() -> int:
     ap.add_argument("--keep-missing", action="store_true",
                     help="also copy Settings.cfg sections whose ContentDir does not exist")
     ap.add_argument("--no-hints", action="store_true", help="leave Service Center/LibraryHints.xml alone")
+    ap.add_argument("--no-database", action="store_true",
+                    help="do not install the source's komplete.db3 (browser index; not needed for loading)")
     args = ap.parse_args()
 
     target = args.target.expanduser()
@@ -203,6 +265,8 @@ def main() -> int:
     if not args.no_hints:
         changed += copy_hints(best / "UserData/Service Center/LibraryHints.xml",
                               target / "UserData/Service Center/LibraryHints.xml", args.dry_run)
+    if not args.no_database:
+        changed += copy_database(best, target, args.dry_run)
     print("dry run: nothing written" if args.dry_run else
           (f"done: {changed} registrations added. next: tools/oracle-mcp/smoke.sh"
            if changed else "nothing to do"))

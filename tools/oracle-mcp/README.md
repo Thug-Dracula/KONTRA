@@ -78,7 +78,8 @@ Run it once after the oracle's Kontakt is installed or updated; it is idempotent
 the richest known install (`$ORACLE_MCP_LIBRARY_SOURCE`, else `~/Armory/VSTs/Kontakt 8
 Portable`) and writes only into `$ORACLE_MCP_PORTABLE` (default
 `~/Armory/VSTs/Kontakt 8.14.1 Portable`), backing up each file it touches as
-`*.pre-libraries-<UTC>`. It never writes to the source install.
+`*.pre-libraries-<UTC>`. It never writes to the source install. The oracle stays on
+**8.14.1** — the version upstream measures against — so nothing here runs the 8.8 build.
 
 What it copies, and what it deliberately does not (all measured 2026-10-31):
 
@@ -86,8 +87,18 @@ What it copies, and what it deliberately does not (all measured 2026-10-31):
 |---|---|---|
 | `UserData/Service Center/LibraryHints.xml` | **yes, this is the gate** | the installed-library list (Name, Company, SNPID, `RegKey`). 14,757 B (fresh) refuses every library instrument; 41,598 B (the user's) loads them with everything else held constant. |
 | `UserData/Settings.cfg` — library sections only | **yes** | per-library `SNPID`, `ContentDir` and the `JDX`/`HU` authorisation pair. With the hints file in place and these absent, the same instrument is refused again. |
-| `UserData/Kontakt 8/komplete.db3` | **no** | it indexes files for the browser. A 92 MB copy of the user's database changed nothing about loading, so the oracle keeps its own 1.4 MB file. |
+| `UserData/Kontakt 8/komplete.db3` | **not for loading; installed for the browser** | it indexes the libraries' files (45,195 presets). A 92 MB copy changed nothing about loading — the oracle loaded library instruments with its own 1.4 MB file too — but with it the browser lists the libraries instead of an empty page, which is what an agent comparing browser behaviour needs. `--no-database` skips it. |
 | the whole `Settings.cfg` | **no, and harmful** | it also carries `windowPos_*` and the audio device. Inheriting the user's placement moved the window away from the geometry every pixel metric in this server assumes (`KEYBOARD_STRIP`, the click coordinates), so only the library sections are merged. |
+
+What 8.14 does to that database, measured on first launch of a freshly copied file (and
+again after a second fresh copy, with the same result): it **migrates it in place** and
+reports nothing. `db3_master.version` stays `1114112`, the file stays 95,707,136 bytes
+(11,683 pages, freelist 3 → 40), `k_content_path`/`k_sound_info` keep 311/51,265 rows, and
+the schema loses the two `p_sound_info_Leap_*` tables (8.8 wrote them; one held 10 rows) with
+their 6 indexes and 16 triggers, while the Instrument triggers are widened to accept `.nkl`
+(95 → 81 triggers, 27 → 25 tables, 50 → 44 indexes). So the copy is **one-way**: never copy
+the migrated file back into `Kontakt 8 Portable`, or the user's build inherits an 8.14-shaped
+schema with those rows missing. The source install is only read.
 
 Measured result: 102 library sections from the user's install, 97 distinct content roots,
 **5,207 of the 6,024 `.nki` files under `~/Armory/VSTs/Kontakt1`** reachable. A sample taken
