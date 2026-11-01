@@ -78,15 +78,51 @@ so a case whose Kontakt takes agree to 0.03 dB is still allowed 0.5 dB — a thr
 the engine is not a threshold. The floors are `tools/oracle-mcp/parity.py`'s limits, themselves
 set at 4.2× and 2.6× the Kontakt-against-itself noise floor measured on 2026-10-30.
 
-Measured spreads, 2026-11-01: fifteen of nineteen renderable cases agree take-to-take within
-0.13 dB level and 0.39 dB band, because Kontakt's round robin is a per-session *counter* — render 0
-of one session is the same sample as render 0 of the next. Two cases do not fit that: `vintage-
-organs-c3-jazz` (0.52 dB level, 4.30 dB band) and `session-horns-keyswitch` (1.04 dB band) pick a
-different sample between sessions, so their thresholds are wider, and honestly so. `electric-mint-
-melody`'s takes differ by 3 ms in onset, which is why the alignment floor is what it is.
+Measured spreads, 2026-11-01: seventeen of the nineteen cases that have references agree
+take-to-take within 0.24 dB level and 0.39 dB band, because Kontakt's round robin is a per-session
+*counter* — render 0 of one session is the same sample as render 0 of the next. Two cases do not
+fit that: `vintage-organs-c3-jazz` (0.52 dB level, 4.30 dB band) and `session-horns-keyswitch`
+(1.04 dB band) pick a different sample between sessions, so their thresholds are wider, and
+honestly so. `electric-mint-melody`'s takes differ by 3 ms in onset, which is why the alignment
+floor is what it is.
 
 Kontakt's take-to-take spread is recorded per case under `threshold.from_spread` so a wide threshold
 can always be traced to the instrument rather than hidden in the runner.
+
+## Where KONTRA stands today (2026-11-01)
+
+| case | key | level | band RMS | |
+|---|---:|---:|---:|---|
+| glory-trumpet1-multi | 70 | −0.03 dB | 0.03 dB | matches |
+| fredonia-grand-organ | 66 | **−15.97 dB** | **24.01 dB** | finding: KONTRA is 16 dB loud on a pipe organ |
+| electric-mint | 68 | +1.03 dB | 0.93 dB | finding |
+| electric-mint-melody | 68 | +1.67 dB | 1.28 dB | finding |
+| haunted-strings-2 | 60 | −0.47 dB | 0.28 dB | matches |
+| cherry-electric-bass | 72 | −0.31 dB | 2.07 dB | finding (timbre) |
+| soundiron-harpsichord | 67 | −0.19 dB | 1.00 dB | matches |
+| glory-trombone1-chord | 58 | 0.00 dB | 0.24 dB | matches (4-note chord) |
+| eminent-trombone | 55 | −0.12 dB | 0.10 dB | matches |
+| eeb-rick-bridge | 62 | **−3.91 dB** | **23.06 dB** | finding: also sounds on only six keys |
+| session-horns-keyswitch | 60 | +0.15 dB | 1.53 dB | finding |
+| spitfire-horns-a4 | 57 | **−29.72 dB** | **15.07 dB** | finding: Kontakt really is at 0.0035 |
+| studio-drummer-stadium | 54 | +2.24 dB | 0.98 dB | finding |
+| vintage-organs-c3-jazz | 66 | −2.04 dB | 13.97 dB | finding |
+| unity-nostalgic-synth | 72 | −0.16 dB | 1.99 dB | finding |
+| lass-aleatoric-cellos | 60 | — | — | refused by both engines |
+| garritan-flute1 | 60 | — | — | refused by KONTRA, sounds in Kontakt |
+| evolve-piano-glissandos-02 | 60 | — | — | refused by KONTRA, silent in Kontakt |
+| glass-steel-zero-zone | 60 | — | — | known gap: Kontakt −9.8 dBFS, KONTRA silent |
+| scene-lotus | 60 | — | — | known gap: Kontakt −27.6 dBFS, KONTRA silent |
+
+Ten findings, five clean, five negative. The findings are the corpus paying for itself on day one:
+the largest is Fredonia, where a 3,927-zone organ with no round robin should be the most deterministic
+case in the set and is 16 dB out instead.
+
+**Cross-check against the hand measurement.** Rendered at key 60 (the note the old parity sweep
+used) through the same pipeline, Electric Mint reads **−0.12 dB level / 0.97 dB band**, against
+`STATUS.md`'s hand-measured −0.14 / 0.93 — so the corpus's ruler is the same ruler. At its own
+derived key 68 it reads +1.03 / 0.93. Both are true: the difference is the note, and a 1.15 dB
+key-dependence on one instrument is itself the kind of thing this corpus exists to keep an eye on.
 
 ## Adding a case
 
