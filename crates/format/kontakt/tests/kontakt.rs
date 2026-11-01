@@ -11,7 +11,7 @@ fn areia_violins_load_with_their_samples_and_script() {
     if !path.exists() {
         return;
     }
-    let i = kontra_format_kontakt::load(&path).unwrap();
+    let i = kontra_format_kontakt::load(path).unwrap();
     let zones: usize = i.groups.iter().map(|g| g.zones.len()).sum();
     eprintln!(
         "{}: {} groups, {} zones, {} samples, {} scripts, stream {:?}",
@@ -41,7 +41,7 @@ fn an_analog_strings_snapshot_is_its_instrument_with_its_saved_values() {
     if !path.exists() {
         return;
     }
-    let snap = kontra_format_kontakt::load(&path).unwrap();
+    let snap = kontra_format_kontakt::load(path).unwrap();
     let base = Path::new("/data/main/Libraries/Kontakt/ANALOG STRINGS/Instruments");
     let nki = std::fs::read_dir(base).unwrap().flatten().map(|e| e.path());
     let nki = nki
@@ -71,7 +71,10 @@ fn library() -> std::path::PathBuf {
         .map_or_else(
             || {
                 std::env::var_os("HOME")
-                    .map_or_else(|| std::path::PathBuf::from("/home"), std::path::PathBuf::from)
+                    .map_or_else(
+                        || std::path::PathBuf::from("/home"),
+                        std::path::PathBuf::from,
+                    )
                     .join(LIBRARY)
             },
             std::path::PathBuf::from,
