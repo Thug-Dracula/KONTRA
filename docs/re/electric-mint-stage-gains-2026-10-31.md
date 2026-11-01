@@ -54,8 +54,13 @@ The fix: `size: tail(64)`, `amount: tail(68)`. Pinned by
 77-byte record and asserts the angle 0.5707964 and stage 0's tap 239.0 (0.4142 × 577) against the
 capture's 241.16.
 
-**Still open, unchanged:** the tap drift (§11.4) is unread, so the port holds the taps at the window
-floor and the diffused tail is under-smoothed — the slot now has the right *level* but still less
+> **Superseded later the same day.** The tap drift was read — two rotors, `2π(1.5 − MODULATION)/rate`
+> and ×10/7, one drift per ring pair, reversed on the tick — and the port implements it, so the taps
+> no longer sit at the window floor. See `docs/re/engine/k-replika-diffusion.md` §11.4. The paragraph
+> below describes the port as it was when these numbers were taken, and is kept for that reason.
+
+**Was open when these numbers were taken:** the tap drift (§11.4) was unread, so the port held the taps at the window
+floor and the diffused tail was under-smoothed — the slot now has the right *level* but still less
 short-time movement than Kontakt's (band RMS 0.045 dB and a 0.08 dB sweep change, against Kontakt's
 0.30 dB and 0.55 dB). That is the `Replika diffusion tap drift` gap, not a gain law.
 
