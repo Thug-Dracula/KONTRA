@@ -1,0 +1,84 @@
+name: gate
+
+# The delivery gate, as much of it as a runner can run.
+#
+# `tools/verify.sh` is the authority on whether a build may ship, and until now
+# it existed only on the machine that has the sample libraries: CI ran
+# `cargo test` in five layers and nothing else. So a change could be green here
+# and still be undeliverable, and -- worse -- the four checks that no one ran
+# (rustfmt, clippy, the plugin's CLAP entry, and the test suites of kontra-racks,
+# kontra-ledger, kontra-inspect and ui-drive) were exactly the ones nobody would
+# notice were missing.
+#
+# This job runs `--portable`: the same script, the same rows, restricted to the
+# ones that need nothing from a local disk. It prints PORTABLE PASSED, never
+# VERIFY PASSED, and it deliberately reports the local rows as "not run" rather
+# than "skipped" -- on this project "skipped" has been read as "passed" before.
+#
+# The rows it cannot run (Electric Mint load/render, ui-drive, the pixel
+# comparisons against the golden and against Kontakt's own panel) still have to
+# be run by hand before a deploy. That is what `tools/deploy.sh` is for: it does
+# not check the gate, so the gate must be run first.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # verify.sh honours CARGO_TARGET_DIR; naming it here lets the cache below
+  # find what it did, instead of caching the runner's default and missing.
+  CARGO_TARGET_DIR: /var/tmp/tgt-gate
+  # The gate writes its logs to a mktemp directory by default, which a later
+  # step cannot reach. Put them in the workspace so a failure can be uploaded;
+  # the script makes the directory itself.
+  KONTRA_VERIFY_LOGS: ${{ github.workspace }}/gate-logs
+
+jobs:
+  portable:
+    name: portable gate
+    runs-on: ubuntu-24.04
+    # The full gate takes four minutes warm on the machine that owns the
+    # libraries. From cold, with clippy over every target, an hour is generous
+    # and still finite -- a hang should fail, not sit.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.99.0
+          # verify.sh's rustfmt and clippy rows are rows, not suggestions: a
+          # toolchain without the components would fail them for the wrong
+          # reason, which is the failure mode this gate exists to avoid.
+          components: rustfmt, clippy
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config \
+            libx11-dev libx11-xcb-dev libxcb1-dev libxcb-icccm4-dev libxcursor-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev libgl1-mesa-dev \
+            libvulkan-dev libasound2-dev libjack-jackd2-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: gate-portable
+      - name: Gate
+        run: bash tools/verify.sh --portable
+      - name: Keep the log directory on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gate-logs
+          path: gate-logs/
+          if-no-files-found: ignore
+          retention-days: 7
