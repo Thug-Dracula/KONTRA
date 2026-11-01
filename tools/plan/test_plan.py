@@ -88,6 +88,14 @@ class Manifest(unittest.TestCase):
 
 
 class Locks(unittest.TestCase):
+    def empty_globs(self, p: dict) -> list[str]:
+        """Lock globs that match no tracked file, as readable strings."""
+        files = list(plan.tracked())
+        return [f"@{name}: {glob}"
+                for name, lock in p["locks"].items()
+                for glob in lock["paths"]
+                if not any(plan.match(f, [glob]) for f in files)]
+
     def test_lock_paths_exist(self):
         """A lock naming deleted paths locks the empty set, so `ready` hands out conflicting work.
 
@@ -102,6 +110,24 @@ class Locks(unittest.TestCase):
                 self.assertTrue(prefix, f"@{name}: {glob} must start with a real path")
                 self.assertTrue((plan.ROOT / prefix).exists(),
                                 f"@{name} locks a path that no longer exists: {glob}")
+
+    def test_every_lock_glob_matches_a_tracked_file(self):
+        """The prefix existing is not the question: a lock must match something.
+
+        `crates/` exists and `crates/legacy-v2/**` matches nothing, so a test that stops at the
+        literal prefix passes for a lock that protects no file at all -- which is the same dead
+        lock the four deleted paths above were, one reorganisation later.
+        """
+        self.assertEqual(self.empty_globs(plan.load()), [])
+
+    def test_a_lock_whose_prefix_exists_but_matches_nothing_is_caught(self):
+        """Prove the check above can fail: a real prefix, a glob that matches no file."""
+        p = plan.load()
+        ghost = dict(p["locks"]["manifests"])
+        ghost["paths"] = ["crates/**/*.no-such-extension"]
+        p["locks"]["ghost"] = ghost
+        self.assertTrue((plan.ROOT / "crates").exists(), "the prefix this test plants does exist")
+        self.assertEqual(self.empty_globs(p), ["@ghost: crates/**/*.no-such-extension"])
 
 
 class WarningRatchet(unittest.TestCase):
@@ -152,10 +178,70 @@ done = ["Nothing."]
         """The committed baseline must not be below today's count, or CI fails on a clean tree."""
         warnings = plan.validate(plan.load())[1]
         baseline = plan.read_baseline(plan.WARNINGS_BASELINE)
+        self.assertIsNotNone(baseline, "the ratchet has no baseline committed")
         self.assertLessEqual(len(warnings), len(baseline),
                              "warnings grew: fix the conflict, or accept it in a v3-plan- PR with "
                              "`plan.py validate --write-baseline`")
         self.assertEqual(self.validate("--max-warnings", "baseline")[0], 0)
+        self.assertEqual(self.validate("--max-warnings", "baseline")[1].count("\nerror:"), 0)
+
+    def test_a_swap_is_not_a_pass(self):
+        """One warning gone and another in its place: the count is flat, the change is not.
+
+        This is what a count-based ratchet could not see. The warning that appeared was never
+        reviewed because the total did not move, which is the whole failure the ratchet exists
+        to prevent.
+        """
+        warnings = plan.validate(plan.load())[1]
+        planted = "serialized: P99.9 and P99.8 share nowhere.rs"
+        # The baseline says `planted` where today's tree says `warnings[0]`: one
+        # warning gone, another in its place, and not a single extra warning.
+        swapped = [planted, *warnings[1:]]
+        self.assertEqual(len(swapped), len(warnings), "the swap must keep the count identical")
+        self.assertNotIn(planted, warnings)
+        path = Path(self.tmp.name) / "swapped-baseline.txt"
+        path.write_text("# a baseline of the same length with one warning replaced\n"
+                        + "\n".join(swapped) + "\n")
+        code, out = self.validate("--max-warnings", "baseline", "--warnings-baseline", str(path))
+        self.assertEqual(code, 1, "a swap at an unchanged count must not pass")
+        self.assertIn(f"error: new warning: {warnings[0]}", out)
+        # And the one it replaced is reported separately, so the pair reads as a change.
+        self.assertIn(f"  gone: {planted}", out)
+
+    def test_an_empty_baseline_is_an_error(self):
+        """An empty file ratchets nothing, and that must not read as "not configured"."""
+        path = Path(self.tmp.name) / "empty-baseline.txt"
+        path.write_text("")
+        code, out = self.validate("--max-warnings", "baseline", "--warnings-baseline", str(path))
+        self.assertEqual(code, 1, out)
+        self.assertIn("is empty", out)
+        self.assertNotIn("no baseline at", out)
+
+    def test_a_header_only_baseline_is_an_error(self):
+        path = Path(self.tmp.name) / "header-only.txt"
+        path.write_text("# v3 plan warnings: the ratchet baseline.\n#\n\n")
+        code, out = self.validate("--max-warnings", "baseline", "--warnings-baseline", str(path))
+        self.assertEqual(code, 1, out)
+        self.assertIn("is empty", out)
+
+    def test_an_absent_baseline_is_not_configured(self):
+        """Not there is a different answer from there and empty, and it says so."""
+        path = Path(self.tmp.name) / "absent.txt"
+        code, out = self.validate("--max-warnings", "baseline", "--warnings-baseline", str(path))
+        self.assertEqual(code, 1, out)
+        self.assertIn("no baseline at", out)
+        self.assertNotIn("is empty", out)
+
+
+class Baseline(unittest.TestCase):
+    def test_absent_and_empty_are_different_answers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "warnings-baseline.txt"
+            self.assertIsNone(plan.read_baseline(path))
+            path.write_text("# only a comment\n\n")
+            self.assertEqual(plan.read_baseline(path), [])
+            path.write_text("# c\nserialized: a and b share c.rs\n")
+            self.assertEqual(plan.read_baseline(path), ["serialized: a and b share c.rs"])
 
 
 if __name__ == "__main__":

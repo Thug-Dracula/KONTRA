@@ -1,4 +1,4 @@
-# v3 plan warnings: the ratchet baseline. CI fails when the count grows past this.
+# v3 plan warnings: the ratchet baseline. CI fails for any warning this list does not have.
 # Regenerate in a v3-plan- PR: python3 tools/plan/plan.py validate --write-baseline
 # Never hand-edit: the diff is the review - it shows exactly which warning was accepted.
 # Fixing a warning needs no regeneration (the count may fall below the baseline),
