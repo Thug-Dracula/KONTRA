@@ -180,7 +180,9 @@ the review. Plain `validate` stays lenient, as before.
 ## 7. Testing and building
 
 - Workers run **only the gate commands** in their brief, through `build-slot`
-  (4 machine-wide slots; it sets per-worktree target dirs). No
+  (one target dir per worktree, on real disk; `build-slot --list` shows the
+  slots and `build-slot --gc` reclaims dead or merged ones, and a lane below
+  the free-space floor refuses to start instead of dying at 100 %). No
   `cargo build --workspace`, no corpus, no surveys, no plugin bundles.
 - The coordinator, once per merge batch on `v3` head: `cargo check --workspace`,
   `cargo xtask debt` (must not grow), `kontra-probe` on all fixtures.
