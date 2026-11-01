@@ -436,7 +436,12 @@ def run_case(case, workdir: Path):
     if not refs:
         row.update(ok=False, status="no reference WAV for a case that should render")
         return row
-    ref_chans, _ = read_wav(REFS / Path(refs[0]).name)
+    ref_path = REFS / Path(refs[0]).name
+    if not ref_path.exists():
+        row.update(ok=False, status="reference missing",
+                   detail=f"{ref_path} is not there: re-capture with --case {case['id']}")
+        return row
+    ref_chans, _ = read_wav(ref_path)
     kern_chans, _ = read_wav(out_wav)
     metrics = compare(ref_chans, kern_chans)
     row["metrics"] = metrics
