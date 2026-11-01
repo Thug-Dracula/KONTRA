@@ -190,8 +190,10 @@ eight series stages with the lengths above, the 4x4 mixing rows, the interpolati
 re-lengthing every `+0x12a8` frames, and the two-bank Dense switch. Section 10 records how far
 that got, and exactly which of those still resists.
 
-`replika.rs` still returns `None` for type 4. That remains correct until the law table in §7 is
-read.
+`replika.rs` does not refuse type 4: it lowers the record to `ir::EffectKind::Diffusion` and the
+network ships (`crates/dsp/delay/src/diffusion.rs`). §10 is why that took a fourth pass — the
+mixing kernel did not yield to a static read — and §11.2/§11.4 record the rows, the tap law and
+the two rotors the port is held to, with the residual in §11.6.
 
 ## 9. Corrections to the previous pass on this page
 

@@ -68,9 +68,11 @@ real page into mui's offscreen scene, takes each visible input-taking widget's r
 from what mui recorded when it drew it, presses the rect's centre through the
 same reader the editor uses (`input::read` with `Input`/`PointerInput`), and
 checks that the press selected that widget and no other. Then it presses two
-points outside the rect, which must select nothing — otherwise a hit test that
-selects everything would pass. Controls the page paints under another one are
-reported as `covered` and named: no click can reach them in Kontakt either.
+points outside the rect, which must not select that control — another control
+may own the point, and a neighbour's rect genuinely covers it — otherwise a hit
+test that selects everything would pass. Controls the page paints under another
+one are reported as `covered` and named: no click can reach them in Kontakt
+either.
 
 ```
 cargo run --release -p ui-drive -- [--scale <f>] [--out <dir>] <instrument>...
@@ -99,10 +101,6 @@ constant for a pad's callback. With both, a click on a Melody row runs
 `change_slot` and moves the selection: `ui-drive`'s accompanying test
 (`a_click_on_a_melody_row_selects_that_row`) clicks all eight rows and checks
 each one's keyswitch is the one down.
-
-answered with an `Edit`, 2 painted under another control, 1 press declined by a
-text field, 1 text field edited in place, 1 overlapping pair driven twice, every
-one `ok`.**
 
 A press has one owner: the front-most control under the pointer that would take
 it. A control that does not take *that* press hands it down — a label, an image

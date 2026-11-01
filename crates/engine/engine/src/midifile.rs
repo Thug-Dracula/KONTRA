@@ -143,9 +143,13 @@ impl MidiFile {
             at = end;
             track += 1;
         }
-        // mf_insert_file pairs each Note Off into its Note On (with a length
+        // `mf_insert_file` pairs each Note Off into its Note On (with a length
         // parameter) and discards the Note Off, so a script never sees 0x8n.
-        events.retain(|e| e.status & 0xf0 != 0x80);
+        // A Note On with velocity 0 *is* a Note Off in MIDI — `pair_notes`
+        // already used it to close the note — so it goes the same way: left
+        // in, it stays addressable and a script walking the file reads a
+        // note-on that starts nothing.
+        events.retain(|e| e.status & 0xf0 != 0x80 && !(e.status & 0xf0 == 0x90 && e.d2 == 0));
         // Tick order, and the file's own order within a tick: the sort is
         // stable and the ids arrive in read order. Sorting by status as well
         // would move a controller a script stored before a note-on.
@@ -252,16 +256,21 @@ impl MidiFile {
             .map_or(self.order.len(), |offset| from + offset)
     }
 
-    /// Last active event at or before `from`, or 0 when none: the backward
-    /// steps skip a removed event as the forward ones do.
-    fn prev_active(&self, from: usize) -> usize {
+    /// Last active event at or before `from`; the backward steps skip a
+    /// removed event as the forward ones do.
+    ///
+    /// `None` when nothing there is active. It used to be `0`, which is a
+    /// *place* — the first event in the tick order — so a retreat from the
+    /// first surviving event landed on a removed one and the cursor read its
+    /// bytes. A place before the first event is not a place the cursor can
+    /// hold, so the caller keeps the place it had.
+    fn prev_active(&self, from: usize) -> Option<usize> {
         let end = from.saturating_add(1).min(self.order.len());
         self.order
             .get(..end)
             .unwrap_or_default()
             .iter()
             .rposition(|&id| self.events.get(id).is_some_and(|e| e.active))
-            .unwrap_or(0)
     }
 
     /// `mf_insert_event`: adds an event, on `track`, and returns its id. Its
@@ -351,7 +360,9 @@ impl MidiFile {
 
     pub fn prev_at(&mut self, tick: u32) {
         let first = self.seek(tick);
-        self.cursor = self.prev_active(first.saturating_sub(1));
+        if let Some(at) = self.prev_active(first.saturating_sub(1)) {
+            self.cursor = at;
+        }
     }
 
     pub fn first(&mut self) {
@@ -359,7 +370,9 @@ impl MidiFile {
     }
 
     pub fn last(&mut self) {
-        self.cursor = self.prev_active(self.order.len().saturating_sub(1));
+        if let Some(at) = self.prev_active(self.order.len().saturating_sub(1)) {
+            self.cursor = at;
+        }
     }
 
     pub fn advance(&mut self) {
@@ -367,7 +380,9 @@ impl MidiFile {
     }
 
     pub fn retreat(&mut self) {
-        self.cursor = self.prev_active(self.cursor.saturating_sub(1));
+        if let Some(at) = self.prev_active(self.cursor.saturating_sub(1)) {
+            self.cursor = at;
+        }
     }
 
     pub fn set_pos(&mut self, tick: u32) {
@@ -681,6 +696,57 @@ mod tests {
             "note off survived: {seen:?}"
         );
         assert_eq!(seen.len(), 2, "{seen:?}");
+    }
+
+    /// A Note On with velocity 0 is a Note Off in MIDI (the SMF specification,
+    /// "Note On ... with velocity 0 is equivalent to a Note Off"), so
+    /// `mf_insert_file` must not leave it behind as an addressable event: the
+    /// note it ends is closed either way, but the zero-velocity note-on itself
+    /// started nothing and a script walking the file would read it.
+    #[test]
+    fn a_zero_velocity_note_on_is_dropped_like_a_note_off() {
+        let track: Vec<u8> = vec![
+            0x00, 0x90, 0x3c, 0x46, // +0    note on 60 vel 70
+            0x87, 0x40, 0x90, 0x3c, 0x00, // +960  note on 60 vel 0 = note off
+            0x00, 0xff, 0x2f, 0x00, // end of track
+        ];
+        let mut file = b"MThd".to_vec();
+        file.extend_from_slice(&6u32.to_be_bytes());
+        file.extend_from_slice(&0u16.to_be_bytes());
+        file.extend_from_slice(&1u16.to_be_bytes());
+        file.extend_from_slice(&960u16.to_be_bytes());
+        file.extend_from_slice(b"MTrk");
+        file.extend_from_slice(&(track.len() as u32).to_be_bytes());
+        file.extend_from_slice(&track);
+        let mut f = MidiFile::parse(&file).expect("parses");
+        assert_eq!(f.events.len(), 1, "the zero-velocity note-on is dropped");
+        assert_eq!(
+            f.event_par(0, PAR_NOTE_LENGTH),
+            960,
+            "the length still pairs"
+        );
+        f.first();
+        assert_eq!((f.pos(), f.command(), f.byte_two()), (0, 0x90, 0x46));
+        f.advance();
+        assert_eq!(f.command(), 0, "nothing follows the note in the walk");
+    }
+
+    /// A retreat must never land on an event `mf_remove_event` deactivated: the
+    /// cursor would read bytes the script removed. With nothing active before
+    /// it, the cursor keeps the place it had.
+    #[test]
+    fn a_retreat_never_lands_on_a_removed_event() {
+        let mut f = MidiFile::parse(&sample()).expect("parses");
+        let first = usize::try_from(f.by_track(1)).expect("the first event");
+        assert!(f.remove(first), "the first note");
+        f.last();
+        assert_eq!((f.pos(), f.command()), (1920, 0x90), "the surviving note");
+        f.retreat();
+        assert_eq!(
+            (f.pos(), f.command(), f.byte_one()),
+            (1920, 0x90, 0x40),
+            "a retreat past the first surviving event stays on it"
+        );
     }
 
     #[test]

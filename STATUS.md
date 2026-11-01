@@ -104,7 +104,8 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | **Electric Mint passes** | the third error was **slot 3, Hot Solo**: ablated inside Kontakt it is **+7.00 dB** of level, ours was **+3.08**. The cause was the measurement, not DSP — the old curve was Kontakt's full chain minus a KONTRA that *passed the slot through*, so it carried every other stage's error and read 1.73 dB low; its target list contained the empty 40 Hz band, which alone put the low shelf 3.8 dB dark; and the gain ×1.283 had been calibrated to make the whole chain match one capture. Re-measured by ablation and refitted: ×1.886, and the slot now prices **+6.96** against Kontakt's +7.00. Chain **−0.14 dB, band RMS 0.93** (was −3.72 / 1.19). Slots 0 and 5 read the floor (−0.005), slot 7 matches to 0.00, the instrument output volume (+3.03 dB) is read correctly | the "pair that cancels" the previous lane recorded here (**slot 1's Eq 0.82 dB too loud**, **1/3/7 bypassed 0.68 dB too quiet**) was **not a pair**: slot 2 sits between the Eq and the output, and its CompXT's gain moves 0.65 dB between those two operating points, which is exactly what the two one-slot ablations differ by. Measured with the Supercharger out on both sides, the Eq is **0.17 dB** and the voice path **+0.21 dB** — `docs/re/electric-mint-slot1-compressor-confound-2026-10-31.md` |
 | **The Supercharger is the last term above 0.5 dB, and it is level-dependent** | Kontakt's CompXT contributes **−2.218 dB** at the delivered input level and **−1.571 dB** with the Eq bypassed (measured Kontakt against Kontakt, one slot apart); KONTRA applies a constant **−2.453 dB** from the static make-up. That is why `s1` (Eq bypassed) reads **+0.67 dB and fails**, while `control` and both Supercharger-bypassed configurations pass | read the CompXT's gain computer (`docs/re/engine/dyn-compressors.md`); two operating points are not a law, so nothing was fitted to them |
 | **Hot Solo is a measured transfer function, not a law** | the module's coefficient law (`0x140ad5440`) and its shaper (`0x140aab1e0`) are not recovered, so the stage is three biquads and a gain fitted to Kontakt's ablated response (0.40 dB RMS). The three shape parameters are loosely identified — several sets fit within the same 0.4 dB — but the stage gain is not, and the gain is what was wrong | read the coefficient law; until then any record whose tone knobs differ from Electric Mint's is **reported**, never silently drawn with the same curve |
-| **Two earlier "passes" were cancellation, not parity** | the 0.02 dB figure compared an ablated KONTRA against an unablated Kontakt, and the 0.27 dB chain was three errors cancelling | that is why every stage is now verified by bypassing it **in Kontakt** rather than on our side | | that figure matched KONTRA with the effects ablated against Kontakt with them active. Matched to matched, the same chain was **1.248 dB** off | never compare an ablated side to an unablated one; the liveness record re-derives every pair with both sides in the same state |
+| **Two earlier "passes" were cancellation, not parity** | the 0.02 dB figure compared an ablated KONTRA against an unablated Kontakt, and the 0.27 dB chain was three errors cancelling | that is why every stage is now verified by bypassing it **in Kontakt** rather than on our side |
+| **The first "0.02 dB" was an apples-to-oranges comparison** | that figure matched KONTRA with the effects ablated against Kontakt with them active. Matched to matched, the same chain was **1.248 dB** off | never compare an ablated side to an unablated one; the liveness record re-derives every pair with both sides in the same state |
 | **Replika Diffusion's tail does not match past half a second** | the tap-to-drift mapping is now **read** (`docs/re/engine/k-replika-diffusion.md` §11.4): two rotors turning `2π(1.5 − MODULATION)/rate` and ×10/7, rings 0/2 of a stage on one drift and rings 1/3 on the other, stages 2–3/6–7 swapped, odd stages negated, recomputed every frame and reversed on the tick. The port implements it, and the right channel now reads lane 2 (the output rows are stored by lane, not by column). Measured against the stored vectors the first 537 frames match **exactly** on both channels (correlation 1.0000, was 0.98); the tail still does not (whole-vector correlation ≈ 0, first divergence at sample 484, a sign), and the capture has no first-order arrival at stages 4–7 at all | one frame's `+0x90` taps, `+0x80` feedback and the four ring values each tap read, plus a capture that counts entries as well as returns (`ir_capture.py` can drop a frame); the residual list is §11.6 |
 | **Replika Diffusion mode** | Electric Mint's record is type 4, and the network it builds **is implemented and rendered**: eight stages of four rings, the measured tap law, both rotors, and the right channel on lane 2 (see the row above for what still does not match). `docs/re/engine/k-replika-diffusion.md` §11 keeps the object, its routines and the capture. | close the tail gap the row above names |
 | **Hot Solo+ is one operating point** | the module's coefficient recalculation (`0x140ad5440`, 14.5 KB of SIMD) is unread, so the stage is a *measured transfer function* fitted as biquads | read the recalculation; until then any record that differs from Electric Mint's is **reported** as unmodelled, never silently drawn with the same curve |
@@ -121,7 +122,6 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | **A control edit can cost one silent block** | the price of having no lock on the audio path: if the host resumes while the control tick holds the audio side, that block renders silence | accepted trade-off; counted and logged as `block_missed` |
 | A lane's build directory is allocated, and reclaimed | `tools/build-slot --gc` removes a slot when its worktree is gone, or its branch is merged into `feat/integration`, the worktree is clean **and no build is running in it**: the marker records `in_use` and the pid before the command starts and clears it after, because merged+clean stays true while a build links. It refuses to start a build below `--min-free-gb` (default 40) and prints the reclaim command. `tools/test_build_slot.sh` — 63 assertions, no cargo, and no dependence on this machine's free space (`KONTRA_SLOT_FREE_BYTES` pins the figure the floor is compared against). Its absence is why this machine reached 156 GB of target dirs on a 147 GB disk |
 | The v3 plan's conflict locks name files that exist | `tools/plan/plan.py validate --max-warnings baseline` — `test_lock_paths_exist` fails if a lock names a deleted path (four did: `src/sound/v2.rs`, `src/plugin.rs`, `crates/sampler-core/*`), `test_every_lock_glob_matches_a_tracked_file` fails if a glob matches no file at all (a real prefix is not a lock), and a committed baseline (119 warnings) is compared as a **set**: any warning it does not name fails CI, so an accepted warning and a new one in its place cannot cancel out |
-
 | The oracle can register any installed library | `tools/oracle-mcp/register-libraries.py` writes `Service Center/LibraryHints.xml` and the `Settings.cfg` library sections — that, not the content database, is what gates loading. Registration is not reachability: **5,207 of the 6,024 `.nki` under `Kontakt1` load** (the count is in `tools/oracle-mcp/README.md`, with the sample behind it), and one `Action Strings 2` path still refuses because its `ContentDir` points one level above its `.nicnt` while a copy under a registered root loads. Measured after registration: `Electric Sunburst Deluxe` loads in 5.16 s and `smoke.sh` passes end to end on it. The populated `komplete.db3` is installed for the browser index (45,195 presets) — and 8.14.1 **silently migrates** it (drops two Leap tables, widens triggers) without changing `db3_master.version`, so a copy of the migrated file must never go back into `Kontakt 8 Portable`; `--refresh-database` is the deliberate way to replace it, and the script names the backup |
 
 ## What is *not* verified — do not cite these as facts
@@ -151,7 +151,7 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 ## How to check the tree
 
 ```
-tools/verify.sh            # the delivery gate; refuses to pass on any of the above
+tools/verify.sh            # the delivery gate: every row it prints must pass
 tools/verify.sh --quick    # everything except the audio render
 tools/verify.sh --portable # only the rows a CI runner can run; prints PORTABLE
                            # PASSED, never VERIFY PASSED
@@ -163,12 +163,17 @@ disk. It reports the library, render, `ui-drive` and pixel rows as **not run**
 rather than skipped, because on this project "skipped" has been read as
 "passed".
 
-`VERIFY PASSED` means: tests pass (12 suites), the plugin builds and exports a
-CLAP entry, first-party code is rustfmt-clean and clippy-clean under
-`-D warnings`, Electric Mint renders completely with no dropped frames or
-clipping, the UI hit-tests where it draws, the page matches its golden, and the
-preset panel is within 21% of Kontakt's own render of it. It does **not** mean
-the instrument matches Kontakt — that is the oracle's job, and it is on demand.
+`VERIFY PASSED` means every row of that one table passed: the twelve test rows
+(eleven crates plus the parity regressions, which read "skipped" without a
+library), the plugin build and its CLAP entry, `rustfmt` and `clippy` on
+first-party code, the gate's own self-tests (parsers, build-slot, pixel-diff),
+Electric Mint loading and rendering completely — no missing sample frames, no
+clipping, `init unanswered` and `actions_unhandled` under their ceilings, and
+the audio fingerprint printed — a library free of probe copies, `ui-drive` on
+both pages, `pixel diff vs golden`, `pixel diff vs Kontakt panel`, and the
+**three-case** parity corpus. It does **not** mean the instrument matches
+Kontakt: that is the oracle's job, it is on demand, and 17 of the corpus's 20
+cases only run under `tools/parity-corpus/run.py`.
 
 ## Where the work is
 

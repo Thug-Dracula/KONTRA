@@ -19,7 +19,8 @@
 //! bypass flag set, twelve fresh sessions, first render of each (round robin 0)
 //! — so the curve is the stage and nothing else. Kontakt's own contribution is
 //! **+7.00 dB** of level (floor 0.06 dB); the fitted stage below matches its
-//! 1/3-octave curve to 0.32 dB RMS (0.80 dB worst band).
+//! 1/3-octave curve to 0.40 dB RMS (0.98 dB worst band) — the residual
+//! `tools/dsp-research/hot_solo_fit.py` prints for these constants.
 //!
 //! The previous curve was measured the other way: Kontakt's full chain against
 //! a KONTRA that passed slot 3 through. That is not a differential — every
@@ -166,7 +167,17 @@ pub fn amp(saved: Saved, at: &str) -> (ir::Amp, Option<String>) {
     // the correction a taper needs. The measured point itself is pinned by
     // `the_measured_record_is_the_engine_amp_with_no_note`.
     let gain = if saved.prenormal > 0.0 && saved.master > 0.0 {
-        MEASURED_GAIN * (saved.prenormal / MEASURED.prenormal) * (saved.master / MEASURED.master)
+        let gain = MEASURED_GAIN
+            * (saved.prenormal / MEASURED.prenormal)
+            * (saved.master / MEASURED.master);
+        // `Saved::read` admits any *finite* float, so two finite knobs can
+        // still multiply past `f32::MAX` and the gain becomes `inf` — which
+        // the amp then writes into every sample, poisoning the render with
+        // `inf`/NaN. The native stage cannot carry such a value (its gain is
+        // one product of bounded knob floats), so there is nothing to clamp
+        // to: the record means nothing this model can price, and the answer
+        // the record already gives at 0 applies — silence.
+        if gain.is_finite() { gain } else { 0.0 }
     } else {
         0.0
     };
@@ -282,6 +293,20 @@ mod tests {
             "rack",
         );
         assert!(lost.unwrap().contains("overdrive channel"));
+    }
+
+    /// A record whose knobs are finite but whose product is not: the gain
+    /// must not reach `inf`, because everything downstream would.
+    #[test]
+    fn a_gain_that_would_overflow_silences_the_stage() {
+        let saved = Saved {
+            prenormal: f32::MAX,
+            master: 1.0,
+            ..MEASURED
+        };
+        let gain = amp(saved, "rack").0.gain();
+        assert!(gain.is_finite(), "the gain overflowed: {gain}");
+        assert_eq!(gain, 0.0, "an unpriceable record mutes");
     }
 
     #[test]

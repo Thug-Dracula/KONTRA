@@ -17,10 +17,40 @@ use kontra_host::render::{DEFAULT_RATE, Request};
 #[derive(Debug)]
 struct Args {
     request: Request,
-    /// Where diagnostics go; `None` drops them.
-    diag: Option<PathBuf>,
+    /// Where diagnostics go.
+    diag: Diagnostics,
     /// Print the usage and stop.
     help: bool,
+}
+
+/// Where the diagnostics go.
+///
+/// The default is the process's own stderr, **not** the path `/dev/stderr`: a
+/// redirect (`2>run.log`) truncates the target once, when the shell opens it,
+/// and opening `/dev/stderr` on top of that with `File::create` — which is
+/// `O_TRUNC` — threw away whatever the log already held. `--diag` names a file
+/// the run creates fresh, and `--quiet` writes none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Diagnostics {
+    /// The process's stderr, inherited from the shell.
+    Stderr,
+    /// A file this run creates.
+    File(PathBuf),
+    /// Nothing.
+    None,
+}
+
+impl Diagnostics {
+    /// The writer for this run; `Err` carries a message for the front end.
+    fn open(&self) -> Result<Box<dyn std::io::Write>, String> {
+        match self {
+            Self::Stderr => Ok(Box::new(std::io::stderr())),
+            Self::File(path) => std::fs::File::create(path)
+                .map(|file| Box::new(file) as Box<dyn std::io::Write>)
+                .map_err(|e| format!("{}: {e}", path.display())),
+            Self::None => Ok(Box::new(std::io::sink())),
+        }
+    }
 }
 
 fn main() -> std::process::ExitCode {
@@ -36,15 +66,12 @@ fn main() -> std::process::ExitCode {
         println!("{USAGE}");
         return std::process::ExitCode::SUCCESS;
     }
-    let mut sink: Box<dyn std::io::Write> = match &parsed.diag {
-        Some(path) => match std::fs::File::create(path) {
-            Ok(file) => Box::new(file),
-            Err(e) => {
-                eprintln!("kontra-render: {}: {e}", path.display());
-                return std::process::ExitCode::FAILURE;
-            }
-        },
-        None => Box::new(std::io::sink()),
+    let mut sink = match parsed.diag.open() {
+        Ok(sink) => sink,
+        Err(e) => {
+            eprintln!("kontra-render: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
     };
     match kontra_host::render::run(&parsed.request, &mut *sink) {
         Ok(summary) => match serde_json::to_string(&summary) {
@@ -88,7 +115,7 @@ load_s, cpu_ms, realtime_factor.";
 /// Parses the command line; `Err` carries the message for a usage error.
 fn parse(args: &[String]) -> Result<Args, String> {
     let mut request = Request::default();
-    let mut diag = Some(PathBuf::from("/dev/stderr"));
+    let mut diag = Diagnostics::Stderr;
     let mut help = false;
     let mut given_instrument = false;
     let mut given_out = false;
@@ -117,8 +144,8 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--wheel" => request.wheel = Some(number(value()?, "--wheel", 0, 127)?),
             "--rate" => request.rate = rate(value()?)?,
             "--live" => request.live = true,
-            "--diag" => diag = Some(PathBuf::from(value()?)),
-            "--quiet" => diag = None,
+            "--diag" => diag = Diagnostics::File(PathBuf::from(value()?)),
+            "--quiet" => diag = Diagnostics::None,
             "-h" | "--help" => help = true,
             other => return Err(format!("unknown argument {other}")),
         }
@@ -173,5 +200,37 @@ fn seconds(v: &str) -> Result<f32, String> {
         Ok(s)
     } else {
         Err(format!("{v}: not a number of seconds"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two arguments a render needs, so `parse` gets past its checks.
+    fn required() -> Vec<String> {
+        ["--instrument", "x.nki", "--out", "x.wav"]
+            .map(str::to_owned)
+            .to_vec()
+    }
+
+    /// Diagnostics default to the process's own stderr, never to the path
+    /// `/dev/stderr`: a shell redirect (`2>run.log`) truncates the file once,
+    /// and opening that path over it with `File::create` (which is `O_TRUNC`)
+    /// emptied the log the redirect had just created.
+    #[test]
+    fn diagnostics_go_to_stderr_unless_a_file_is_named() {
+        let mut args = required();
+        assert_eq!(parse(&args).unwrap().diag, Diagnostics::Stderr);
+
+        args.extend(["--diag", "run.log"].map(str::to_owned));
+        assert_eq!(
+            parse(&args).unwrap().diag,
+            Diagnostics::File(PathBuf::from("run.log"))
+        );
+
+        let mut quiet = required();
+        quiet.push("--quiet".to_owned());
+        assert_eq!(parse(&quiet).unwrap().diag, Diagnostics::None);
     }
 }

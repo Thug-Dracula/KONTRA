@@ -1,13 +1,13 @@
-//! The diffusion network Kontakt's Replika runs in its Diffusion type: eight
-//! stages in series, each four ring buffers read at four fractional taps and
-//! mixed by a 4×4 whose rows are built from one angle.
+//! A diffusion network: eight stages in series, each four ring buffers read at
+//! four fractional taps and mixed by a 4×4 whose rows are built from one angle.
 //!
-//! Every number here is measured on Kontakt 8.14.1 and cited in
-//! `docs/re/engine/k-replika-diffusion.md` §11; the class is
-//! `NI::DSP::Diffuser`, its process `0x141bea300`, the stage kernel
-//! `0x141be65f0`, the row builder `0x141bff690`, the tap law `0x141bea454`.
+//! Every number here was measured against a reference object; the product, the
+//! version, the routines it was read from and the capture it is held to are in
+//! `docs/re/engine/k-replika-diffusion.md` §11. Provenance stays there and not
+//! here: this crate is below the format translators, and only they may name a
+//! product (`docs/architecture-v3/README.md`, rule 2).
 //!
-//! One stage, per frame (kernel `0x141be65f0`):
+//! One stage, per frame:
 //!
 //! - four taps are read from the stage's four rings at `(write − d + k) & mask`
 //!   with `k` 2, 1, 0, −1, then interpolated (Catmull–Rom, below);
@@ -16,21 +16,21 @@
 //!   lane 2;
 //! - `feedback = taps·mix + in·input`, written into the four rings.
 //!
-//! The rows (`0x141bff690`) are `M(angle)` rotated 0.02 rad in the (0,2) and
-//! (1,3) planes; the 0.02 is the fixed matrix the stage ctor stores at `+0xa0`
-//! (`cos 0.999800026`, `sin 0.019998666`). `direct` is `sin angle` and the
-//! output rows are `cos angle` (stored unrotated). The rows agree with the
-//! capture to 6 ulp; the tests hold the captured numbers.
+//! The rows are `M(angle)` rotated 0.02 rad in the (0,2) and (1,3) planes; the
+//! 0.02 is a fixed matrix of the stage's own (`cos 0.999800026`,
+//! `sin 0.019998666`). `direct` is `sin angle` and the output rows are
+//! `cos angle` (stored unrotated). The rows agree with the capture to 6 ulp;
+//! the tests hold the captured numbers.
 //!
 //! # The taps move
 //!
 //! A tap is not a fixed distance. Each stage reads `length · (floor + spread ·
 //! drift)` where `length` is the ctor's table and `drift` is one component of
 //! one of **two rotors** — unit vectors `(cos θ, sin θ)` that turn
-//! `radians_per_frame` every frame (`0x141bea454`, run per frame, not per
-//! tick), their direction reversed every re-length tick by the LCG
-//! (`0x141bea3f0`). Which component each ring of a stage reads is fixed and
-//! measured; see [`DRIFT`] and `docs/re/engine/k-replika-diffusion.md` §11.4.
+//! `radians_per_frame` every frame (per frame, not per tick), their direction
+//! reversed every re-length tick by the generator below. Which component each
+//! ring of a stage reads is fixed and measured; see [`DRIFT`] and
+//! `docs/re/engine/k-replika-diffusion.md` §11.4.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -38,7 +38,7 @@ use std::f32::consts::FRAC_PI_2;
 pub const STAGES: usize = 8;
 /// The taps each stage reads.
 pub const TAPS: usize = 4;
-/// The fixed rotation the stored rows carry, radians (`+0xa0` block).
+/// The fixed rotation the stored rows carry, radians.
 const ROTATION: f32 = 0.02;
 /// The smallest ring, samples: the capture's smallest mask is 1023.
 const MIN_RING: usize = 1024;
@@ -52,8 +52,7 @@ const MAX_RING: usize = 4096;
 /// A tap reads `length · (floor + spread · drift)` with `drift` in
 /// −1..=1, so `floor` is the window's floor as a fraction of the length and
 /// `spread` its half width. Measured: `floor = g − g·MODULATION·0.02`,
-/// `spread = g·MODULATION·0.02` with `g = 0.95·AMOUNT + 0.05`
-/// (`0x141ac55db`).
+/// `spread = g·MODULATION·0.02` with `g = 0.95·AMOUNT + 0.05`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Window {
     /// The window's floor as a fraction of a stage's length.
@@ -65,10 +64,9 @@ pub struct Window {
 /// One of the network's two rotors: a unit vector `(cos θ, sin θ)` that turns
 /// `radians_per_frame` each frame, its sign reversed on a re-length tick.
 ///
-/// Measured (`0x141c074b0`): the first rotor turns `2π(1.5 − MODULATION) / rate`
-/// and the second exactly ten sevenths of that; the phase is 0 when the object
-/// is last prepared, which is why a capture has to read it rather than assume
-/// it (`+0x1240`/`+0x1270`).
+/// Measured: the first rotor turns `2π(1.5 − MODULATION) / rate` and the
+/// second exactly ten sevenths of that; the phase is 0 when the object is last
+/// prepared, which is why a capture has to read it rather than assume it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rotor {
     /// The angle θ at construction, radians.
@@ -99,7 +97,7 @@ pub struct Settings {
 
 /// Which rotor component each ring reads, as `(rotor, sign, cosine)`:
 /// ring 0 and ring 2 of a stage read one component, rings 1 and 3 the other,
-/// and every other stage mirrors or swaps them (`0x141bea589` onward).
+/// and every other stage mirrors or swaps them.
 ///
 /// Read off the process directly: stage 0 scales its lengths by
 /// `(F + s·sinθ₁, F + s·cosθ₁, F + s·sinθ₁, F + s·cosθ₁)`, stage 1 by the
@@ -164,8 +162,7 @@ struct Ring {
 }
 
 /// One tap: the whole part of its distance and the fraction the read
-/// interpolates with (Kontakt keeps them in separate arrays, `+0xf0` for the
-/// fractions and `+0x130`/`+0x170` for the whole parts).
+/// interpolates with, which the reference keeps in separate arrays.
 #[derive(Clone, Copy, Default)]
 struct Tap {
     whole: usize,
@@ -186,13 +183,13 @@ struct Rows {
     mix: [[f32; TAPS]; 4],
     input: [[f32; TAPS]; 2],
     output: [[f32; TAPS]; 2],
-    /// The stage's unprocessed input gain (`+0x148`, `sin angle`).
+    /// The stage's unprocessed input gain, `sin angle`.
     direct: f32,
 }
 
 impl Rows {
-    /// `0x141bff690`: `M(angle)` then the fixed 0.02 rotation, on the mixing
-    /// and input rows only (the output rows are stored unrotated).
+    /// `M(angle)` then the fixed 0.02 rotation, on the mixing and input rows
+    /// only (the output rows are stored unrotated).
     fn new(angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         let mix = [
@@ -220,8 +217,8 @@ impl Rows {
     }
 }
 
-/// The four points a tap interpolates, Catmull–Rom with the kernel's
-/// constants 1.5 and 2.5 (`0x1477f5740`, `0x147800110`).
+/// The four points a tap interpolates, Catmull–Rom with the reference's
+/// constants 1.5 and 2.5.
 fn catmull(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
     0.5 * (2.0 * p1
         + (p2 - p0) * t
@@ -264,8 +261,8 @@ impl Ring {
     }
 }
 
-/// One rotor's running state, in `f64` as Kontakt keeps it (`+0x1240` is a
-/// pair of doubles): the unit vector and the signed step it turns by.
+/// One rotor's running state, in `f64` as the reference keeps it (the rotor is
+/// a pair of doubles): the unit vector and the signed step it turns by.
 struct RotorState {
     cos: f64,
     sin: f64,
@@ -290,15 +287,15 @@ impl RotorState {
         (self.cos as f32, self.sin as f32)
     }
 
-    /// One frame: rotate by the step (`0x141bea454`).
+    /// One frame: rotate by the step.
     fn turn(&mut self) {
         let (c, s) = (self.cos, self.sin);
         self.cos = c * self.step_cos - s * self.step_sin;
         self.sin = c * self.step_sin + s * self.step_cos;
     }
 
-    /// The re-length tick's draw came up short: reverse the direction
-    /// (`0x141bea43f`, an XOR of the sign bit into the step's sine).
+    /// The re-length tick's draw came up short: reverse the direction, an XOR
+    /// of the sign bit into the step's sine.
     fn reverse(&mut self) {
         self.step_sin = -self.step_sin;
     }
@@ -333,15 +330,15 @@ fn longest(length: f32, window: Window) -> f32 {
 pub struct Diffusion {
     stages: Box<[Stage]>,
     rows: Rows,
-    /// Frames between re-length ticks, and the countdown (`+0x12a8`/`+0x12ac`).
+    /// Frames between re-length ticks, and the countdown.
     period: u32,
     countdown: u32,
-    /// The re-length generator (`+0x12b0`).
+    /// The re-length generator's state.
     state: u32,
     seed: u32,
-    /// The tap window (`+0x12d8`/`+0x12d4`).
+    /// The tap window.
     window: Window,
-    /// The two rotors (`+0x1240`, `+0x1270`).
+    /// The two rotors.
     rotors: [RotorState; 2],
 }
 
@@ -421,9 +418,9 @@ impl Diffusion {
         out
     }
 
-    /// The distances the tap law asks for at the rotors' current angles
-    /// (`0x141bea589`: `length x (floor + spread x drift)`, truncated into a
-    /// whole part and a fraction).
+    /// The distances the tap law asks for at the rotors' current angles:
+    /// `length x (floor + spread x drift)`, truncated into a whole part and a
+    /// fraction.
     fn lay_out_taps(&mut self) {
         let directions = self.rotors.each_ref().map(RotorState::direction);
         let Window { floor, spread } = self.window;
@@ -444,8 +441,7 @@ impl Diffusion {
     }
 
     /// Advances the re-length counter by one frame, drawing two values per
-    /// rotor when it wraps (`0x141bea3f0`) and reversing a rotor whose draw
-    /// came up under `+0x12b8` (0.5).
+    /// rotor when it wraps and reversing a rotor whose draw came up under 0.5.
     fn tick(&mut self) {
         if self.period == 0 {
             return;
@@ -470,7 +466,7 @@ impl Diffusion {
         }
     }
 
-    /// Re-seeds the generator (the ctor's `seed = counter · 0x9e353f7c`).
+    /// Re-seeds the generator to the state construction left it in.
     pub fn reseed(&mut self) {
         self.state = self.seed;
     }
@@ -498,8 +494,7 @@ impl Diffusion {
                     *slot = catmull(p0, p1, p2, p3, tap.frac);
                 }
                 // Channel 0 reads lane 0 and channel 1 lane 2: the two
-                // output weights are stored by lane, not by channel
-                // (`+0x60`/`+0x64` per lane, so `+0x70`/`+0x74` is lane 2).
+                // output weights are stored by lane, not by channel.
                 let [t0, _, t2, _] = taps;
                 let out = [t0 * c_l + direct * x[0], t2 * c_r + direct * x[1]];
                 let mut feedback = [0.0f32; TAPS];
@@ -519,7 +514,7 @@ impl Diffusion {
     }
 }
 
-/// The angle the SIZE knob sets (measured: `+0x12c4 = π/2 − SIZE`).
+/// The angle the size knob sets (measured: `π/2 − SIZE`).
 #[must_use]
 pub fn angle(size: f32) -> f32 {
     FRAC_PI_2 - size
@@ -532,15 +527,15 @@ mod tests {
         CAPTURED_TAP_TABLE, block_energy_ratio, captured, captured_settings, correlation, impulse,
     };
 
-    /// Kontakt's rows for the angle π/2 − 1 (SIZE 1), from the oracle at
-    /// 0x3c6fdac0 + 0x40 (docs/re/engine/k-replika-diffusion.md §11.2).
+    /// The captured rows for the angle π/2 − 1 (size knob 1),
+    /// `docs/re/engine/k-replika-diffusion.md` §11.2.
     const CAPTURED_MIX: [[f32; 4]; 4] = [
         [-0.2918682, -0.4545578, -0.005838143, -0.009092368],
         [0.8413027, -0.5401943, 0.0168283, -0.01080533],
         [0.005838143, 0.009092368, -0.2918682, -0.4545578],
         [-0.0168283, 0.01080533, 0.8413027, -0.5401943],
     ];
-    /// The input rows (+0x40, +0x50).
+    /// The captured input rows.
     const CAPTURED_INPUT: [[f32; 4]; 2] = [
         [0.4545578, 0.7079318, 0.009092368, 0.01416052],
         [-0.009092368, -0.01416052, 0.4545578, 0.7079318],
@@ -551,8 +546,8 @@ mod tests {
         captured_settings()
     }
 
-    /// One stage's four taps, its four rings' window and the taps Kontakt
-    /// returned for them (stage 0 of the capture, `cap5`).
+    /// One stage's four taps, its four rings' window and the taps the
+    /// reference returned for them (stage 0 of the capture, `cap5`).
     #[test]
     fn the_rows_are_the_angle_rotated_by_two_hundredths() {
         let rows = Rows::new(std::f32::consts::FRAC_PI_2 - 1.0);
@@ -567,15 +562,15 @@ mod tests {
             }
         }
         // The output rows are stored unrotated, by lane: lane 0 feeds the
-        // left channel and lane 2 the right (`+0x60`..`+0x7c` is 4 lanes of
-        // (left, right) weights).
+        // left channel and lane 2 the right (four lanes of (left, right)
+        // weights).
         assert!((rows.output[0][0] - 0.841471).abs() < 1e-6);
         assert!((rows.output[1][2] - 0.841471).abs() < 1e-6);
         assert_eq!(rows.output[1][1], 0.0);
         assert!((rows.direct - 0.5403023).abs() < 1e-7);
     }
 
-    /// The read law and the interpolation, against Kontakt's own taps: the
+    /// The read law and the interpolation, against the reference's own taps: the
     /// ring contents below are the four samples each tap read (offsets +2,
     /// +1, 0, −1 from `write − whole`), its fraction, and the value the
     /// stage kernel returned.
@@ -615,7 +610,7 @@ mod tests {
     }
 
     /// The mapping this pass read: given the two rotors' angles, the four
-    /// rings of every stage take the distances Kontakt's own tap table holds.
+    /// rings of every stage take the distances the captured tap table holds.
     /// This is the test the tail hung on — a ring that reads the wrong
     /// component is a few samples out and the echoes past the first stage land
     /// in the wrong place.
@@ -680,9 +675,9 @@ mod tests {
         assert!(ratio > 0.002 && ratio < 1.0, "energy ratio {ratio}");
     }
 
-    /// The gate: `[filter+4]` is what decides whether Kontakt runs the
-    /// network at all (`0x141aa41f9`); a bypassed diffuser passes the frame
-    /// through untouched, which is the caller's job. What this pins is the
+    /// The gate: one byte beside the object decides whether the host runs the
+    /// network at all; a bypassed diffuser passes the frame through untouched,
+    /// which is the caller's job. What this pins is the
     /// other half — with every ring empty the network is its direct path
     /// alone, eight stages of `sin angle`.
     #[test]
@@ -701,8 +696,9 @@ mod tests {
     }
 
     /// [`Settings::lengths`] promises "at most [`MAX_TAP`]", and nothing used
-    /// to keep it: Replika's ctor table reaches 3833 at AMOUNT 1 / MODULATION
-    /// 0, which is longer than the largest ring holds. The constructor clamps,
+    /// to keep it: the reference's length table reaches 3833 at AMOUNT 1 /
+    /// MODULATION 0, which is longer than the largest ring holds. The
+    /// constructor clamps,
     /// so the first echo cannot arrive past the bound.
     #[test]
     fn a_tap_past_the_bound_is_clamped_where_the_doc_says() {
@@ -710,7 +706,7 @@ mod tests {
         assert_eq!(clamp_tap(-2.0), 0.0);
         assert_eq!(clamp_tap(f32::NAN), 0.0);
         assert!((clamp_tap(241.158_66) - 241.158_66).abs() < 1e-6);
-        // Every stage asks for the longest tap Replika's table can reach, so
+        // Every stage asks for the longest tap that table can reach, so
         // the first echo is the clamped one whichever stage produced it.
         let mut settings = settings();
         settings.lengths.fill([3833.0; TAPS]);
@@ -736,7 +732,7 @@ mod tests {
     }
 
     /// A quarter second at 48 kHz: 12000 frames between ticks, two draws per
-    /// rotor per tick (`0x141bea3f0`).
+    /// rotor per tick.
     #[test]
     fn the_re_length_period_is_a_quarter_second() {
         let mut net = Diffusion::new(settings());
@@ -757,8 +753,9 @@ mod tests {
         assert_eq!(net.countdown(), 12_000);
     }
 
-    /// The capture, as the reference the network is held to: Kontakt's own
-    /// answer to a one-sample impulse, 4096 frames, both channels.
+    /// The capture, as the reference the network is held to: the reference
+    /// object's own answer to a one-sample impulse, 4096 frames, both
+    /// channels.
     ///
     /// What it pins is the part the port reproduces: the direct path exactly,
     /// and the echo train the first four stages lay down. The rest does not

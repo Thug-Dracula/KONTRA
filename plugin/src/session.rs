@@ -39,16 +39,35 @@ struct Log {
 
 static LOG: OnceLock<Mutex<Log>> = OnceLock::new();
 
-/// Whether `KONTRA_LOG` asks for state-change lines. Only a non-empty value
-/// other than `0` or `off` does; unset is quiet, which is the default.
-fn verbose(value: Option<&OsStr>) -> bool {
-    value.is_some_and(|v| !v.is_empty() && v != "0" && v != "off")
+/// What `KONTRA_LOG` asks for.
+///
+/// One parse for the whole module: the variable used to be read twice, once to
+/// decide whether the file opens and once to decide whether it takes state
+/// changes, and two readings of one variable are two chances to disagree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Level {
+    /// `0` or `off`: no file at all.
+    Off,
+    /// Unset or empty — the default. The file, its first line and errors.
+    Quiet,
+    /// Anything else: the state-change lines [`info`] writes as well.
+    Verbose,
 }
 
-/// Where the session log is, and whether `KONTRA_LOG` turned it off.
-fn place() -> (PathBuf, bool) {
-    let on = std::env::var_os("KONTRA_LOG").is_none_or(|v| v != "0" && v != "off");
-    let dir = std::env::var_os("KONTRA_LOG_DIR")
+impl Level {
+    /// The level a `KONTRA_LOG` value names.
+    fn of(value: Option<&OsStr>) -> Self {
+        match value {
+            Some(v) if v == "0" || v == "off" => Self::Off,
+            Some(v) if !v.is_empty() => Self::Verbose,
+            _ => Self::Quiet,
+        }
+    }
+}
+
+/// Where the session log's directory is.
+fn directory() -> PathBuf {
+    std::env::var_os("KONTRA_LOG_DIR")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| {
@@ -59,15 +78,14 @@ fn place() -> (PathBuf, bool) {
         })
         .unwrap_or_else(std::env::temp_dir)
         .join("kontra")
-        .join("logs");
-    (dir, on)
+        .join("logs")
 }
 
 /// The session log's file, opened on first use.
 fn log() -> &'static Mutex<Log> {
     LOG.get_or_init(|| {
-        let quiet = !verbose(std::env::var_os("KONTRA_LOG").as_deref());
-        let (dir, on) = place();
+        let level = Level::of(std::env::var_os("KONTRA_LOG").as_deref());
+        let dir = directory();
         let _ = std::fs::create_dir_all(&dir);
         prune(&dir);
         let stamp = std::time::SystemTime::now()
@@ -75,7 +93,7 @@ fn log() -> &'static Mutex<Log> {
             .unwrap_or_default()
             .as_nanos();
         let path = dir.join(format!("session-{}-{stamp}-1.jsonl", std::process::id()));
-        let file = on
+        let file = (level != Level::Off)
             .then(|| {
                 OpenOptions::new()
                     .create(true)
@@ -89,7 +107,7 @@ fn log() -> &'static Mutex<Log> {
             path,
             bytes: 0,
             full: false,
-            quiet,
+            quiet: level != Level::Verbose,
         })
     })
 }
@@ -160,13 +178,36 @@ pub fn info(event: &str, data: &[(&str, &str)]) {
     let Some(at) = LAST.get(slot(event)) else {
         return;
     };
-    let now = now_ms();
-    let last = at.load(Ordering::Relaxed);
-    if now.saturating_sub(last) < 1000 {
+    if !admit(at, now_ms()) {
         return;
     }
-    at.store(now, Ordering::Relaxed);
     write_line("info", event, data);
+}
+
+/// [`info`]'s rate limit, as a state machine over one slot: says whether an
+/// event may write at `now` and records the write when it may.
+///
+/// The store is `now.max(1)`, not `now`: [`NEVER`] is what "has not written
+/// yet" means, and the first state change of a session happens at t = 0 on
+/// purpose — a load starts the session — so a raw 0 would read as no write at
+/// all. The price is that the second event in a session is allowed at 1001 ms
+/// rather than 1000.
+fn admit(last: &AtomicU64, now: u64) -> bool {
+    if !due(last.load(Ordering::Relaxed), now) {
+        return false;
+    }
+    last.store(now.max(1), Ordering::Relaxed);
+    true
+}
+
+/// The `last` a slot holds before it has written anything.
+const NEVER: u64 = 0;
+
+/// Whether an event whose slot last wrote at `last` ms may write at `now`:
+/// once before it has ever written, then at most once a second. `last == 0`
+/// reading as "never" is why [`info`] stores `now.max(1)`.
+fn due(last: u64, now: u64) -> bool {
+    last == NEVER || now.saturating_sub(last) >= 1000
 }
 
 /// FNV-1a over the whole event name, reduced to a rate-limit slot. Stable
@@ -381,12 +422,46 @@ mod tests {
 
     #[test]
     fn quiet_is_the_default_and_only_a_setting_turns_state_changes_on() {
-        assert!(!verbose(None), "unset is quiet");
-        assert!(!verbose(Some(OsStr::new(""))), "empty is quiet");
-        assert!(!verbose(Some(OsStr::new("0"))), "0 turns the log off");
-        assert!(!verbose(Some(OsStr::new("off"))), "off turns the log off");
-        assert!(verbose(Some(OsStr::new("1"))));
-        assert!(verbose(Some(OsStr::new("debug"))));
+        assert_eq!(Level::of(None), Level::Quiet, "unset is quiet");
+        assert_eq!(
+            Level::of(Some(OsStr::new(""))),
+            Level::Quiet,
+            "empty is quiet"
+        );
+        assert_eq!(
+            Level::of(Some(OsStr::new("0"))),
+            Level::Off,
+            "0 turns the log off"
+        );
+        assert_eq!(
+            Level::of(Some(OsStr::new("off"))),
+            Level::Off,
+            "off turns the log off"
+        );
+        assert_eq!(Level::of(Some(OsStr::new("1"))), Level::Verbose);
+        assert_eq!(Level::of(Some(OsStr::new("debug"))), Level::Verbose);
+    }
+
+    /// The first state change of a session happens at t = 0, when the load
+    /// that started it begins; it must be written, not swallowed by the
+    /// once-a-second limit, and the second one must still wait. Driven through
+    /// the same [`admit`] `info` calls, so a store that lost the "written"
+    /// record fails here too.
+    #[test]
+    fn the_first_state_change_of_a_session_is_written() {
+        let slot = AtomicU64::new(NEVER);
+        assert!(admit(&slot, 0), "an event at t = 0 must write once");
+        assert!(!admit(&slot, 0), "two events in the first millisecond");
+        assert!(!admit(&slot, 1_000), "the write at 0 counts as 1 ms");
+        assert!(admit(&slot, 1_001));
+
+        // And a slot nothing has written to yet is never held back.
+        assert!(admit(&AtomicU64::new(NEVER), 500));
+        // The limit is one second, measured from the last write.
+        let slot = AtomicU64::new(NEVER);
+        assert!(admit(&slot, 500));
+        assert!(!admit(&slot, 1_499));
+        assert!(admit(&slot, 1_500));
     }
 
     #[test]

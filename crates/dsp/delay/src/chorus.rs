@@ -220,8 +220,10 @@ pub fn lfo_triangle(phase: f32) -> f32 {
     }
 }
 
-/// The peak-to-peak modulation in samples at `amount`, for an LFO at `hz` and
-/// `fs`: `(fs / hz) · ½ · (2^(0.025 · m) − 1)`, `m = 0.99 · amount² + 0.01`.
+/// The modulation depth in samples at `amount`, for an LFO at `hz` and `fs`:
+/// `(fs / hz) · ½ · (2^(0.025 · m) − 1)`, `m = 0.99 · amount² + 0.01`, the
+/// distance [`lfo_triangle`] swings the line either side of its centre (so the
+/// peak-to-peak swing is twice this).
 ///
 /// Read out of the kernel: `0x14193a2f0` (amount setter) stores
 /// `m = 0.99 · amount² + 0.01` at `voice+(-0x218)` and

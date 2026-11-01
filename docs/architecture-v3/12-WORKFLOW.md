@@ -134,7 +134,11 @@ only inside their own crate.
 
 `plan.py test_plan.py` holds `Locks.test_lock_paths_exist`, which fails if any
 lock names a path that is not in the tree: the empty-set failure above cannot
-come back silently.
+come back silently. Run the file's tests with
+
+```sh
+python3 -m unittest tools/plan/test_plan.py
+```
 
 Design choices that keep the lock set small:
 

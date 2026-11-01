@@ -389,9 +389,17 @@ impl<'a> Compiler<'a> {
                 let ExprKind::Var(name, None) = &e.kind else {
                     return Err(Error::new(e.span, "expected an array"));
                 };
-                let len = match self.lookup(name, e.span) {
-                    Ok(v) => self.var(v)?.array().map(|(_, len)| len),
-                    Err(_) => Builtin::from_name(name).and_then(Builtin::array_len),
+                // The same order as [`Self::load`]: a system array spelled
+                // exactly as the manual spells it is that array, whatever the
+                // script declares in another case (KSP reference, "Variables
+                // and Constants" — names are case-sensitive), and a name that
+                // only differs from it is the script's own.
+                let len = match Builtin::from_name(name).and_then(Builtin::array_len) {
+                    Some(len) => Some(len),
+                    None => match self.lookup(name, e.span) {
+                        Ok(v) => self.var(v)?.array().map(|(_, len)| len),
+                        Err(_) => None,
+                    },
                 };
                 let len = len.ok_or_else(|| Error::new(e.span, "expected an array"))?;
                 self.emit(Op::Int(len as i32));

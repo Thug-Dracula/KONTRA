@@ -211,6 +211,27 @@ fn arrays_fill_search_sort_and_size() {
     assert_eq!(r.ints("%c"), [0, 2, 7]);
 }
 
+/// `num_elements` resolves a name the way a read of it does: an exactly
+/// spelled system array is the system array (KSP reference, "Variables and
+/// Constants": names are case-sensitive), and a declaration that happens to
+/// match case-insensitively is a different name. This is the same rule `load`
+/// follows, and it is what kept Harpsichord's `$event_id` from hiding
+/// `$EVENT_ID`.
+#[test]
+fn num_elements_prefers_the_exactly_spelled_system_array() {
+    let r = Run::new(
+        "on init
+            declare %key_down[3]
+            declare $system
+            declare $own
+            $system := num_elements(%KEY_DOWN)
+            $own := num_elements(%key_down)
+        end on",
+    );
+    assert_eq!(r.int("$system"), 128, "the manual's keyboard array");
+    assert_eq!(r.int("$own"), 3, "the script's own array");
+}
+
 #[test]
 fn controls_ids_callbacks_and_persistence() {
     let mut r = Run::new(

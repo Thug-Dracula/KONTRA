@@ -340,8 +340,13 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
         install_requests(&mut engine, &plan, rate, diag);
     }
     let env = |name: &str| std::env::var(name).ok()?.parse::<f32>().ok();
-    // KONTRA_VELOCITY (1..=127) and KONTRA_HOLD (seconds) override the note.
-    let velocity = f64::from(env("KONTRA_VELOCITY").unwrap_or(100.0) / 127.0);
+    // KONTRA_VELOCITY (1..=127) and KONTRA_HOLD (seconds) override the note:
+    // every note this render plays, the single note included (see
+    // [`note_events`]), so a knob sweep can move velocity without editing the
+    // command line. Unset, the front end's own `--velocity` / `--hold` stand.
+    let velocity_override = env("KONTRA_VELOCITY");
+    let hold_override = env("KONTRA_HOLD");
+    let velocity = f64::from(velocity_override.unwrap_or(100.0)) / 127.0;
     // KONTRA_CONTROL=name=value,...: each script control (a KSP one named
     // without its type prefix, a UVI widget or macro by its name) moves there
     // in turn and its callbacks run, as a user's edit would; its effect loads
@@ -415,17 +420,11 @@ pub fn run(req: &Request, diag: &mut dyn Write) -> Result<Summary, Box<dyn std::
         None => Some(req.note),
     };
     if let Some(note) = single {
-        events.push((
-            0,
-            Event::NoteOn {
-                note: host_note(note.key, 0),
-                velocity: f64::from(note.velocity) / 127.0,
-                tune: 0.0,
-            },
-        ));
-        events.push((
-            (note.hold_s * rate as f32) as usize,
-            Event::NoteOff(host_pattern(note.key, 0)),
+        events.extend(note_events(
+            note,
+            rate as f32,
+            velocity_override,
+            hold_override,
         ));
     }
     // The wheel (the example's fourth positional argument) moves at 1 s.
@@ -710,6 +709,32 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// One played event, in frames from the start of the render.
 type FrameEvent = (usize, Event);
+
+/// The single note's on and off, in frames.
+///
+/// `velocity` and `hold` are the `KONTRA_VELOCITY` and `KONTRA_HOLD` overrides
+/// (velocity 1..=127, hold in seconds); `None` keeps what the front end asked
+/// for. They exist so a sweep can move velocity or length without rebuilding a
+/// command line, and a render that names neither is exactly the front end's
+/// note.
+fn note_events(note: Note, rate: f32, velocity: Option<f32>, hold: Option<f32>) -> [FrameEvent; 2] {
+    let velocity = velocity.unwrap_or(f32::from(note.velocity));
+    let hold = hold.unwrap_or(note.hold_s);
+    [
+        (
+            0,
+            Event::NoteOn {
+                note: host_note(note.key, 0),
+                velocity: f64::from(velocity) / 127.0,
+                tune: 0.0,
+            },
+        ),
+        (
+            (hold * rate) as usize,
+            Event::NoteOff(host_pattern(note.key, 0)),
+        ),
+    ]
+}
 
 /// Reads a standard MIDI file as frame-stamped engine events.
 ///
@@ -1013,6 +1038,34 @@ mod tests {
         let tempos = [(0.0, 500_000.0), (1.0, 1_000_000.0)];
         assert!((seconds_at(&tempos, 1.0) - 0.5).abs() < 1e-9);
         assert!((seconds_at(&tempos, 2.0) - 1.5).abs() < 1e-9);
+    }
+
+    /// `KONTRA_VELOCITY` and `KONTRA_HOLD` reach the single note, not only the
+    /// repeat and chord sweeps: a velocity the render was asked for must be the
+    /// velocity the note is played at, or a sweep measures the wrong note.
+    #[test]
+    fn the_velocity_and_hold_overrides_reach_the_single_note() {
+        let note = Note {
+            key: 60,
+            velocity: 100,
+            hold_s: 1.5,
+        };
+        // Nothing overridden: the front end's own note, unchanged.
+        let [on, off] = note_events(note, 48_000.0, None, None);
+        assert_eq!(on.0, 0);
+        assert!(
+            matches!(on.1, Event::NoteOn { velocity, .. } if (velocity - 100.0 / 127.0).abs() < 1e-9)
+        );
+        assert_eq!(off.0, 72_000, "1.5 s at 48 kHz");
+
+        // Both overridden: 40/127 and half a second.
+        let [on, off] = note_events(note, 48_000.0, Some(40.0), Some(0.5));
+        assert!(
+            matches!(on.1, Event::NoteOn { velocity, .. } if (velocity - 40.0 / 127.0).abs() < 1e-9),
+            "the override did not reach the note: {:?}",
+            on.1
+        );
+        assert_eq!(off.0, 24_000, "0.5 s at 48 kHz");
     }
 
     #[test]
