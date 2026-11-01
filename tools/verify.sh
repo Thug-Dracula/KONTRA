@@ -300,6 +300,19 @@ echo "== layer 0/1: tests =="
 for c in kontra-engine kontra-host kontra-ui mui kontra-native-host kontra-plugin kontra-ui-pictures kontra-racks kontra-ledger kontra-inspect ui-drive; do run_tests "$c"; done
 if [ -d crates/dsp/delay ]; then run_tests kontra-dsp-delay; fi
 
+# The gate and CI both test in debug. A test that only fails under optimization
+# is invisible to both, and `kontra-law` had exactly one until 2026-11-01: two
+# spellings of `2^(x/12)` agreeing in debug and splitting by one ulp in release.
+# The law crate is pure arithmetic and its suite runs in hundredths of a second,
+# so it is held to both profiles here.
+if CARGO_TARGET_DIR="$TARGET" timeout "$STEP_TIMEOUT" cargo test --release -q -p kontra-law \
+        >"$LOGS/verify-law-release.log" 2>&1; then
+    ok "tests: kontra-law (release)" \
+        "$(grep -E '^test result' "$LOGS/verify-law-release.log" | awk '{p+=$4; f+=$6} END {print p" passed, "f" failed"}')"
+else
+    bad "tests: kontra-law (release)" "see $LOGS/verify-law-release.log"
+fi
+
 # The two parity regressions need a Kontakt library installed outside the
 # repository. They are `#[ignore]`d so a clean checkout reports them as
 # ignored rather than passing them without reading anything; run them here
