@@ -33,6 +33,7 @@ given so it can be re-run rather than believed.
 | Real Kontakt can be driven headless | `tools/oracle-mcp` — Kontakt 8.14.1 on Xvfb with DXVK + lavapipe paints its instrument page and takes pointer input (`paints=yes click_px=44485`) |
 | The Hot Solo+ amp really closes the gap | an independent re-measurement on fresh sessions: level +0.02 → **−0.06 dB**, band RMS 0.94 → **0.90 dB**, worst band +2.2 → **+2.12 dB @ 1613 Hz**, per-band max difference 1.07 dB / RMS 0.32 dB — which is exactly the cross-session capture noise (0.31 dB) |
 | Parity can be judged, not admired | `tools/oracle-mcp/parity.py` exits non-zero on a level, band-RMS, worst-band or lag breach; the limits (0.5 dB / 1.0 dB / 3.0 dB / 10 ms) are 4.2×, 2.6×, 1.9× and 1× the measured Kontakt-against-itself floor |
+| **Parity outlives the afternoon it was measured** | `tools/parity-corpus/` — **20 cases**, each with two Kontakt reference WAVs (36.5 MB committed), a derived key and the exact MIDI. `tools/verify.sh` runs **three** of them (Glory Days Trumpet 1, Fredonia Grand Organ, Electric Mint) as the `parity corpus` row in 6.2 s and fails on drift; the other 17 run with `tools/parity-corpus/run.py` in 29 s. Ten cases already disagree with Kontakt beyond their threshold and print as findings with their deltas; the runner exits 1 when one moves |
 | KONTRA's Rust meets its own lint bar, and the gate enforces it | `clippy --workspace --all-targets --no-deps -- -D warnings` and `cargo fmt --all --check` are rows of `tools/verify.sh` as of 2026-10-31, excluding `vendor/` by manifest path. Turned on for the first time they found six diagnostics — four `excessive_precision` float literals in a Replika test (constants written with more digits than an f32 holds, so the value in the source was not the value compared), a dead `Widget::ground` field, and an unused `use super::*` — all fixed. 48 opted-in crates; **no `#[allow]`** anywhere and 8 `#[expect]`s, each with a reason: seven in the new Choral kernel (modulus-masked ring positions, bank indices from the same table), one in `crates/app/host/tests/parity_regressions.rs` |
 
 ## What is implemented
@@ -68,6 +69,26 @@ compared on demand.
 | Glory Days – Trumpet 1 Bucket Legato | peak **−29.77 vs −29.774** | | a "quiet" articulation that is genuinely quiet, not a level bug |
 | Glory Days – Trombone 2 Bucket Staccatissimo | peak **−31.36 vs −31.362** | | same |
 | Glory Days – Trombone 1 Multi, a four-note voicing | peak **+0.11 dB** | RMS +0.07 dB | keys 55/60/64/67 held together, aligned at the measured onset over one second. The chord is only 0.4 dB above a single note on the same instrument — and Kontakt's is 0.39 dB above its own — so the layers are level-compensated, in both engines |
+
+**The corpus (2026-11-01).** Everything above was measured by hand, once. `tools/parity-corpus/`
+now holds **20 cases** — the two anchors (Glory Days Trumpet 1, Fredonia Grand Organ), seven
+regression anchors with history, eight coverage cases (dense/keyswitch/drums/bass/quiet/synth), and
+five negative cases — each with the instrument path, a key derived from the instrument's own
+sounding range, the exact MIDI, and **two Kontakt reference WAVs** (36.5 MB, committed). The
+threshold per case is the spread between those two takes, floored at 0.5 dB level / 1.0 dB band
+RMS. `tools/parity-corpus/run.py` renders the same MIDI in KONTRA offline and exits non-zero on
+drift; `tools/verify.sh` runs the **three-case subset** (Glory Days, Fredonia, Electric Mint) as
+the `parity corpus` row in 6.2 s, printing each case's level/band delta. Ten of the twenty already
+disagree with Kontakt beyond their threshold; those print as `finding (unchanged)` on every run,
+with their absolute deltas, instead of failing the build. Measured today: Fredonia **−15.97 dB /
+24.01 dB** (KONTRA 16 dB loud), EEB Rick Bridge **−3.91 / 23.06**, Spitfire Horns a4 **−29.72 /
+15.07** (Kontakt really is at 0.0035), Vintage Organs C3 Jazz **−2.04 / 13.97**, Electric Mint
+**+1.03 / 0.93**, Melody **+1.67 / 1.28**, Cherry **−0.31 / 2.07**, Unity **−0.16 / 1.99**,
+Session Horns Keyswitch **+0.15 / 1.53**, Stadium Kit **+2.24 / 0.98**. Clean: Trumpet 1 (−0.03 /
+0.03), Trombone 1 chord (0.00 / 0.24), Harpsichord (−0.19 / 1.00), Haunted Strings 2 (−0.47 /
+0.28), Eminent Trombone (−0.12 / 0.10). Two census "silent" instruments are silent only in KONTRA:
+Kontakt plays `Scene - Lotus` at −27.6 dBFS and a zero-zone Glass & Steel patch at −9.8 dBFS; both
+are recorded as known gaps.
 
 Ruled out while chasing those rows, so nobody re-chases them: the 93.6 Hz cutoff is **not** a default (a real v0x80 record, round-tripped by the native decoder), and the 432 "purged" groups are **saved purge state, not a parse gap**.
 

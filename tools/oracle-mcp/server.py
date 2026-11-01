@@ -1215,7 +1215,7 @@ def tool_click(x, y, settle: float = 2.5) -> dict:
 
 def tool_render(midi: str | None = None, notes: list | None = None,
                 seconds: float | None = None, pre_roll: float = 0.25,
-                tail: float = 0.7, channel: int = 0) -> dict:
+                tail: float = 0.7, channel: int = 0, allow_silent: bool = False) -> dict:
     SESSION.require_up("oracle_render")
     if midi and notes:
         raise ToolError("oracle_render: give either midi or notes, not both")
@@ -1300,7 +1300,7 @@ def tool_render(midi: str | None = None, notes: list | None = None,
         raise ToolError(f"oracle_render: pw-record wrote no audio ({raw}); {err[:300]}")
 
     raw_st = wav_stats(raw)
-    if raw_st["peak"] == 0 or raw_st["peak_dbfs"] is None:
+    if (raw_st["peak"] == 0 or raw_st["peak_dbfs"] is None) and not allow_silent:
         raise ToolError(
             f"oracle_render: the render is silent (peak 0) — nothing reached the sink. "
             f"sink={sink} routed={routed} port={port} midi={midi_path} "
@@ -1312,7 +1312,7 @@ def tool_render(midi: str | None = None, notes: list | None = None,
     length = (seconds if seconds is not None else duration) + tail
     cut = trim_wav(raw, wav, start, length)
     st = wav_stats(wav)
-    if st["peak"] == 0 or st["peak_dbfs"] is None:
+    if (st["peak"] == 0 or st["peak_dbfs"] is None) and not allow_silent:
         raise ToolError(f"oracle_render: the trimmed window is silent ({wav})")
     timing = {"record_spawn_to_stop_s": round(t_stop - t_rec, 3),
               "play_spawn_to_stop_s": round(t_stop - started, 3)}
@@ -1612,7 +1612,10 @@ TOOLS = {
                 "description": "note list instead of a MIDI file"},
             "seconds": {"type": "number", "description": "audio length to record (default: "
                                                        "the whole MIDI plus tail)"},
-            "tail": {"type": "number", "description": "seconds of release tail to keep"}}},
+            "tail": {"type": "number", "description": "seconds of release tail to keep"},
+            "allow_silent": {"type": "boolean", "description": "return the capture even when it "
+                                                              "is silent, instead of failing: a "
+                                                              "known-silent instrument is a result"}}},
     },
     "oracle_dump_script": {
         "fn": tool_dump_script,

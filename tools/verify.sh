@@ -352,6 +352,7 @@ if [ "$MODE" = portable ]; then
     row "load + render (Electric Mint)" "local-only, not run (--portable)"
     row "ui-drive (both pages)" "local-only, not run (--portable)"
     row "library free of probe copies" "local-only, not run (--portable)"
+    row "parity corpus (3 cases)" "local-only, not run (--portable)"
     row "pixel diff (golden + Kontakt panel)" "local-only, not run (--portable)"
     finish
 fi
@@ -412,6 +413,38 @@ if [ -n "$LEFTOVER" ]; then
     bad "library free of probe copies" "left behind: $(basename "$LEFTOVER")"
 else
     ok "library free of probe copies" "no __* directory under Instruments/"
+fi
+
+echo "== layer 0: the parity corpus still sounds like Kontakt =="
+# Twenty cases hold the parity numbers to files instead of to an afternoon's memory: each is a
+# note real Kontakt played, committed as a WAV with the MIDI that made it, captured twice so the
+# instrument's own take-to-take spread sets the threshold. This row runs the gate's three
+# (Glory Days Trumpet 1, Fredonia Grand Organ, Electric Mint) -- no Kontakt, no display, only the
+# committed references and a KONTRA render. A case that drifts fails the row and prints its delta.
+if CARGO_TARGET_DIR="$TARGET" cargo build --release -p kontra-host --bin kontra-render \
+        >"$LOGS/verify-render.log" 2>&1; then
+    if KONTRA_RENDER="$TARGET/release/kontra-render" python3 "$REPO/tools/parity-corpus/run.py" \
+            --subset --json "$LOGS/verify-parity.json" >"$LOGS/verify-parity.txt" 2>&1; then
+        PARITYROW=$(python3 - "$LOGS/verify-parity.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))["cases"]
+parts = []
+for r in rows:
+    m = r.get("metrics") or {}
+    if m.get("level_db") is None or m.get("band_rms_db") is None:
+        parts.append(f"{r['id']} {r['status']}")
+    else:
+        parts.append(f"{r['id']} {m['level_db']:+.2f}/{m['band_rms_db']:.2f} dB")
+print(f"{len(rows)} cases, level/band: " + "; ".join(parts))
+PY
+)
+        ok "parity corpus (3 cases)" "${PARITYROW:-(no summary)}"
+    else
+        bad "parity corpus (3 cases)" "drift; see $LOGS/verify-parity.txt"
+        grep -E '^\[(FAIL|ok )\]|^       ' "$LOGS/verify-parity.txt" | sed 's/^/      /' | head -12
+    fi
+else
+    bad "parity corpus (3 cases)" "kontra-render did not build; see $LOGS/verify-render.log"
 fi
 
 echo "== layer 2: the UI drives where it draws =="
