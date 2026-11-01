@@ -12,7 +12,7 @@ point: its saved record is what the parity render compares, and it is the record
 
 ## What the code contributed
 
-Read from `/home/dracula/Armory/VSTs/kontakt-8.13.1-re/Kontakt 8.exe` (FileVersion 8.13.1,
+Read from `$HOME/Armory/VSTs/kontakt-8.13.1-re/Kontakt 8.exe` (FileVersion 8.13.1,
 SizeOfImage 0xb254000) with Kuna; addresses are VAs.
 
 | Address | Size | What it does |

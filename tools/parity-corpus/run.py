@@ -22,6 +22,10 @@ the gate runs on a machine with no numpy: level is the integrated RMS difference
 window (Kontakt - KONTRA), band RMS is the RMS of the 1/3-octave band differences after their
 median is removed. Standard library only, by design: a gate that needs an installed wheel to run
 is a gate that fails open.
+
+Each case's `instrument` is relative to the library root in `cases.json`'s `library_root` block:
+`KONTRA_TEST_LIBRARY` when it is set, else `$HOME/Armory/VSTs/Kontakt1`. No case carries a path
+that only exists on the machine that recorded it.
 """
 from __future__ import annotations
 
@@ -371,10 +375,10 @@ def render_bin() -> Path:
     return target / "kontra-render"
 
 
-def kontra_render(case, midi_path: Path, out_wav: Path):
+def kontra_render(case, midi_path: Path, out_wav: Path, root: Path):
     """Run KONTRA on the case's own MIDI. Returns (returncode, summary-or-None, stderr)."""
-    p = subprocess.run([str(render_bin()), "--instrument", case["instrument"], "--out",
-                        str(out_wav), "--midi", str(midi_path), "--tail",
+    p = subprocess.run([str(render_bin()), "--instrument", str(instrument_path(case, root)),
+                        "--out", str(out_wav), "--midi", str(midi_path), "--tail",
                         str(case.get("tail_s", 0.5)), "--quiet"],
                        capture_output=True, text=True, timeout=900)
     summary = None
@@ -394,6 +398,33 @@ def load_cases():
     return doc
 
 
+def library_root(doc) -> Path:
+    """The root every case's `instrument` is relative to.
+
+    `library_root` names the environment variable to read it from and a default spelled
+    with `$HOME`, so a case carries no path that only exists on the machine that recorded
+    it: point `KONTRA_TEST_LIBRARY` at the library and the whole corpus runs there.
+    """
+    spec = doc.get("library_root") or {}
+    variable = spec.get("env") or "KONTRA_TEST_LIBRARY"
+    set_to = os.environ.get(variable)
+    if set_to:
+        return Path(set_to).expanduser()
+    default = spec.get("default")
+    if not default:
+        raise SystemExit(f"{CORPUS}: no library_root; add one with an `env` and a `default`")
+    return Path(os.path.expandvars(default)).expanduser()
+
+
+def instrument_path(case, root: Path) -> Path:
+    """The case's instrument: `instrument` joined onto the library root.
+
+    An instrument recorded as an absolute path (only an ad-hoc `--case` file would) wins
+    over the root, the way `Path` joining always does.
+    """
+    return root / case["instrument"]
+
+
 def select(doc, args):
     cases = doc["cases"]
     if args.subset:
@@ -404,14 +435,14 @@ def select(doc, args):
     return cases
 
 
-def run_case(case, workdir: Path):
+def run_case(case, workdir: Path, root: Path):
     """One case: render, compare, and decide. Returns a row dict with `ok`."""
     row = {"id": case["id"], "name": case["name"], "expect": case.get("expect", "matches"),
            "key": case.get("key"), "threshold": case.get("threshold")}
     midi_path = workdir / f"{case['id']}.mid"
     write_midi(midi_path, case["midi"]["notes"])
     out_wav = workdir / f"{case['id']}-kontra.wav"
-    rc, summary, err = kontra_render(case, midi_path, out_wav)
+    rc, summary, err = kontra_render(case, midi_path, out_wav, root)
 
     if case.get("expect", "matches") == "expected-refusal":
         want = case.get("refusal_reason", "")
@@ -519,6 +550,7 @@ def run_case(case, workdir: Path):
 def record(args, doc):
     """Record where KONTRA stands against each reference today. Not a way to make a failure pass:
     it writes a baseline with the deltas visible, and a reviewer sees them in the diff."""
+    root = library_root(doc)
     workdir = Path(tempfile.mkdtemp(prefix="parity-record-"))
     for case in select(doc, args):
         if case.get("expect") in ("expected-refusal", "known-gap"):
@@ -529,7 +561,7 @@ def record(args, doc):
         midi_path = workdir / f"{case['id']}.mid"
         write_midi(midi_path, case["midi"]["notes"])
         out_wav = workdir / f"{case['id']}-kontra.wav"
-        rc, summary, err = kontra_render(case, midi_path, out_wav)
+        rc, summary, err = kontra_render(case, midi_path, out_wav, root)
         if rc != 0:
             print(f"{case['id']}: KONTRA does not render it ({err.splitlines()[-1:]}) - no baseline")
             continue
@@ -569,6 +601,7 @@ def capture(args, doc):
         except json.JSONDecodeError:
             return {"raw": body[0].get("text")}, bool(res.get("isError"))
 
+    root = library_root(doc)
     REFS.mkdir(parents=True, exist_ok=True)
     workdir = Path(tempfile.mkdtemp(prefix="parity-capture-"))
     for case in select(doc, args):
@@ -586,7 +619,8 @@ def capture(args, doc):
                 rec["display"] = up.get("display")
                 if err:
                     raise SystemExit(f"oracle_up failed: {up}")
-                ld, err = payload(client.tool("oracle_load", {"nki": case["instrument"]}))
+                ld, err = payload(client.tool("oracle_load",
+                                              {"nki": str(instrument_path(case, root))}))
                 rec["loaded"] = bool((ld.get("page") or {}).get("instrument_page"))
                 if rec["loaded"]:
                     r, err = payload(client.tool("oracle_render", {
@@ -638,7 +672,7 @@ def capture(args, doc):
                                 "take_drift_ms": spread["lag_ms"]},
             }
             out_wav = workdir / f"{case['id']}-kontra.wav"
-            rc, summary, err = kontra_render(case, midi_path, out_wav)
+            rc, summary, err = kontra_render(case, midi_path, out_wav, root)
             if rc == 0 and out_wav.exists():
                 kern, _ = read_wav(out_wav)
                 m = compare(a, kern)
@@ -689,6 +723,12 @@ def main(argv):
     if not cases:
         print("no cases selected", file=sys.stderr)
         return 2
+    root = library_root(doc)
+    if not root.is_dir():
+        print(f"the sample library is not at {root}: set "
+              f"{(doc.get('library_root') or {}).get('env', 'KONTRA_TEST_LIBRARY')} to the "
+              f"directory the cases' `instrument` paths are relative to", file=sys.stderr)
+        return 2
     binary = render_bin()
     if not binary.exists():
         print(f"{binary} is missing: build it with "
@@ -700,7 +740,7 @@ def main(argv):
     with tempfile.TemporaryDirectory(prefix="parity-corpus-") as tmp:
         workdir = Path(tmp)
         for case in cases:
-            row = run_case(case, workdir)
+            row = run_case(case, workdir, root)
             rows.append(row)
             failed += 0 if row["ok"] else 1
             findings += 1 if row.get("finding") else 0

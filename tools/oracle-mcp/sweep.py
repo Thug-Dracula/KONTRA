@@ -45,9 +45,14 @@ def log(message: str) -> None:
 
 
 def load_plan(path: Path) -> list[dict]:
+    """The plan's instruments as this machine spells them.
+
+    A plan records `$HOME/Armory/VSTs/Kontakt1/...`; `parity.resolve` expands `$HOME` and
+    moves anything under the default root onto `KONTRA_TEST_LIBRARY` when it is set.
+    """
     plan = json.loads(path.read_text())
     for entry in plan:
-        entry["nki"] = str(Path(entry["nki"]).expanduser())
+        entry["nki"] = str(parity.resolve(entry["nki"]))
     return plan
 
 

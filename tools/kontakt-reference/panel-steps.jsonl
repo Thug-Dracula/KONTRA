@@ -1,4 +1,4 @@
 {"tool": "oracle_up", "arguments": {}, "comment": "launch Kontakt on its private Xvfb", "checks": {"state": "up"}}
-{"tool": "oracle_load", "arguments": {"nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki"}, "checks": {"page.instrument_page": true}}
+{"tool": "oracle_load", "arguments": {"nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki"}, "checks": {"page.instrument_page": true}}
 {"tool": "oracle_shot", "arguments": {}, "comment": "the instrument page; its path is printed by the step", "checks": {"mode": "instrument"}}
 {"tool": "oracle_down", "arguments": {}, "checks": {"state": "down"}}

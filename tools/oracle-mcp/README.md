@@ -134,7 +134,7 @@ All results are JSON in `content[0].text`. A tool that cannot measure something 
 Starts the display, the window manager, the null sink check and Kontakt.
 
 ```json
-{"state":"up","display":":77","prefix":"/home/dracula/Armory/.oracle-spike/prefix-dxvk",
+{"state":"up","display":":77","prefix":"$HOME/Armory/.oracle-spike/prefix-dxvk",
  "exe":".../Kontakt 8/x64/Kontakt 8.exe",
  "wine":{"path":"/opt/wine-staging/bin/wine","version":"wine-11.16 (Staging)"},
  "config":{"icd":"/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
@@ -290,7 +290,7 @@ Session state: `up`, `display`, `window`, `instrument`, `pids`, `window_geometry
 | Screen | `1600x1000x24 +extension GLX +extension RANDR +render -noreset -nolisten tcp` |
 | WM | openbox (`_NET_SUPPORTING_WM_CHECK` verified before Kontakt launches) |
 | Wine | `/opt/wine-staging/bin/wine` = wine-11.16 (Staging) |
-| Prefix | `/home/dracula/Armory/.oracle-spike/prefix-dxvk` (reflinked copy; never `Armory/WINE`, where REAPER runs) |
+| Prefix | `$HOME/Armory/.oracle-spike/prefix-dxvk` (reflinked copy; never `Armory/WINE`, where REAPER runs) |
 | DLLs | `WINEDLLOVERRIDES=d3d11,d3d10core,dxgi,d3d9=n` (native DXVK) |
 | Vulkan | `VK_ICD_FILENAMES=…/lvp_icd.x86_64.json` (lavapipe) |
 | Renderer line | `DXVK: v3.0.2-21-g3a4c6fa3cb1548d0`, `Found device: llvmpipe (LLVM 22.1.8, 256 bits)` |

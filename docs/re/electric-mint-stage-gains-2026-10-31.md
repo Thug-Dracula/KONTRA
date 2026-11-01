@@ -138,7 +138,7 @@ Supercharger (Haunted Strings 2: 0x10, 0x11, 0x16, 0x17, 0x18, 0x1e, 0x22, 0x44;
 
 ```
 CARGO_TARGET_DIR=/var/tmp/tgt-gains2 cargo build --release -p kontra-host --bin kontra-render
-LIB="/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/\
+LIB="$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/\
 Session Guitarist - Electric Mint Library/Instruments"
 for c in orig control sup2 chor6 diff4 both46; do
   nki="$LIB/__slotliveness/$c.nki"; [ "$c" = orig ] && nki="$LIB/Electric Mint.nki"

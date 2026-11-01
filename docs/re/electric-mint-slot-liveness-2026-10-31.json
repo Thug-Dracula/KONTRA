@@ -2,7 +2,7 @@
  "measured": "2026-10-31",
  "question": "does Kontakt run Electric Mint's instrument insert slot 6 (Choral) and slot 4 (Replika Diffusion), and at what gain",
  "kontakt": "Kontakt 8.14.1 portable under wine-staging 11.16, oracle Xvfb, PipeWire null sink kontra_ref",
- "instrument": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
+ "instrument": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
  "kontra_tip": "b3cd8bb (feat/integration)",
  "insert_rack_as_parsed": [
   null,
@@ -364,7 +364,7 @@
   "burst_limit_db": 20.0,
   "configs": {
    "orig": {
-    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
+    "nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
     "clean": 6,
     "attempts": 7,
     "rejected": [
@@ -432,7 +432,7 @@
     ]
    },
    "control": {
-    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/control.nki",
+    "nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/control.nki",
     "clean": 6,
     "attempts": 7,
     "rejected": [
@@ -500,7 +500,7 @@
     ]
    },
    "sup2": {
-    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/sup2.nki",
+    "nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/sup2.nki",
     "clean": 6,
     "attempts": 6,
     "rejected": [],
@@ -556,7 +556,7 @@
     ]
    },
    "chor6": {
-    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/chor6.nki",
+    "nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/chor6.nki",
     "clean": 6,
     "attempts": 8,
     "rejected": [
@@ -635,7 +635,7 @@
     ]
    },
    "diff4": {
-    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/diff4.nki",
+    "nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/diff4.nki",
     "clean": 6,
     "attempts": 7,
     "rejected": [
@@ -703,7 +703,7 @@
     ]
    },
    "both46": {
-    "nki": "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/both46.nki",
+    "nki": "$HOME/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/__slotliveness/both46.nki",
     "clean": 6,
     "attempts": 9,
     "rejected": [

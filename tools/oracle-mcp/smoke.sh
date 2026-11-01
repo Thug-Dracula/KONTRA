@@ -14,7 +14,10 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 WORK=${ORACLE_MCP_SMOKE_DIR:-/tmp/opencode/oracle-mcp/smoke-$(date +%Y%m%d-%H%M%S)}
-NKI="${ORACLE_MCP_NKI:-/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki}"
+# The sample-library root, under $HOME; KONTRA_TEST_LIBRARY overrides it, as the Rust
+# tests and tools/verify.sh already read it.
+LIBRARY="${KONTRA_TEST_LIBRARY:-$HOME/Armory/VSTs/Kontakt1}"
+NKI="${ORACLE_MCP_NKI:-$LIBRARY/Native Instruments Session Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki}"
 mkdir -p "$WORK" || { echo "cannot create $WORK"; exit 3; }
 STEPS="$WORK/steps.jsonl"
 MIDI="$WORK/smoke.mid"
@@ -24,7 +27,11 @@ echo "   work dir : $WORK"
 echo "   instrument: $NKI"
 echo "   display  : (chosen by the server: :77, else :94..:97 - never :0)"
 
-[ -f "$NKI" ] || { echo "FAIL: instrument not found: $NKI"; exit 3; }
+[ -f "$NKI" ] || {
+    echo "FAIL: instrument not found: $NKI"
+    echo "      set KONTRA_TEST_LIBRARY to the sample-library root (or ORACLE_MCP_NKI to the .nki)"
+    exit 3
+}
 
 # a 3-note, 2 s MIDI, written with the server's own writer (same code the tool uses)
 python3 - "$MIDI" "$HERE/server.py" <<'PY' || exit 3

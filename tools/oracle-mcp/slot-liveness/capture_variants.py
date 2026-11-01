@@ -36,8 +36,8 @@ server = parity.load_mod("oracle_mcp_server", REPO / "tools/oracle-mcp/server.py
 BURST_DB = 20.0
 ONSET_FLOOR_S = 0.05
 
-LIB = Path("/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist "
-           "Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments")
+LIB = parity.library_path("Native Instruments Session Guitarist Electric Mint 1.1.0/"
+                          "Session Guitarist - Electric Mint Library/Instruments")
 DEFAULT_NKI = LIB / "Electric Mint.nki"
 VARIANT_DIR = LIB / "__slotliveness"
 
@@ -129,7 +129,11 @@ def main() -> int:
     ledger = {"burst_limit_db": BURST_DB, "configs": {}, "midi": str(midi)}
     for name in args.configs.split(","):
         nki = files[name]
-        assert nki.exists(), nki
+        if not nki.exists():
+            raise SystemExit(
+                f"{nki} is missing: `orig` needs the Electric Mint library (set "
+                f"KONTRA_TEST_LIBRARY to the sample-library root) and the other variants are "
+                f"written by probe_variants.lua under --variant-dir {variant_dir}")
         cfg_dir = out / name
         cfg_dir.mkdir(exist_ok=True)
         log(f"== {name}: {nki.name}")

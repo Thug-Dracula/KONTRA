@@ -48,6 +48,24 @@ LIVE_PREFIX = HOME / "Armory/WINE"  # the user's live prefix (REAPER runs in it)
 PORTABLE = Path(os.environ.get("ORACLE_MCP_PORTABLE", HOME / "Armory/VSTs/Kontakt 8.14.1 Portable"))
 EXEDIR = PORTABLE / "Kontakt 8/x64"
 EXE = EXEDIR / "Kontakt 8.exe"
+
+# Where the sample library is, when nothing says otherwise. `KONTRA_TEST_LIBRARY` moves
+# it, the same variable the Rust tests and tools/verify.sh read, so a step file or a
+# JSON record written with `$HOME/Armory/VSTs/Kontakt1/...` runs on another machine.
+LIBRARY = HOME / "Armory/VSTs/Kontakt1"
+
+
+def resolve_path(value: str | Path) -> Path:
+    """A path as a step file or an agent spells it: `~`, `$HOME`, and the library root.
+
+    `KONTRA_TEST_LIBRARY` relocates anything under the default library root, so one
+    variable points every recorded path at the library where it actually is.
+    """
+    path = Path(os.path.expandvars(str(value))).expanduser()
+    set_to = os.environ.get("KONTRA_TEST_LIBRARY")
+    if set_to and path.is_relative_to(LIBRARY):
+        return Path(set_to).expanduser() / path.relative_to(LIBRARY)
+    return path
 SETTINGS = PORTABLE / "UserData/Settings.cfg"
 ICD = Path("/usr/share/vulkan/icd.d/lvp_icd.x86_64.json")
 DLL_OVERRIDES = "d3d11,d3d10core,dxgi,d3d9=n"
@@ -1052,11 +1070,12 @@ def tool_down() -> dict:
 def tool_load(nki: str) -> dict:
     SESSION.require_up("oracle_load")
     assert SESSION.wine_log
-    path = Path(nki).expanduser()
+    path = resolve_path(nki)
     if not path.is_absolute():
         raise ToolError(f"oracle_load: {nki!r} is not an absolute path")
     if not path.exists():
-        raise ToolError(f"oracle_load: {path} does not exist")
+        raise ToolError(f"oracle_load: {path} does not exist "
+                        f"(it is under $HOME or KONTRA_TEST_LIBRARY: check both)")
     if path.suffix.lower() != ".nki":
         raise ToolError(f"oracle_load: {path} is not an .nki")
     display, window = SESSION.display, SESSION.window
@@ -1348,7 +1367,7 @@ def tool_dump_script(nki: str, probe: str = "ksp", timeout: float = 240.0) -> di
     this machine. The launch below is the same wine install our session runs.
     """
     preflight()
-    path = Path(nki).expanduser()
+    path = resolve_path(nki)
     if not path.is_absolute() or not path.exists():
         raise ToolError(f"oracle_dump_script: {nki!r} is not an existing absolute path")
     if probe not in ("ksp", "dump"):

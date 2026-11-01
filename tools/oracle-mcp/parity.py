@@ -64,11 +64,50 @@ sys.path.insert(0, str(REPO / "tools" / "oracle"))
 
 import numpy as np  # noqa: E402  (compare.py needs it anyway)
 
+# The library root, under `$HOME`; `KONTRA_TEST_LIBRARY` overrides it, as the Rust
+# tests and `tools/verify.sh` already read it. Resolved at use, never baked in, so a
+# tool copied to another machine points at that machine's library.
+LIBRARY = "Armory/VSTs/Kontakt1"
+
+
+def library_root() -> Path:
+    """The sample-library root: `KONTRA_TEST_LIBRARY` when set, else `$HOME/Armory/VSTs/Kontakt1`."""
+    set_to = os.environ.get("KONTRA_TEST_LIBRARY")
+    if set_to:
+        return Path(set_to).expanduser()
+    return Path.home() / LIBRARY
+
+
+def library_path(relative: str) -> Path:
+    """A file under the library root: what a tool's default or JSON record spells."""
+    return library_root() / relative
+
+
+def expand(path: str | Path) -> Path:
+    """`$HOME`, `${HOME}` and `~` expanded -- how the tool JSON records spell a path."""
+    return Path(os.path.expandvars(str(path))).expanduser()
+
+
+def resolve(path: str | Path) -> Path:
+    """A recorded path, relocated to this machine.
+
+    `$HOME`/`~` expanded, then rebased onto `KONTRA_TEST_LIBRARY` when it sits under the
+    default library root -- so a plan or a step file written as
+    `$HOME/Armory/VSTs/Kontakt1/...` follows the one variable to wherever the library is.
+    """
+    resolved = expand(path)
+    set_to = os.environ.get("KONTRA_TEST_LIBRARY")
+    default = Path.home() / LIBRARY
+    if set_to and resolved.is_relative_to(default):
+        return Path(set_to).expanduser() / resolved.relative_to(default)
+    return resolved
+
+
 # The single-instrument note `tools/oracle/compare.py` compares on, and the one
-# `crates/app/host/src/render.rs` defaults to: velocity 100 held 1.5 s.
-DEFAULT_NKI = ("/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session Guitarist "
-               "Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/"
-               "Electric Mint.nki")
+# `crates/app/host/src/render.rs` defaults to: velocity 100 held 1.5 s. Relative to
+# the library root, so it resolves on whichever machine is running.
+DEFAULT_NKI = ("Native Instruments Session Guitarist Electric Mint 1.1.0/"
+               "Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki")
 
 # Limits. See the module docstring for the Kontakt-against-itself noise each sits above.
 LEVEL_LIMIT_DB = 0.5
@@ -306,7 +345,7 @@ def fetch_tool(client, name: str, arguments: dict) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--nki", default=DEFAULT_NKI)
+    ap.add_argument("--nki", default=str(library_path(DEFAULT_NKI)))
     ap.add_argument("--key", type=int, default=60)
     ap.add_argument("--velocity", type=int, default=100)
     ap.add_argument("--hold", type=float, default=1.5)
@@ -322,9 +361,10 @@ def main() -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    nki = Path(args.nki).expanduser().resolve()
+    nki = expand(args.nki).resolve()
     if not nki.exists():
-        print(f"nki not found: {nki}", file=sys.stderr)
+        print(f"nki not found: {nki} "
+              f"(set KONTRA_TEST_LIBRARY to the sample-library root)", file=sys.stderr)
         return 2
 
     midi = out / "parity.mid"

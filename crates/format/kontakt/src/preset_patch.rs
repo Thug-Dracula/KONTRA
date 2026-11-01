@@ -22,7 +22,7 @@
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use ni_file::nis::{ItemContainer, ItemType, SubtreeItem};
 
@@ -231,17 +231,55 @@ mod tests {
         parsed.try_into().unwrap()
     }
 
-    const ELECTRIC_MINT: &str = "/home/dracula/Armory/VSTs/Kontakt1/Native Instruments Session \
-         Guitarist Electric Mint 1.1.0/Session Guitarist - Electric Mint Library/Instruments/\
-         Electric Mint.nki";
+    /// The Kontakt library root, under `$HOME`; `KONTRA_TEST_LIBRARY` overrides it.
+    /// Resolved at use rather than baked in, so the copy these tests write can be
+    /// made on a machine where the library is installed anywhere else.
+    const LIBRARY: &str = "Armory/VSTs/Kontakt1";
+
+    /// The library root as this machine spells it.
+    fn library_root() -> PathBuf {
+        std::env::var_os("KONTRA_TEST_LIBRARY")
+            .filter(|v| !v.is_empty())
+            .map_or_else(
+                || {
+                    std::env::var_os("HOME")
+                        .map_or_else(|| PathBuf::from("/home"), PathBuf::from)
+                        .join(LIBRARY)
+                },
+                PathBuf::from,
+            )
+    }
+
+    /// The preset whose Hot Solo record is rewritten: the one preset this crate's
+    /// measurements (`docs/re/engine/k-hotsolo.md`) were taken from. `KONTRA_EMINT`
+    /// names it directly, as it does for the host tests.
+    fn electric_mint() -> PathBuf {
+        std::env::var_os("KONTRA_EMINT")
+            .filter(|v| !v.is_empty())
+            .map_or_else(
+                || {
+                    library_root().join(
+                        "Native Instruments Session Guitarist Electric Mint 1.1.0/\
+                         Session Guitarist - Electric Mint Library/Instruments/Electric Mint.nki",
+                    )
+                },
+                PathBuf::from,
+            )
+    }
 
     #[test]
     #[ignore = "writes a preset copy; needs the Electric Mint library"]
     fn patch_hot_solo() {
         let out = Path::new(&std::env::var("PATCH_OUT").unwrap()).to_path_buf();
         let bypass = std::env::var("PATCH_BYPASS").ok().map(|b| b == "1");
+        let src = electric_mint();
+        assert!(
+            src.is_file(),
+            "{} is not installed; set KONTRA_TEST_LIBRARY or KONTRA_EMINT",
+            src.display()
+        );
         patch(
-            Path::new(ELECTRIC_MINT),
+            &src,
             &out,
             values(&std::env::var("PATCH_VALUES").unwrap()),
             bypass,
@@ -251,6 +289,12 @@ mod tests {
     #[test]
     #[ignore = "writes preset copies; needs the Electric Mint library"]
     fn patch_many() {
+        let src = electric_mint();
+        assert!(
+            src.is_file(),
+            "{} is not installed; set KONTRA_TEST_LIBRARY or KONTRA_EMINT",
+            src.display()
+        );
         for line in std::fs::read_to_string(std::env::var("PATCH_LIST").unwrap())
             .unwrap()
             .lines()
@@ -260,7 +304,7 @@ mod tests {
             let out = parts.next().unwrap();
             let values = values(parts.next().unwrap());
             let bypass = parts.next().map(|b| b.trim() == "1");
-            patch(Path::new(ELECTRIC_MINT), Path::new(out), values, bypass);
+            patch(&src, Path::new(out), values, bypass);
         }
     }
 }

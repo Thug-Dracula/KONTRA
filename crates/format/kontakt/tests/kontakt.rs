@@ -11,7 +11,7 @@ fn areia_violins_load_with_their_samples_and_script() {
     if !path.exists() {
         return;
     }
-    let i = kontra_format_kontakt::load(path).unwrap();
+    let i = kontra_format_kontakt::load(&path).unwrap();
     let zones: usize = i.groups.iter().map(|g| g.zones.len()).sum();
     eprintln!(
         "{}: {} groups, {} zones, {} samples, {} scripts, stream {:?}",
@@ -41,7 +41,7 @@ fn an_analog_strings_snapshot_is_its_instrument_with_its_saved_values() {
     if !path.exists() {
         return;
     }
-    let snap = kontra_format_kontakt::load(path).unwrap();
+    let snap = kontra_format_kontakt::load(&path).unwrap();
     let base = Path::new("/data/main/Libraries/Kontakt/ANALOG STRINGS/Instruments");
     let nki = std::fs::read_dir(base).unwrap().flatten().map(|e| e.path());
     let nki = nki
@@ -61,13 +61,51 @@ fn an_analog_strings_snapshot_is_its_instrument_with_its_saved_values() {
     assert_ne!(saved(&snap), saved(&base));
 }
 
-const VERTIGO: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Cinematique \
-                       Instruments Vertigo Violin/Vertigo Violin.nki";
-const CHERRY: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Orange Tree Samples - \
-                      Cherry Electric Bass/Cherry Electric Bass.nki";
-const HAUNTED: &str = "/home/dracula/Armory/VSTs/Kontakt1/#Non NICNT/Haunted Strings 2 \
-                       v2.5.1 [Insanity Samples]/1. Haunted Strings 2 - Twisted Chamber \
-                       Strings - Main Articulations.nki";
+/// The Kontakt library root, under `$HOME`; `KONTRA_TEST_LIBRARY` overrides it, so
+/// these tests also run where the library lives somewhere else.
+const LIBRARY: &str = "Armory/VSTs/Kontakt1";
+
+fn library() -> std::path::PathBuf {
+    std::env::var_os("KONTRA_TEST_LIBRARY")
+        .filter(|v| !v.is_empty())
+        .map_or_else(
+            || {
+                std::env::var_os("HOME")
+                    .map_or_else(|| std::path::PathBuf::from("/home"), std::path::PathBuf::from)
+                    .join(LIBRARY)
+            },
+            std::path::PathBuf::from,
+        )
+}
+
+/// One `.nki` under the library root: `variable` when set, else `under` the root.
+fn instrument(variable: &str, under: &str) -> std::path::PathBuf {
+    std::env::var_os(variable)
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| library().join(under), std::path::PathBuf::from)
+}
+
+fn vertigo() -> std::path::PathBuf {
+    instrument(
+        "KONTRA_VERTIGO",
+        "#Non NICNT/Cinematique Instruments Vertigo Violin/Vertigo Violin.nki",
+    )
+}
+
+fn cherry() -> std::path::PathBuf {
+    instrument(
+        "KONTRA_CHERRY",
+        "#Non NICNT/Orange Tree Samples - Cherry Electric Bass/Cherry Electric Bass.nki",
+    )
+}
+
+fn haunted() -> std::path::PathBuf {
+    instrument(
+        "KONTRA_HAUNTED",
+        "#Non NICNT/Haunted Strings 2 v2.5.1 [Insanity Samples]/1. Haunted Strings 2 - \
+         Twisted Chamber Strings - Main Articulations.nki",
+    )
+}
 
 /// The response `i` holds that the preset names `suffix`, if it resolved one.
 fn response<'i>(i: &'i kontra_ir::Instrument, suffix: &str) -> Option<&'i kontra_ir::Sample> {
@@ -92,12 +130,15 @@ fn unplaced(i: &kontra_ir::Instrument) -> Option<String> {
 
 #[test]
 fn vertigos_tape_echo_comes_from_the_kontakt_presets_folder() {
-    let path = Path::new(VERTIGO);
+    let path = vertigo();
     if !path.exists() {
-        eprintln!("skipped: no {}", path.display());
+        eprintln!(
+            "skipped: no {} (set KONTRA_TEST_LIBRARY if the library is elsewhere)",
+            path.display()
+        );
         return;
     }
-    let i = kontra_format_kontakt::load(path).unwrap();
+    let i = kontra_format_kontakt::load(&path).unwrap();
     if let Some(missing) = unplaced(&i).filter(|d| d.contains("no Kontakt presets root")) {
         eprintln!("skipped: {missing}");
         return;
@@ -124,12 +165,15 @@ fn vertigos_tape_echo_comes_from_the_kontakt_presets_folder() {
 
 #[test]
 fn haunted_strings_send_response_comes_out_of_kontakts_ir_archive() {
-    let path = Path::new(HAUNTED);
+    let path = haunted();
     if !path.exists() {
-        eprintln!("skipped: no {}", path.display());
+        eprintln!(
+            "skipped: no {} (set KONTRA_TEST_LIBRARY if the library is elsewhere)",
+            path.display()
+        );
         return;
     }
-    let i = kontra_format_kontakt::load(path).unwrap();
+    let i = kontra_format_kontakt::load(&path).unwrap();
     if let Some(missing) = unplaced(&i).filter(|d| d.contains("no Kontakt presets root")) {
         eprintln!("skipped: {missing}");
         return;
@@ -149,11 +193,11 @@ fn haunted_strings_send_response_comes_out_of_kontakts_ir_archive() {
 /// than in `0x06` chunks; a slot's saved values ride with its source.
 #[test]
 fn a_kontakt_8_program_keeps_its_scripts_in_its_private_data() {
-    let path = Path::new(CHERRY);
+    let path = cherry();
     if !path.exists() {
         return;
     }
-    let i = kontra_format_kontakt::load(path).unwrap();
+    let i = kontra_format_kontakt::load(&path).unwrap();
     let slots: Vec<(usize, &str)> = i
         .scripts
         .iter()
