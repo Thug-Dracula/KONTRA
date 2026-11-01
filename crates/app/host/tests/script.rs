@@ -1496,6 +1496,45 @@ fn a_pgs_key_carries_a_value_between_slots() {
     assert!((level(&mut e, &[on(60)]) - 0.5).abs() < 1e-3);
 }
 
+/// "It is possible to have as many PGS keys as you want" (*PGS*, Kontakt 8 KSP
+/// Reference Manual). `01. Trumpet 1 Multi.nki` creates 409 keys and carries
+/// its dynamic-layer crossfade curve through the last of them; a table that
+/// stopped at a smaller count dropped those writes and left the curve zeroed,
+/// which silenced the instrument below the top of the mod wheel.
+#[test]
+fn a_pgs_key_past_the_sixty_fourth_carries_its_value() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.25, 0), zone(&mut store, 0.5, 1)];
+    let mut plan = Plan::new(zones, 16);
+    for g in &mut plan.groups {
+        g.mods.clear();
+    }
+    let slot = |source: &str| {
+        kontra_host::script::plan(&kontra_ksp::compile(source, &[]).unwrap(), &[], &[])
+    };
+    // 100 keys, then a value written through the last one.
+    let mut writer = String::from("on init\n");
+    for n in 0..100 {
+        writer.push_str(&format!("    pgs_create_key(K{n}, 2)\n"));
+    }
+    writer.push_str("    pgs_set_key_val(K99, 1, 1)\nend on\n");
+    plan.scripts = vec![
+        slot(&writer),
+        slot(
+            "on init
+                declare $group
+                pgs_create_key(K99, 2)
+            end on
+            on note
+                disallow_group($ALL_GROUPS)
+                allow_group(pgs_get_key_val(K99, 1))
+            end on",
+        ),
+    ];
+    let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
+    assert!((level(&mut e, &[on(60)]) - 0.5).abs() < 1e-3);
+}
+
 #[test]
 fn a_script_sets_a_send_effects_wet_and_dry_levels() {
     use kontra_engine::ir;

@@ -9,14 +9,20 @@ use crate::Engine;
 use crate::queue::Work;
 use crate::script::{Kind, Running};
 
-/// Elements a key may hold (KSP manual, PGS).
+/// Elements a key may hold: "each key can only have up to 256 elements"
+/// (Kontakt 8 KSP Reference Manual, *PGS*).
 const MOST: usize = 256;
-/// Keys of each kind, reserved up front so creating one never allocates.
-const KEYS: usize = 64;
+
+/// One integer key.
+struct IntKey {
+    key: Text,
+    /// The key's values, as many as `pgs_create_key` asked for, at most
+    /// [`MOST`].
+    values: Vec<i32>,
+}
 
 pub(crate) struct Pgs {
-    /// Key, values, and how many of them the key holds.
-    ints: Vec<(Text, [i32; MOST], usize)>,
+    ints: Vec<IntKey>,
     texts: Vec<(Text, Text)>,
     /// An `on pgs_changed` run waits in the queue.
     queued: bool,
@@ -25,8 +31,8 @@ pub(crate) struct Pgs {
 impl Pgs {
     pub(crate) fn new() -> Self {
         Self {
-            ints: Vec::with_capacity(KEYS),
-            texts: Vec::with_capacity(KEYS),
+            ints: Vec::new(),
+            texts: Vec::new(),
             queued: false,
         }
     }
@@ -34,8 +40,8 @@ impl Pgs {
     fn values(&mut self, key: Text) -> Option<&mut [i32]> {
         self.ints
             .iter_mut()
-            .find(|(k, ..)| *k == key)
-            .and_then(|(_, v, len)| v.get_mut(..*len))
+            .find(|k| k.key == key)
+            .map(|k| k.values.as_mut_slice())
     }
 
     fn text(&mut self, key: Text) -> Option<&mut Text> {
@@ -47,17 +53,23 @@ impl Pgs {
 }
 
 impl Engine {
-    /// Answers a PGS action; `None` for any other. Keys past [`KEYS`] of a
-    /// kind are not created.
+    /// Answers a PGS action; `None` for any other.
+    ///
+    /// There is no limit on how many keys an instrument may have — "it is
+    /// possible to have as many PGS keys as you want" (*PGS*, Kontakt 8 KSP
+    /// Reference Manual), and `01. Trumpet 1 Multi.nki` creates 409 of them to
+    /// carry its dynamic-layer crossfade curve between slots. A key table that
+    /// stopped at some smaller count would drop the later keys' writes without
+    /// a word, and every reader of those keys would see zeros.
     pub(crate) fn pgs_call(&mut self, call: &mut HostCall<'_>) -> Option<HostValue> {
         let key = call.texts.first().copied().unwrap_or(Text::EMPTY);
         let int = |i: usize| call.ints.get(i).map_or(0, |&v| v as i32);
         let flag = |b: bool| HostValue::Int(i32::from(b));
         Some(match call.action {
             Action::PgsCreateKey => {
-                if self.pgs.values(key).is_none() && self.pgs.ints.len() < KEYS {
+                if self.pgs.values(key).is_none() {
                     let len = usize::try_from(int(0)).unwrap_or(0).clamp(1, MOST);
-                    self.pgs.ints.push((key, [0; MOST], len));
+                    self.pgs.ints.push(IntKey { key, values: vec![0; len] });
                 }
                 HostValue::Nothing
             }
@@ -80,7 +92,7 @@ impl Engine {
                 HostValue::Int(v.unwrap_or(0))
             }
             Action::PgsCreateStrKey => {
-                if self.pgs.text(key).is_none() && self.pgs.texts.len() < KEYS {
+                if self.pgs.text(key).is_none() {
                     self.pgs.texts.push((key, Text::EMPTY));
                 }
                 HostValue::Nothing
