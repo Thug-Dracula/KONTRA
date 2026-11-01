@@ -85,7 +85,7 @@ with their absolute deltas, instead of failing the build. Measured today: EEB Ri
 23.06**, Spitfire Horns a4 **−29.72 / 15.07** (Kontakt really is at 0.0035), Vintage Organs C3 Jazz
 **−2.04 / 13.97**, Electric Mint **+1.03 / 0.93**, Melody **+1.67 / 1.28**, Cherry **−0.31 / 2.07**,
 Unity **−0.16 / 1.99**, Session Horns Keyswitch **+0.15 / 1.53**, Stadium Kit **+2.24 / 0.98**.
-Clean: Fredonia Grand Organ **+0.16 / 0.38** (was −15.97 / 24.01, KONTRA 16 dB loud — the console
+Clean: Fredonia Grand Organ **+0.16 / 0.38** (was −15.97 / 24.01 — KONTRA 16 dB **quiet**, since the corpus records Kontakt minus KONTRA: the console
 script did not compile, see below), Trumpet 1 (−0.03 /
 0.03), Trombone 1 chord (0.00 / 0.24), Harpsichord (−0.19 / 1.00), Haunted Strings 2 (−0.47 /
 0.28), Eminent Trombone (−0.12 / 0.10). Two census "silent" instruments are silent only in KONTRA:
