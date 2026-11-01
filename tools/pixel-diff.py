@@ -6,12 +6,27 @@
     tools/pixel-diff.py REF.png GOT.png --tol 8 --max-pct 0.4
     tools/pixel-diff.py REF.png GOT.png --crop 444,12,177,69
 
+`--crop` and `--scale` are alternatives, not stages: `--scale` resizes the whole
+render onto the whole reference, `--crop` compares one region of each, 1:1 in page
+pixels. Passing both asks for a comparison neither flag means -- the render
+resized and then cut, which compares the crop of a rescaled image against the
+crop of an unscaled one. That combination is refused (exit 2) rather than
+silently decided in favour of one of them, because the report would then name a
+comparison the caller never asked for.
+
 `--crop X,Y,W,H` compares one region of both images instead of all of it, which
 is how a single control is held to a reference taken from Kontakt itself while
 the rest of the page is still allowed its own rasterisation: a 177x69 panel is
 6,000 px of signal where the whole page is 316,500 px of mostly-plate.
 Region coordinates are then reported in the image's own coordinates, not the
 crop's, so a finding can be named against the control it belongs to.
+
+`--scale` and `--crop` cannot be combined. `--scale` resizes the whole render to
+the reference; `--crop` compares one region 1:1 in page pixels, which is the
+whole point of it. Accepting both would compare a region of a resized page
+against a region of the original and report a number that answers neither
+question -- a wrong comparison, quietly. The combination is refused (exit 2)
+rather than given a precedence nobody can see.
 
 A geometry harness answers "is the control where it is drawn". It cannot see a
 picture that resolved to nothing, a face that never painted, or a panel drawn in
@@ -148,14 +163,26 @@ def main():
     ap.add_argument("--max-pct", type=float, default=0.5,
                     help="percent of the page allowed to differ (default 0.5)")
     ap.add_argument("--scale", action="store_true",
-                    help="resize the render to the reference when sizes differ")
+                    help="resize the render to the reference when sizes differ "
+                         "(not with --crop: that compares a region 1:1)")
     ap.add_argument("--merge", type=int, default=3,
                     help="grow differences by this many px before grouping (default 3)")
     ap.add_argument("--max-regions", type=int, default=12)
     ap.add_argument("--crop", metavar="X,Y,W,H",
-                    help="compare only this region of both images (page coordinates)")
+                    help="compare only this region of both images (page coordinates); "
+                         "1:1, so it does not combine with --scale")
     ap.add_argument("--out", help="write diff.png and mask.png here")
     args = ap.parse_args()
+
+    # Both at once used to be silently resolved in --scale's favour: the render
+    # was resized to the whole reference, and then a region of it was compared
+    # against a region of the unresized original. A caller that asked for a
+    # region got a number about something else, and nothing said so. A wrong
+    # comparison has to be loud, so the combination is a usage error.
+    if args.scale and args.crop:
+        ap.error("--scale and --crop cannot be combined: --scale resizes the whole render to "
+                 "the reference, while --crop compares one region 1:1 in page pixels. Pick one "
+                 "-- resize both pages to the same size, or crop a region of each")
 
     ref_path, got_path = Path(args.ref), Path(args.got)
     for p in (ref_path, got_path):

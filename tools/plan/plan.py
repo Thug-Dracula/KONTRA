@@ -3,8 +3,9 @@
 
   plan.py validate [--max-warnings N|baseline]
                                  manifest is well-formed, DAG acyclic, doc links resolve;
-                                 with --max-warnings the warning count is a ratchet: it may not
-                                 grow past N (or past tools/plan/warnings-baseline.txt)
+                                 with --max-warnings the warnings are a ratchet: no warning may
+                                 appear that tools/plan/warnings-baseline.txt does not already
+                                 list, and the count may not grow past N (or past the baseline)
   plan.py index                  regenerate docs/architecture-v3/TASKS.md
   plan.py brief ID               print the self-contained agent brief (= issue body)
   plan.py ready [--offline]      tasks that can start now, as a conflict-free batch
@@ -232,13 +233,27 @@ def validate(plan: dict) -> tuple[list[str], list[str]]:
 
 # ── warning ratchet ─────────────────────────────────────────────────────────
 
-# The warning count is a ratchet: `validate` alone stays lenient (muscle memory),
+# The warning set is a ratchet: `validate` alone stays lenient (muscle memory),
 # `--max-warnings baseline` fails when a warning is added. The baseline is the
-# committed list of today's warnings, so a growth diff names the tasks that caused it.
+# committed list of today's warnings, so a growth diff names the tasks that
+# caused it.
+#
+# It is compared as a SET, not as a count. Counting was the bug: a swap -- one
+# pair of tasks no longer sharing a path while another pair starts to -- leaves
+# the total exactly where it was, so the ratchet reported nothing and the review
+# of the change that caused it never happened. Membership is what "this warning
+# was accepted" means.
 
-def read_baseline(path: Path) -> list[str]:
+def read_baseline(path: Path) -> list[str] | None:
+    """The baseline's warnings, or None when there is no baseline file at all.
+
+    None and "empty" are different answers and the caller has to tell them
+    apart: a file that exists and holds no warning (header only, truncated by a
+    merge, emptied by a bad edit) ratchets nothing at all, so it is an error,
+    while an absent file is simply "not configured here".
+    """
     if not path.exists():
-        return []
+        return None
     return [l for l in path.read_text().splitlines() if l.strip() and not l.startswith("#")]
 
 
@@ -251,7 +266,7 @@ def shown(path: Path) -> str:
 
 def write_baseline(path: Path, warnings: list[str]) -> None:
     path.write_text("\n".join([
-        "# v3 plan warnings: the ratchet baseline. CI fails when the count grows past this.",
+        "# v3 plan warnings: the ratchet baseline. CI fails when a warning is added past this.",
         "# Regenerate in a v3-plan- PR: python3 tools/plan/plan.py validate --write-baseline",
         "# Never hand-edit: the diff is the review - it shows exactly which warning was accepted.",
         "# Fixing a warning needs no regeneration (the count may fall below the baseline),",
@@ -260,15 +275,42 @@ def write_baseline(path: Path, warnings: list[str]) -> None:
     ]) + "\n")
 
 
-def budget(warnings: list[str], cap: int | None, baseline: list[str]) -> list[str]:
-    """Errors for the warnings beyond `cap`; names each one the baseline does not already have."""
+def new_warnings(warnings: list[str], baseline: list[str]) -> list[str]:
+    """Warnings `baseline` does not name, in the order `validate` produced them.
+
+    Membership, not length. A count-only ratchet let a *swap* through: one pair
+    of tasks stopped sharing a path while another pair started, the total did not
+    move, and a warning that needed reviewing appeared without a review. A warning
+    the baseline does not name is new whatever the total says.
+
+    An empty `baseline` means there is no set to compare against (no baseline file
+    at all, which is not configured rather than wrong), so nothing is named.
+    `--max-warnings baseline` refuses an empty baseline file before it gets here,
+    because that is the one case where an empty set would switch the ratchet off.
+    """
+    known = set(baseline)
+    return [w for w in warnings if known and w not in known]
+
+
+def budget(warnings: list[str], cap: int | None) -> list[str]:
+    """The count error, when there are more warnings than `cap` allows."""
     if cap is None or len(warnings) <= cap:
         return []
-    known = set(baseline)
-    return [f"new warning: {w}" for w in warnings if w not in known] + [
-        f"warning budget exceeded: {len(warnings)} warnings, budget {cap} ({len(warnings) - cap} over). "
+    return [
+        f"warning budget exceeded: {len(warnings)} warnings, budget {cap} "
+        f"({len(warnings) - cap} over). "
         "Fix the conflict, or accept it in a v3-plan- PR with `plan.py validate --write-baseline`."
     ]
+
+
+def gone_from(warnings: list[str], baseline: list[str]) -> list[str]:
+    """Baseline warnings the current tree no longer produces, in baseline order.
+
+    Reported next to the additions, not folded into them: "one gone, one new" is
+    a change to review exactly as much as a growth, and a count cannot show it.
+    """
+    current = set(warnings)
+    return [w for w in baseline if w not in current]
 
 
 # ── briefs ──────────────────────────────────────────────────────────────────
@@ -739,19 +781,47 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {len(warnings)} warnings to {shown(a.warnings_baseline)}")
             return 0
         baseline = read_baseline(a.warnings_baseline)
-        if a.max_warnings == "baseline" and not baseline:
-            print(f"error: no baseline at {shown(a.warnings_baseline)}; commit one with "
-                  "`plan.py validate --write-baseline` in a v3-plan- PR")
-            return 1
-        cap = None if a.max_warnings is None else (
-            len(baseline) if a.max_warnings == "baseline" else a.max_warnings)
+        cap = None
+        if a.max_warnings == "baseline":
+            # Two different absences, and only one of them is a pass. A file that
+            # is not there is "this checkout does not configure the ratchet"; a
+            # file that is there and holds no warning (header only, truncated by
+            # a merge, emptied by a bad edit) ratchets nothing, which is the one
+            # outcome the ratchet exists to prevent. A length cannot tell those
+            # apart, so the loader returns None for absent and a list -- possibly
+            # empty -- for present.
+            if baseline is None:
+                print(f"error: no baseline at {shown(a.warnings_baseline)}; commit one with "
+                      "`plan.py validate --write-baseline` in a v3-plan- PR")
+                return 1
+            if not baseline:
+                print(f"error: the baseline at {shown(a.warnings_baseline)} is empty (no warning "
+                      "lines, only comments or blank lines), so it ratchets nothing. Regenerate it "
+                      "with `plan.py validate --write-baseline` in a v3-plan- PR, or delete it and "
+                      "run with an explicit --max-warnings N")
+                return 1
+            cap = len(baseline)
+        elif a.max_warnings is not None:
+            cap = a.max_warnings
+        compared = baseline or []
         print(f"{len(plan['task'])} tasks, {len(errors)} errors, {len(warnings)} warnings")
-        over = budget(warnings, cap, baseline)
+        over = budget(warnings, cap)
+        # A baseline ratchet fails on any warning it does not name, whatever the
+        # count says -- that is what makes a swap visible. An explicit
+        # --max-warnings N is a count, and stays one; when it is over, the
+        # warnings the baseline does not name are still printed, because "121
+        # over 119" without names is unreviewable.
+        if cap is not None and (a.max_warnings == "baseline" or over):
+            over = [f"new warning: {w}" for w in new_warnings(warnings, compared)] + over
         for e in over:
             print("error:", e)
-        if cap is not None and len(warnings) < len(baseline):
-            print(f"note: {len(baseline) - len(warnings)} warnings fewer than the baseline; "
-                  "run `plan.py validate --write-baseline` in a v3-plan- PR to tighten the ratchet")
+        if cap is not None:
+            gone = gone_from(warnings, compared)
+            if gone:
+                print(f"note: {len(gone)} warning(s) in the baseline are gone; "
+                      "run `plan.py validate --write-baseline` in a v3-plan- PR to tighten the ratchet")
+                for w in gone:
+                    print(f"  gone: {w}")
         return 1 if errors or over else 0
     if a.cmd == "index":
         text = index(plan)

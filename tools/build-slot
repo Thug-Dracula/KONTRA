@@ -34,10 +34,18 @@
 #   tools/build-slot cargo test -p kontra-dsp-delay   # CARGO_TARGET_DIR set for this command
 #   tools/build-slot --name foo cargo build -p kontra-ui
 #   tools/build-slot --list                            # slots: size, owner, branch, last used
-#   tools/build-slot --gc                              # reclaim dead / merged+clean slots
+#   tools/build-slot --gc                              # reclaim dead / merged+clean idle slots
 #
-# Exit status: the wrapped command's own status (exec, so nothing is swallowed),
-# 75 if the free-space floor was not met (nothing was run), 2 on a usage error.
+# A slot's marker also records whether a build is running in it (`in_use`, with
+# the wrapper's pid), written before the build starts and cleared when it ends.
+# --gc will not reclaim a slot whose build is running: the merge-and-clean test
+# is a moment-in-time question, and a lane whose branch was merged while its
+# build was still linking answered it yes. Its target directory was then deleted
+# underneath the build, which failed in the link step with no mention of --gc.
+#
+# Exit status: the wrapped command's own status (propagated, so nothing is
+# swallowed), 75 if the free-space floor was not met (nothing was run), 2 on a
+# usage error.
 set -euo pipefail
 export LC_ALL=C
 
@@ -48,6 +56,11 @@ self="$here/$(basename "$0")"
 # Free space a build needs on the slot's filesystem, in GB. A release build of
 # this workspace plus one lane's incremental state does not fit in less.
 MIN_FREE_GB=40
+# How long a marker that cannot say whether a build is running is presumed live.
+# Only consulted for a marker with no `in_use` field (written by a version of
+# this script that predates it) or one whose build died without clearing the
+# flag: a marker that says `in_use=0` is a fact, and recency is not asked about.
+BUILD_WINDOW=${KONTRA_SLOT_BUILD_WINDOW:-3600}
 MODE=run
 DRY_RUN=0
 SLOT_NAME=
@@ -66,12 +79,20 @@ usage: $prog [options] -- command [args...]
   --base REF         branch this lane is measured against, for --gc
   --min-free-gb N    refuse to build below N GB free on the slot filesystem (default 40)
   --list             slots, size, owning worktree, branch, last used
-  --gc               remove slots whose worktree is gone, or merged and clean
+  --gc               remove slots whose worktree is gone, or merged and clean and
+                     not building
   --dry-run          with --gc: say what would go, remove nothing
 
 Environment:
   KONTRA_SLOT_ROOT   directory holding the slots (default /var/tmp)
   KONTRA_SLOT_BASE   default --base
+  KONTRA_SLOT_BUILD_WINDOW
+                     seconds a slot whose marker cannot say whether a build is
+                     running is presumed live (default 3600)
+  KONTRA_SLOT_FREE_BYTES
+                     report this much free space instead of asking df --
+                     a test seam, so the free-space floor can be exercised on
+                     any disk
 EOF
 }
 
@@ -122,8 +143,13 @@ marker_get() {
 # Rewritten on every invocation so --gc decides from what the lane actually
 # did, not from a guess. Written to a temporary and renamed: a lane that reads
 # a half-written marker could conclude the wrong thing about a live slot.
-write_marker() { # name worktree branch base
-    local name=$1 wt=$2 branch=$3 base=$4 file tmp
+#
+# `in_use` is the answer to "is a build running here", recorded rather than
+# inferred: 1 (with this wrapper's pid) before the command starts, 0 when it
+# ends, however it ends. --gc asks this first, because every other question it
+# asks -- merged? clean? -- stays true while a build is linking.
+write_marker() { # name worktree branch base in_use pid
+    local name=$1 wt=$2 branch=$3 base=$4 in_use=$5 pid=$6 file tmp
     file=$(marker_path "$name")
     tmp="$file.$$"
     {
@@ -131,6 +157,8 @@ write_marker() { # name worktree branch base
         printf "worktree='%s'\n" "$wt"
         printf "branch='%s'\n" "$branch"
         printf "base='%s'\n" "$base"
+        printf "in_use='%s'\n" "$in_use"
+        printf "pid='%s'\n" "$pid"
         printf "last_used='%s'\n" "$(date +%s)"
     } >"$tmp"
     mv -f -- "$tmp" "$file"
@@ -206,7 +234,30 @@ done
 case $MIN_FREE_GB in
     ''|*[!0-9]*) die "--min-free-gb must be a whole number of GB, got '$MIN_FREE_GB'" ;;
 esac
+case ${KONTRA_SLOT_FREE_BYTES:-0} in
+    ''|*[!0-9]*) die "KONTRA_SLOT_FREE_BYTES must be a whole number of bytes, got '$KONTRA_SLOT_FREE_BYTES'" ;;
+esac
+case $BUILD_WINDOW in
+    ''|*[!0-9]*) die "KONTRA_SLOT_BUILD_WINDOW must be a whole number of seconds, got '$BUILD_WINDOW'" ;;
+esac
 [ -n "$SLOT_NAME" ] && validate_name "$SLOT_NAME"
+
+# Free kilobytes on a path's filesystem, or the figure the caller pinned.
+#
+# The pin is a test seam and is documented as one: a test cannot fill a disk, so
+# the floor could only be exercised with a number no disk meets -- which proved
+# "this always refuses" and said nothing about whether the comparison is right.
+# Pinning the figure makes "just enough" and "one byte short" mean the same
+# thing on an empty disk and on a full one. Nothing but a test sets it; the
+# refusal message still names the filesystem, greppable, so a pinned figure is
+# never mistaken for a measurement of the disk.
+free_kb() { # path
+    if [ -n "${KONTRA_SLOT_FREE_BYTES:-}" ]; then
+        printf '%s' $(( KONTRA_SLOT_FREE_BYTES / 1024 ))
+        return 0
+    fi
+    df -Pk -- "$1" | awk 'NR == 2 { print $4 }'
+}
 
 # --- --list -----------------------------------------------------------------
 list_slots() {
@@ -286,8 +337,49 @@ remove_slot() { # name size_kb reason
     REMOVED=$(( REMOVED + 1 ))
 }
 
+# Is a build running in this slot? Returns 0 with the evidence on stdout when
+# one is, 1 when the slot is idle.
+#
+# "Busy" is a fact, not a guess, when the marker records it: this version writes
+# `in_use=1` and its pid before it starts the command and clears the flag after,
+# so a live pid *is* a build. Two cases still have to be inferred, and both are
+# inferred conservatively:
+#
+#   - a marker with no `in_use` field at all, written by an older build-slot
+#     running in a lane that has not restarted yet;
+#   - `in_use=1` whose pid is gone: the wrapper was killed (closed terminal,
+#     OOM) before it could clear the flag.
+#
+# In both, `last_used` within the build window is all the evidence there is, and
+# a slot that might be building is kept for the window rather than reclaimed.
+# `in_use=0` is answered from the flag alone: a finished build is not "recently
+# used", and --gc staying blind for an hour after every build would make it
+# useless exactly when the disk is full.
+build_in_progress() { # marker
+    local marker=$1 in_use pid last now
+    in_use=$(marker_get "$marker" in_use || true)
+    if [ "$in_use" = 0 ]; then
+        return 1
+    fi
+    if [ "$in_use" = 1 ]; then
+        pid=$(marker_get "$marker" pid || true)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            printf 'in use by pid %s' "$pid"
+            return 0
+        fi
+    fi
+    last=$(marker_get "$marker" last_used || true)
+    [ -n "$last" ] && [ "$last" -gt 0 ] 2>/dev/null || return 1
+    now=$(date +%s)
+    if [ $(( now - last )) -lt "$BUILD_WINDOW" ]; then
+        printf 'used %ss ago, inside the %ss build window' $(( now - last )) "$BUILD_WINDOW"
+        return 0
+    fi
+    return 1
+}
+
 gc_slot() { # name
-    local name=$1 dir marker kb wt branch base ahead dirty
+    local name=$1 dir marker kb wt branch base ahead dirty busy
     dir=$(slot_dir "$name"); marker=$(marker_path "$name")
     kb=$(du_kb "$dir")
 
@@ -295,6 +387,13 @@ gc_slot() { # name
         # No marker means no recorded owner: we cannot prove the directory is
         # dead, so it stays. Running a build here claims it.
         skip "$name" "no marker, owner unknown (build here once to claim it)"
+        return
+    fi
+
+    # Before anything else: a slot that is building is not reclaimable, however
+    # merged and clean the branch it is building looks.
+    if busy=$(build_in_progress "$marker"); then
+        skip "$name" "$busy"
         return
     fi
 
@@ -442,7 +541,7 @@ fi
 # would be indistinguishable from litter.
 probe=$dir
 [ -d "$probe" ] || probe=$ROOT
-avail_kb=$(df -Pk -- "$probe" | awk 'NR == 2 { print $4 }')
+avail_kb=$(free_kb "$probe")
 [ -n "$avail_kb" ] || die "cannot read free space for $probe"
 min_kb=$(( MIN_FREE_GB * 1024 * 1024 ))
 if [ "$avail_kb" -lt "$min_kb" ]; then
@@ -480,19 +579,38 @@ base=$(resolve_base "$wt" || true)
 recorded=$(marker_get "$(marker_path "$SLOT_NAME")" base || true)
 if [ -z "$SLOT_BASE" ] && [ -n "$recorded" ]; then base=$recorded; fi
 
-write_marker "$SLOT_NAME" "$wt" "$branch" "$base" || die "cannot write marker in $ROOT"
+mark() { write_marker "$SLOT_NAME" "$wt" "$branch" "$base" "$1" "$$"; }
+
+# The flag is cleared on the way out of every path, because a wrapper that
+# leaves `in_use=1` behind makes its slot unreclaimable until the pid is reused:
+# normal exit, the command's own failure, and a signal. `|| true`: the build's
+# verdict must never be replaced by a failure to write the marker.
+mark_idle() { mark 0 2>/dev/null || true; }
+trap mark_idle EXIT
+trap 'mark_idle; exit 129' HUP
+trap 'mark_idle; exit 130' INT
+trap 'mark_idle; exit 143' TERM
+
+# Before the build, not after: --gc reads this to decide whether a merged and
+# clean slot is safe to delete, and asking after the directory is already in use
+# is asking too late.
+mark 1 || die "cannot write marker in $ROOT"
 
 # On stderr: stdout belongs to the wrapped command, which may be emitting
 # --message-format=json or a test harness's own output.
-printf '%s: %s -> %s (free %s, floor %s GB, branch %s, base %s)\n' \
+printf '%s: %s -> %s (free %s, floor %s GB, branch %s, base %s, pid %s)\n' \
     "$prog" "$SLOT_NAME" "$dir" "$(human $(( avail_kb * 1024 )))" "$MIN_FREE_GB" \
-    "$branch" "${base:-none}" >&2
+    "$branch" "${base:-none}" "$$" >&2
 
 if [ -n "${CARGO_TARGET_DIR:-}" ] && [ "$CARGO_TARGET_DIR" != "$dir" ]; then
     printf '%s: replacing caller CARGO_TARGET_DIR=%s\n' "$prog" "$CARGO_TARGET_DIR" >&2
 fi
 
 export CARGO_TARGET_DIR="$dir"
-# exec: the wrapped command's status is this script's status, with no wrapper
-# process left to interpret a signal or a 134 as something else.
-exec "$@"
+# Run as a child rather than `exec`, so the marker can be cleared afterwards;
+# the status is propagated verbatim, signals reach the child through the process
+# group as they did with exec, and a 134 comes back as 134. The EXIT trap above
+# clears the flag even when the child dies from a signal.
+status=0
+"$@" || status=$?
+exit "$status"

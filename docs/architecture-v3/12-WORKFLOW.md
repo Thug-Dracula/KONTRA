@@ -151,11 +151,15 @@ Design choices that keep the lock set small:
 in parallel by the DAG but share an exclusive path ("serialized: …"). Those
 pairs simply run one after the other; that list is the honest parallel width.
 
-The count is a ratchet. `tools/plan/warnings-baseline.txt` lists today's
+The warning *set* is a ratchet. `tools/plan/warnings-baseline.txt` lists today's
 warnings, one per line, and CI runs `plan.py validate --max-warnings baseline`,
-which fails when the count grows — naming each warning the baseline does not
-already have, so the added task pair is visible in the log. To accept a new
-warning (or to tighten the ratchet after fixing one) run
+which compares membership, not the count: any warning the baseline does not
+already have fails the run, and each one is named, so the added task pair is
+visible in the log. A swap — one warning accepted while another appears in its
+place — leaves the count flat and is still a failure; the warnings that
+disappeared are printed as `gone:` next to the new ones. An empty baseline is an
+error rather than "not configured": a file with no warnings in it ratchets
+nothing. To accept a new warning (or to tighten the ratchet after fixing one) run
 `plan.py validate --write-baseline` in a `v3-plan-` PR: the diff of that file is
 the review. Plain `validate` stays lenient, as before.
 

@@ -94,12 +94,28 @@ fn usage() {
     );
 }
 
+/// One page's share of the run: what was proved where.
+///
+/// A single total over every page cannot answer "did *this* page check
+/// anything", and a page that drew nothing is exactly what a second page hides:
+/// 39 controls on one instrument and none on another summed to 39, and the run
+/// read as a pass for both.
+struct Page {
+    label: String,
+    checked: usize,
+}
+
 /// What the run found, across every instrument and page.
 #[derive(Default)]
 struct Run {
     pages: usize,
     checked: usize,
     skipped: usize,
+    /// One entry per page driven, in the order they were driven.
+    driven: Vec<Page>,
+    /// Instruments that produced no page at all: an instrument that draws
+    /// nothing satisfies every per-control check the same way an empty page does.
+    unpaged: Vec<String>,
     /// Controls whose click produced an `Edit` (a value, a cell, a menu).
     edited: usize,
     /// Controls the page paints underneath another one: unreachable in
@@ -141,6 +157,7 @@ impl Run {
         let mut store = Store::new(StoreConfig::DEFAULT)?;
         let loaded = kontra_host::instrument::load(path, 48_000, &mut store)?;
         let mut engine = Engine::new(Arc::new(loaded.plan), store.client(), 48_000);
+        let first = self.driven.len();
         // A KSP script's page: what `on init` built, then what the engine
         // says each control looks like now (ui-shots settles it the same way).
         for (slot, page) in loaded.pages.iter().enumerate() {
@@ -175,6 +192,12 @@ impl Run {
             let label = format!("{} — face {slot}", loaded.name);
             self.page(&label, live.tree, slot, scale, path, out)?;
         }
+        if self.driven.len() == first {
+            // Nothing was drawn: every control check below it was skipped, and a
+            // run that checks nothing proves nothing. Recorded per instrument,
+            // because another instrument's pages must not stand in for this one.
+            self.unpaged.push(loaded.name.clone());
+        }
         Ok(())
     }
 
@@ -188,6 +211,7 @@ impl Run {
         out: Option<&Path>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.pages += 1;
+        let mut checked_here = 0usize;
         let mut drive = Drive::new(tree, face, scale, path)?;
         drive.settle()?;
         let (w, h) = drive.size;
@@ -243,6 +267,7 @@ impl Run {
                 continue;
             }
             self.checked += 1;
+            checked_here += 1;
             let probe = drive.press(point)?;
             let selected = drive.describe(&probe.selected);
             let edit = probe
@@ -406,6 +431,10 @@ impl Run {
         }
         self.editing(&mut drive, label, out)?;
         self.overlapping(&mut drive, label)?;
+        self.driven.push(Page {
+            label: label.to_owned(),
+            checked: checked_here,
+        });
         Ok(())
     }
 
@@ -619,15 +648,33 @@ impl Run {
     }
 
     /// What this run proved, from its counts alone.
+    ///
+    /// Per page, not per run. One total over every page is the wrong question:
+    /// an instrument whose page drew nothing checked nothing, and a second page
+    /// that did check controls made the total look healthy. Both are failures of
+    /// the same kind, so both land here.
     #[must_use]
     fn outcome(&self) -> Outcome {
         if !self.failed.is_empty() {
             Outcome::Failed
-        } else if self.checked == 0 {
+        } else if self.checked == 0
+            || !self.unpaged.is_empty()
+            || self.driven.iter().any(|p| p.checked == 0)
+        {
             Outcome::CheckedNothing
         } else {
             Outcome::Passed
         }
+    }
+
+    /// Every page or instrument that checked nothing, named for the log.
+    fn unchecked(&self) -> Vec<String> {
+        self.driven
+            .iter()
+            .filter(|p| p.checked == 0)
+            .map(|p| format!("{} (0 controls)", p.label))
+            .chain(self.unpaged.iter().map(|i| format!("{i} (no page)")))
+            .collect()
     }
 
     /// Prints the run's table of results and returns what it proved.
@@ -636,11 +683,26 @@ impl Run {
         let outcome = self.outcome();
         println!();
         match outcome {
-            Outcome::CheckedNothing => println!(
-                "FAIL: no control was checked on {} page(s), {} skipped — a page that drew \
-                 no control cannot be shown to hit-test, so this run proves nothing",
-                self.pages, self.skipped
-            ),
+            Outcome::CheckedNothing => {
+                let empty = self.unchecked();
+                if empty.is_empty() {
+                    println!(
+                        "FAIL: no control was checked on {} page(s), {} skipped — a page that drew \
+                         no control cannot be shown to hit-test, so this run proves nothing",
+                        self.pages, self.skipped
+                    );
+                } else {
+                    println!(
+                        "FAIL: {} of {} page(s) checked no control, {} skipped — a page that drew \
+                         nothing satisfies every per-control check it never ran, so what the other \
+                         pages checked cannot stand in for it: {}",
+                        empty.len(),
+                        self.pages,
+                        self.skipped,
+                        empty.join(", ")
+                    );
+                }
+            }
             Outcome::Passed => println!(
                 "PASS: {} controls checked on {} page(s), {} skipped; every control's centre \
                  selected itself and a press 2 points outside selected nothing. {} answered a \
@@ -1092,8 +1154,15 @@ fn clip(s: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drive, Outcome, Run};
+    use super::{Drive, Outcome, Page, Run};
     use mui::prelude::Point;
+
+    fn page(label: &str, checked: usize) -> Page {
+        Page {
+            label: label.to_owned(),
+            checked,
+        }
+    }
 
     #[test]
     fn a_run_that_checked_nothing_is_not_a_pass() {
@@ -1105,9 +1174,40 @@ mod tests {
         let all_skipped = Run {
             pages: 2,
             skipped: 17,
+            driven: vec![page("script 0", 0), page("face 0", 0)],
             ..Run::default()
         };
         assert_eq!(all_skipped.outcome(), Outcome::CheckedNothing);
+    }
+
+    #[test]
+    fn one_page_that_checked_nothing_fails_the_run() {
+        // The bug this covers: the summary kept one `checked` total for every
+        // page and instrument, so 39 controls on one page and none on the next
+        // summed to 39 and the run read as a pass for both. A page that drew
+        // nothing checked nothing, and that is the answer for that page.
+        let half = Run {
+            pages: 2,
+            checked: 39,
+            driven: vec![
+                page("Electric Mint — script 0", 39),
+                page("Melody — face 0", 0),
+            ],
+            ..Run::default()
+        };
+        assert_eq!(half.outcome(), Outcome::CheckedNothing);
+    }
+
+    #[test]
+    fn an_instrument_with_no_page_at_all_fails_the_run() {
+        let silent = Run {
+            pages: 1,
+            checked: 39,
+            driven: vec![page("Electric Mint — script 0", 39)],
+            unpaged: vec!["Some Other Library".to_owned()],
+            ..Run::default()
+        };
+        assert_eq!(silent.outcome(), Outcome::CheckedNothing);
     }
 
     #[test]
@@ -1116,6 +1216,7 @@ mod tests {
             pages: 1,
             checked: 39,
             skipped: 3,
+            driven: vec![page("Electric Mint — script 0", 39)],
             ..Run::default()
         };
         assert_eq!(run.outcome(), Outcome::Passed);
@@ -1126,6 +1227,7 @@ mod tests {
         let mut run = Run {
             pages: 1,
             checked: 39,
+            driven: vec![page("Electric Mint — script 0", 39)],
             ..Run::default()
         };
         run.failed.push(super::Fail {

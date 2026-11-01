@@ -163,6 +163,28 @@ pixel_row() {
     fi
 }
 
+# What the panel row does, from the three facts that decide it: whether the
+# reference capture is there, whether the caller opted out of the pixel rows, and
+# whether the golden exists.
+#
+# The opt-out is asked FIRST, and that order is the fix. ALLOW_NO_PIXEL_REF=1 is
+# the documented way to run this gate on a machine without the capture, and the
+# row tested the missing file before it read the flag -- so the escape hatch did
+# not exist in the one case it was written for, and a missing reference failed a
+# gate the caller had already said to run without one. Absent *without* the
+# opt-out is still a failure: deleting the reference must not pass quietly.
+#
+# Lifted out of the row so tools/test_verify.sh can hold the order still; a
+# condition inside an `echo` cannot be tested without a render.
+panel_row_kind() { # reference_exists allow_no_reference golden_exists
+    if [ "${2:-0}" = "1" ]; then
+        if [ "${1:-0}" != "1" ]; then printf 'off-no-ref'
+        elif [ "${3:-0}" != "1" ]; then printf 'off-no-golden'
+        else printf 'compare'; fi
+    elif [ "${1:-0}" != "1" ]; then printf 'missing'
+    else printf 'compare'; fi
+}
+
 run_tests() {
     local crate=$1
     local out
@@ -238,6 +260,29 @@ if bash "$REPO/tools/test_verify.sh" >"$LOGS/verify-parsers.log" 2>&1; then
     ok "gate parsers" "$(tail -1 "$LOGS/verify-parsers.log")"
 else
     bad "gate parsers" "see $LOGS/verify-parsers.log"
+fi
+# The instruments' own tests, for the same reason: every number below is produced
+# by one of them, so a tool that answers the wrong question makes correct code
+# look wrong and wrong code look fine. A test file nothing runs cannot tell anyone
+# anything, which is how three checks in this repository were written and then
+# never failed. Both of these need nothing from this machine -- no library, no
+# Kontakt, no display -- and both are fast.
+if bash "$REPO/tools/test_build_slot.sh" >"$LOGS/verify-build-slot.log" 2>&1; then
+    ok "build-slot self-tests" "$(tail -1 "$LOGS/verify-build-slot.log")"
+else
+    bad "build-slot self-tests" "see $LOGS/verify-build-slot.log"
+fi
+# pixel-diff needs numpy and Pillow. Without them nothing compares pixels at all,
+# so the pixel rows below fail too; this row says which is missing rather than
+# reporting a test that could not run as one that passed.
+if python3 -c 'import numpy, PIL' 2>/dev/null; then
+    if python3 "$REPO/tools/test_pixel_diff.py" >"$LOGS/verify-pixel-diff-tests.log" 2>&1; then
+        ok "pixel-diff self-tests" "$(tail -1 "$LOGS/verify-pixel-diff-tests.log")"
+    else
+        bad "pixel-diff self-tests" "see $LOGS/verify-pixel-diff-tests.log"
+    fi
+else
+    row "pixel-diff self-tests" "not run: no numpy/Pillow (the pixel rows cannot run either)"
 fi
 
 echo "== layer 0/1: tests =="
@@ -468,17 +513,26 @@ else
 fi
 
 echo "== layer 3: the panel still looks like Kontakt's own render =="
-if [ ! -f "$PANEL_REF" ]; then
-    bad "pixel diff vs Kontakt panel" "no reference; run tools/kontakt-reference/panel-reference.py"
-elif [ "${ALLOW_NO_PIXEL_REF:-0}" = "1" ] && [ -z "$REF" ]; then
-    row "pixel diff vs Kontakt panel" "OFF (ALLOW_NO_PIXEL_REF=1)"
-elif [ -n "$SHOTERR" ]; then
-    bad "pixel diff vs Kontakt panel" "$SHOTERR"
-elif [ -z "$SHOT" ]; then
-    bad "pixel diff vs Kontakt panel" "ui-shots produced no png"
-else
-    pixel_row "pixel diff vs Kontakt panel" "$PANEL_REF" "$SHOT" \
-        --crop "$PANEL_CROP" --merge 1 --max-pct "$MAX_PANEL_PCT" --out "$LOGS/verify-panel"
-fi
+panel_exists=0; [ -f "$PANEL_REF" ] && panel_exists=1
+golden_exists=0; { [ -n "$REF" ] && [ -f "$REF" ]; } && golden_exists=1
+# The row's message is unchanged for every case it already had; only the order of
+# the two questions changed, so the opt-out is read before the missing reference.
+case $(panel_row_kind "$panel_exists" "${ALLOW_NO_PIXEL_REF:-0}" "$golden_exists") in
+    off-no-ref)
+        row "pixel diff vs Kontakt panel" "OFF (ALLOW_NO_PIXEL_REF=1), no reference at ${PANEL_REF#"$REPO"/}" ;;
+    missing)
+        bad "pixel diff vs Kontakt panel" "no reference; run tools/kontakt-reference/panel-reference.py" ;;
+    off-no-golden)
+        row "pixel diff vs Kontakt panel" "OFF (ALLOW_NO_PIXEL_REF=1)" ;;
+    *)
+        if [ -n "$SHOTERR" ]; then
+            bad "pixel diff vs Kontakt panel" "$SHOTERR"
+        elif [ -z "$SHOT" ]; then
+            bad "pixel diff vs Kontakt panel" "ui-shots produced no png"
+        else
+            pixel_row "pixel diff vs Kontakt panel" "$PANEL_REF" "$SHOT" \
+                --crop "$PANEL_CROP" --merge 1 --max-pct "$MAX_PANEL_PCT" --out "$LOGS/verify-panel"
+        fi ;;
+esac
 
 finish
