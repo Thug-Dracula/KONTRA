@@ -69,7 +69,10 @@ impl Engine {
             Action::PgsCreateKey => {
                 if self.pgs.values(key).is_none() {
                     let len = usize::try_from(int(0)).unwrap_or(0).clamp(1, MOST);
-                    self.pgs.ints.push(IntKey { key, values: vec![0; len] });
+                    self.pgs.ints.push(IntKey {
+                        key,
+                        values: vec![0; len],
+                    });
                 }
                 HostValue::Nothing
             }

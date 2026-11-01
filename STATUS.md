@@ -27,6 +27,8 @@ given so it can be re-run rather than believed.
 | The load report lists per-voice filter groups | it used to print the cutoffs of *sounding* voices before any note existed, so it always read `voice filters: N groups []` — a diagnostic that lied. It now reads the built racks: Cherry reports 1 group, Harpsichord 576 |
 | The parity regressions fail on the bug they pin | Cherry's four handlers exist only in Kontakt 8's private data: with the reader off its render peaks at 0.009 (about −40.9 dBFS) and reports `scripts: 0 slots`; with it on, 0.398 (about −8.0 dBFS) and `scripts: 4 slots ["Interface 1.09", …]`. The test asserts the slot list and a 0.10..=1.00 peak window, not `peak > 0`. Both tests are `#[ignore]`d so a clean checkout reports them ignored rather than passing untested, and the gate runs them with `--ignored` when the library is installed (2 passed) |
 | `%NOTE_DURATION` is implemented | the documented KSP system array; its absence failed an entire script compile, and on Harpsichord that silence was total (its `on init` sets the swell controller) |
+| **PGS keys are not capped** | the KSP manual has no key limit ("as many PGS keys as you want, however each key can only have up to 256 elements", *PGS*); the engine used to reserve 64 and silently refuse the rest. `01. Trumpet 1 Multi.nki` creates 409 and carries its dynamic-layer crossfade curve through `pgs_xfade_arr_1/2`, which were the ones dropped. Unit test `a_pgs_key_past_the_sixty_fourth_carries_its_value` fails on the old table and passes now |
+| **Glory Days – Big Band Horns loads and sounds** | 643 of 643 `.nki` load (0 refused, `init unanswered: []` on all, median 0.19 s, worst 2.36 s, 175 s for the whole library). Level against Kontakt on the same MIDI, key 60 vel 100: Trumpet 1 Multi peaks **−19.70 dBFS at CC1 127** where Kontakt reads −19.70, and **−68.42 / −46.36 / −30.98** at CC1 32/64/96 where Kontakt reads −68.45 / −46.39 / −31.00 (it was silent at all three). Alto Sax 1 Multi on the same MIDI: **peak ±0.00 dB, RMS +0.16 dB** |
 | The page fits the renderer's image atlas at the live device scale | test asserts the page's pictures fit at 1 **and** 2 device pixels (the 2× case is what shipped blank once) |
 | Real Kontakt can be driven headless | `tools/oracle-mcp` — Kontakt 8.14.1 on Xvfb with DXVK + lavapipe paints its instrument page and takes pointer input (`paints=yes click_px=44485`) |
 | The Hot Solo+ amp really closes the gap | an independent re-measurement on fresh sessions: level +0.02 → **−0.06 dB**, band RMS 0.94 → **0.90 dB**, worst band +2.2 → **+2.12 dB @ 1613 Hz**, per-band max difference 1.07 dB / RMS 0.32 dB — which is exactly the cross-session capture noise (0.31 dB) |
@@ -47,9 +49,9 @@ given so it can be re-run rather than believed.
 ## Parity across the library
 
 `docs/re/parity-sweep-2026-10-30.md`. Fifteen instruments attempted, ten measured,
-five recorded as failures with reasons rather than skipped. Only one library is
-registered in the oracle's Kontakt (Electric Mint), so most Session Guitarist
-libraries and the factory library could not be reached.
+five recorded as failures with reasons rather than skipped. The oracle's Kontakt
+now carries the user's library registrations, so any installed library can be
+compared on demand.
 
 | instrument | level | band RMS | what it is |
 |---|---|---|---|
@@ -61,6 +63,10 @@ libraries and the factory library could not be reached.
 | Showroom Violin | −8.96 dB | 7.20 dB | unexplained; low-mid deficit at 508 Hz |
 | Haunted Strings 2 | **−0.53 dB** | **0.14 dB** | was −9.11 / 2.07: a send slot's stored *dry* was summed on top of the dry path (+5.9 dB) and Solid EQ slots' stored output gains were forced to unity (−2.8 dB — the instrument's layer mixer). Worst band 0.54 dB @ 40 Hz, wave r 0.99 |
 | Cherry Electric Bass | **+44.03 dB** | 57.94 dB | **not** a filter: the 93.65 Hz cutoff is a correct parse (group 12, `BParFXFilter` v0x80, `kind=2, cutoff=0.008786` × the group's VEL_CUTOFF route). The handlers do not load — Kontakt 8 keeps them in private data |
+| Glory Days – Alto Sax 1 Multi | **peak ±0.00 dB** | RMS +0.16 dB | one note, key 60 vel 100, CC1 127, same MIDI both sides, same 2.7 s window |
+| Glory Days – Trumpet 1 Multi | peak **±0.00 dB** at CC1 127 | | the mod wheel is the instrument's dynamics control; the whole curve now tracks Kontakt (see the rows above) |
+| Glory Days – Trumpet 1 Bucket Legato | peak **−29.77 vs −29.774** | | a "quiet" articulation that is genuinely quiet, not a level bug |
+| Glory Days – Trombone 2 Bucket Staccatissimo | peak **−31.36 vs −31.362** | | same |
 
 Ruled out while chasing those rows, so nobody re-chases them: the 93.6 Hz cutoff is **not** a default (a real v0x80 record, round-tripped by the native decoder), and the 432 "purged" groups are **saved purge state, not a parse gap**.
 
@@ -83,6 +89,8 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | **`$EVENT_PAR_ALLOW_GROUP` does not gate the entering note** | Harpsichord is audible but ~26 dB too loud: 144 resident groups (157 voices) still start. Known deferred-note gap, `docs/architecture-v2/KSP_AUDIT.md:85` | fix the allow-group write path so a note's own allow-set applies to itself |
 | **The last 0.53 dB on Haunted Strings 2** | two stored gains were being dropped (−8.6 dB of the −9.1); it now reads −0.53 dB / 0.14 dB band RMS, 0.03 dB outside the 0.5 dB limit. The residual is flat (0.52–0.56 dB across the sustain), so it is a gain, not a filter | a Kontakt-side probe of one group's insert chain. Not to be closed by trimming 0.5 dB |
 | **8Dio Fire Sax is refused** | the reader rejects `Unexpected internal modulator category 3` | read that modulator category |
+| **`kontra-inspect play` calls a big instrument's render incomplete when its *trace* is full** | the tool traces into a 262,144-event ring; `01. Trumpet 1 Multi` emits about 448,000, so `trace_events_dropped` is 186,022 and `render_complete` (which includes `dropped == 0`) reads false, making the command exit 2. The audio side of the same render is clean: 0 missing sample frames, 0 read errors, 0 refused requests, 0 wait timeouts. Electric Mint emits few enough to fit | a decision, not a measurement: `render_complete` currently means "audio **and** trace"; the audio conditions alone are `missing_frames`, `read_errors`, `requests_refused` and the wait timeouts. Splitting the flag (a separate `trace_complete`) would keep both honest; raising the ring would make the play JSON, already 240 MB for this instrument, several times larger |
+| **Every Glory Days instrument faults 5× out of range in slot 0, and 5× in slot 1** | `first_out_of_range` is `(101, true, 32)` — a `TLoadAt` on a text array with index 32, one past what looks like a 32-element array — and `(170699, false, 4096)` in slot 1. It is identical on all 643 instruments and it does not stop the library sounding; Electric Mint faults zero times. The reads answer 0/empty, which is what Kontakt's own out-of-range array read returns, so this may be the instrument asking for a missing entry rather than our sizing | disassemble the two offsets in the compiled program and name the array the script wanted; then either fix the array's size or record why Kontakt tolerates it. Not to be silenced by suppressing the fault counter |
 | **Bus slot 7 phantom filter** | the instrument stores it `bypass: false`, but Kontakt behaves as if it is not running; removing it closes 11.8 dB at 12.9 kHz | wrong to decide by assumption. The decisive test needs the bypass toggled at runtime via KSP in an audio-capable session — editing the `.nki` is refused because Kontakt validates an MD5 in `BNISoundHeader` |
 | **An XY pad's selected cursor is not drawn** | `input::read` now reads pads and the engine answers `$NI_MOUSE_EVENT_TYPE`, so a click on Electric Mint (Melody)'s articulation or pattern row runs `change_slot` and moves the selection (keyswitch and `$CONTROL_PAR_ACTIVE_INDEX`; `tools/ui-drive`'s `a_click_on_a_melody_row_selects_that_row`). The page itself shows no highlight: KONTRA has no pass that draws an `ui_xy`'s cursors, so the per-cursor picture (`$CONTROL_PAR_CURSOR_PICTURE`) and the active one are not on screen | draw each cursor at its own cells' coordinates, framed by which one `$CONTROL_PAR_ACTIVE_INDEX` marks |
 | **A control edit can cost one silent block** | the price of having no lock on the audio path: if the host resumes while the control tick holds the audio side, that block renders silence | accepted trade-off; counted and logged as `block_missed` |
@@ -100,9 +108,10 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
   with. Everything else on the page — pictures, keyboard, the rest of the
   layout — is still checked for change only. `tools/oracle-mcp` can screenshot
   the whole page, and that remains the on-demand check.
-- **Parity is measured on one note, on ten instruments, from one library.** There
-  is no articulation matrix and no regression history, and five instruments could
-  not be measured at all (see the sweep).
+- **Parity is measured on one note, on fourteen instruments, from two libraries.**
+  There is no articulation matrix and no regression history; the Glory Days rows
+  are one note at key 60, vel 100, CC1 127 on one MIDI, so keyswitch articulations,
+  the section multis played as chords, and every other controller are unmeasured.
 - **`wave_r` is not a parity statistic** for a single note: Kontakt correlates
   0.604 against itself within a session.
 - **Click coordinates in the oracle are fixed**, not resolution-independent.
