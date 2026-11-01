@@ -38,23 +38,16 @@ if [ -f "$VST3" ] && ! cmp -s "$CLAP" "$VST3"; then
 fi
 
 if [ "${1:-}" = "--reaper" ]; then
-    export XAUTHORITY=${XAUTHORITY:-/run/user/1000/xauth_FXUsrQ} DISPLAY=${DISPLAY:-:0}
-    for p in $(pgrep -x reaper); do kill "$p" 2>/dev/null || true; done
-    sleep 3
-    # Without this the redirect fails, REAPER never starts, and the wait below
-    # reports "did not open a window" -- hiding the real cause.
-    mkdir -p "$HOME/.cache/kontra/launch"
-    setsid nohup "$HOME/ProgramFiles/REAPER/reaper" -new >"$HOME/.cache/kontra/launch/reaper.log" 2>&1 </dev/null &
-    sleep 16
-    ID=$(wmctrl -lG 2>/dev/null | grep -i "REAPER v" | head -1 | awk '{print $1}')
-    if [ -n "$ID" ]; then
-        # KWin doubles a requested position; the KRDP monitor starts at physical x 10881.
-        wmctrl -i -r "$ID" -b remove,maximized_vert,maximized_horz 2>/dev/null || true
-        wmctrl -i -r "$ID" -e 0,5440,0,2880,1536
-        sleep 2
-        wmctrl -lG | grep -i "$ID" | awk '{printf "  REAPER at x=%s y=%s %sx%s\n",$3,$4,$5,$6}'
-        wmctrl -i -a "$ID" 2>/dev/null || true
-    else
-        echo "  REAPER did not open a window" >&2
-    fi
+    # This used to kill REAPER, relaunch it and move its window on the user's
+    # desktop (`pgrep -x reaper` + `wmctrl -e`). That is the user's session, not
+    # ours to drive: an operator who asked for a plugin install has not asked
+    # for their window manager to be handled. Say what to do instead.
+    cat <<'EOF'
+REAPER loads a CLAP at scan time, so it has to be restarted to pick this up.
+Do it yourself, when it suits you:
+
+  * quit REAPER and start it again (reaper -new if an instance may be lingering)
+  * the plugin appears as "KONTRA" in both VST3 and CLAP
+  * if it does not, check the log it writes under ~/.cache/kontra/
+EOF
 fi
