@@ -316,7 +316,11 @@ struct Compiler<'a> {
     texts: Vec<Text>,
     text_ids: HashMap<&'a str, u32>,
     vars: Vec<Var>,
-    /// Lowercase name → variable (KSP names are case-insensitive).
+    /// Lowercase name → variable. Kontakt's names are case-sensitive (KSP
+    /// reference, "Variables and Constants"); matching them case-insensitively
+    /// is more permissive and never changes a script that runs in Kontakt, but
+    /// a system variable spelled exactly as the manual spells it still wins
+    /// over a declaration that differs only in case — see [`Self::load`].
     names: HashMap<String, usize>,
     /// Declaration span start → variable.
     declared: HashMap<u32, usize>,
@@ -595,16 +599,21 @@ impl<'a> Compiler<'a> {
         let ExprKind::Var(name, index) = &target.kind else {
             return Err(Error::new(target.span, "expected a variable"));
         };
-        let Ok(v) = self.lookup(name, target.span) else {
+        // A system variable spelled exactly (case-sensitive, as in Kontakt)
+        // is read-only, whatever a script declares in another case.
+        if let (Some(Builtin::Cc), Some(i)) = (Builtin::from_name(name), index) {
             // Kontakt takes `%CC[n] := v` as set_controller (Vista ships it).
-            if let (Some(Builtin::Cc), Some(i)) = (Builtin::from_name(name), index) {
-                let got = self.expr(i)?;
-                self.convert(got, Ty::Int, i.span)?;
-                let got = self.expr(value)?;
-                self.convert(got, Ty::Int, value.span)?;
-                self.host(Action::SetController, 2, 0, Returns::Nothing);
-                return Ok(());
-            }
+            let got = self.expr(i)?;
+            self.convert(got, Ty::Int, i.span)?;
+            let got = self.expr(value)?;
+            self.convert(got, Ty::Int, value.span)?;
+            self.host(Action::SetController, 2, 0, Returns::Nothing);
+            return Ok(());
+        }
+        if Builtin::from_name(name).is_some_and(|b| b.name().starts_with(['$', '%'])) {
+            return Err(Error::new(target.span, format!("{name} is read-only")));
+        }
+        let Ok(v) = self.lookup(name, target.span) else {
             if Builtin::from_name(name).is_some() || self.named_constant(name).is_some() {
                 return Err(Error::new(target.span, format!("{name} is read-only")));
             }
