@@ -15,6 +15,7 @@ tools/oracle-mcp/
   server.py      the MCP server (python3, no build step)
   client.py      a small stdio MCP client; runs a JSONL script of tool calls
   ksp_text.lua   the Lua probe oracle_dump_script uses to return KSP text
+  register-libraries.py  copies the user's library registrations into the oracle's Kontakt
   smoke.sh       up -> load -> shot -> click -> render -> down, with checks
   parity.py      one parity datum with a pass/fail verdict: Kontakt against KONTRA
   noise.py       Kontakt against itself: the noise floor parity's limits sit above
@@ -60,6 +61,69 @@ Register it like any other stdio server, e.g. in `opencode.jsonc`:
     "command": ["python3", "/path/to/repo/tools/oracle-mcp/server.py"],
     "enabled": true } } }
 ```
+
+## Libraries the oracle can load
+
+A fresh portable Kontakt knows no libraries, so it refuses every instrument that belongs to
+one ("This instrument belongs to a library that is not installed currently!"). The oracle's
+install is a fresh portable build; the user's own install (`~/Armory/VSTs/Kontakt 8
+Portable`) carries the registration. One command copies it across:
+
+```bash
+tools/oracle-mcp/register-libraries.py --dry-run   # what would change
+tools/oracle-mcp/register-libraries.py             # backups, then write
+```
+
+Run it once after the oracle's Kontakt is installed or updated; it is idempotent. It reads
+the richest known install (`$ORACLE_MCP_LIBRARY_SOURCE`, else `~/Armory/VSTs/Kontakt 8
+Portable`) and writes only into `$ORACLE_MCP_PORTABLE` (default
+`~/Armory/VSTs/Kontakt 8.14.1 Portable`), backing up each file it touches as
+`*.pre-libraries-<UTC>`. It never writes to the source install. The oracle stays on
+**8.14.1** — the version upstream measures against — so nothing here runs the 8.8 build.
+
+What it copies, and what it deliberately does not (all measured 2026-10-31):
+
+| file | needed? | why |
+|---|---|---|
+| `UserData/Service Center/LibraryHints.xml` | **yes, this is the gate** | the installed-library list (Name, Company, SNPID, `RegKey`). 14,757 B (fresh) refuses every library instrument; 41,598 B (the user's) loads them with everything else held constant. |
+| `UserData/Settings.cfg` — library sections only | **yes** | per-library `SNPID`, `ContentDir` and the `JDX`/`HU` authorisation pair. With the hints file in place and these absent, the same instrument is refused again. |
+| `UserData/Kontakt 8/komplete.db3` | **not for loading; installed for the browser** | it indexes the libraries' files (45,195 presets). A 92 MB copy changed nothing about loading — the oracle loaded library instruments with its own 1.4 MB file too — but with it the browser lists the libraries instead of an empty page, which is what an agent comparing browser behaviour needs. `--no-database` skips it. |
+| the whole `Settings.cfg` | **no, and harmful** | it also carries `windowPos_*` and the audio device. Inheriting the user's placement moved the window away from the geometry every pixel metric in this server assumes (`KEYBOARD_STRIP`, the click coordinates), so only the library sections are merged. |
+
+What 8.14 does to that database, measured on first launch of a freshly copied file (and
+again after a second fresh copy, with the same result): it **migrates it in place** and
+reports nothing. `db3_master.version` stays `1114112`, the file stays 95,707,136 bytes
+(11,683 pages, freelist 3 → 40), `k_content_path`/`k_sound_info` keep 311/51,265 rows, and
+the schema loses the two `p_sound_info_Leap_*` tables (8.8 wrote them; one held 10 rows) with
+their 6 indexes and 16 triggers, while the Instrument triggers are widened to accept `.nkl`
+(95 → 81 triggers, 27 → 25 tables, 50 → 44 indexes). So the copy is **one-way**: never copy
+the migrated file back into `Kontakt 8 Portable`, or the user's build inherits an 8.14-shaped
+schema with those rows missing. The source install is only read.
+
+Measured result: 102 library sections from the user's install, 97 distinct content roots,
+**5,207 of the 6,024 `.nki` files under `~/Armory/VSTs/Kontakt1`** reachable. A sample taken
+one instrument per fresh session (so "an instrument page is up" can only mean that
+instrument), through `oracle_load` — the same path parity uses:
+
+| instrument | library | loaded |
+|---|---|---|
+| Electric Mint | Session Guitarist - Electric Mint | yes, 5.1 s |
+| Electric Sunburst Deluxe | Session Guitarist - Electric Sunburst Deluxe | yes, 4.9 s |
+| 40s Very Own - Drums | 40s Very Own - Drums | yes, 2.6 s |
+| ALLURE Modern Upright | ALLURE Modern Upright | yes, 19.9 s |
+| Evolution Jazz Archtop | Evolution Jazz Archtop | yes, 7.3 s |
+| Showroom Violin | `#Non NICNT` (no library at all) | yes, 7.2 s |
+| Action Strings 2 | Action Strings 2 | **no**, 60 s timeout — see below |
+
+The one refusal is a registration in the user's own install that points one directory above
+the folder holding the `.nicnt` (`ContentDir=…\Action Strings 2 v1.2.0`, library inside
+`…\Action Strings 2 v1.2.0\Action Strings 2 Library`). The copy of its instrument under the
+registered root (`…\Action Strings 2 v1.2.0\Instruments\`) does load, in 34 s; the copy in
+`Action Strings 2 Library\Instruments\` is the one refused. Nothing here changes that — the
+registration is the user's, and copying it faithfully copies the mistake.
+
+Only the oracle's own install is written; the source install is read-only throughout (verified
+by comparing size+mtime of all 10,778 entries of `Kontakt 8 Portable` before and after).
 
 ## Tools and their exact return shape
 
@@ -309,14 +373,16 @@ the change metric, the display guard, the page verdict) with no Kontakt and no d
   path shells out to `capture.py` inside `oracle-slot`, which needs `~/.wine-oracle` slot
   prefixes and a VST3 Kontakt in `~/.wine`. Neither exists on this machine (checked), so
   `--oracle` fails; `parity.py` uses the repo's actual WAV renderer with the same note.
-- **Only NICNT-registered libraries load in this oracle's Kontakt.** `Kontakt 8.14.1
-  Portable` has exactly one registered library (Session Guitarist - Electric Mint); any other
-  `.nki` that belongs to a library answers *"This instrument belongs to a library that is not
-  installed currently!"* and is refused, whatever path it is copied to. Non-NICNT instruments
-  (`#Non NICNT/…`) load normally, which is what `sweep.py`'s plan uses. Registering a library
-  is a licensing step (Settings.cfg entry plus the content DB), not a path or symlink trick:
-  symlinking the library into `Libraries/` and copying the entry across did not make Kontakt
-  accept it.
+- **A library instrument needs the library registered, which no path or symlink can do.**
+  Before `register-libraries.py` runs, the oracle's Kontakt has exactly one registered library
+  and refuses every other one with *"This instrument belongs to a library that is not
+  installed currently!"*, whatever path the file is copied to. Symlinking it into `Libraries/`
+  does not help; the registration is the `LibraryHints.xml` entry plus the `Settings.cfg`
+  section (see "Libraries the oracle can load"). With both in place 5,207 instruments load.
+  A registration inherited from the user's install can still be *wrong*: `Action Strings 2`
+  points one directory above the folder that holds its `.nicnt`, so the copy of its instruments
+  in `Action Strings 2 Library/Instruments/` is refused while the copy under the registered
+  root loads.
 - **`tools/kontakt-oracle/dump.py` cannot run as-is**: its default EXE is
   `~/.wine/drive_c/…/Portapotty/Kontakt 8/x64/Kontakt 8.exe` (not present), and it forces
   `WINEDLLOVERRIDES=…=b`, which on this wine install finds DXVK PEs where it expects wine
@@ -351,7 +417,8 @@ is announced on stderr at startup and returned by `oracle_status`.
 | `ORACLE_MCP_PREFIX` | `~/Armory/.oracle-spike/prefix-dxvk` | private wine prefix |
 | `ORACLE_MCP_PREFIX_SOURCE` | `~/Armory/WINE` | reflink source when the prefix must be created |
 | `ORACLE_MCP_WINE` | `/opt/wine-staging/bin/wine` | wine binary |
-| `ORACLE_MCP_PORTABLE` | `~/Armory/VSTs/Kontakt 8.14.1 Portable` | portable Kontakt |
+| `ORACLE_MCP_PORTABLE` | `~/Armory/VSTs/Kontakt 8.14.1 Portable` | portable Kontakt (server and `register-libraries.py`) |
+| `ORACLE_MCP_LIBRARY_SOURCE` | `~/Armory/VSTs/Kontakt 8 Portable` | install whose library registrations `register-libraries.py` copies from; never written |
 | `ORACLE_MCP_SINK` | `kontra_ref` | PipeWire null sink |
 | `ORACLE_MCP_BPM` | `120` | tempo for note-list renders |
 | `ORACLE_MCP_NKI` | Electric Mint | instrument used by `smoke.sh` |
