@@ -131,8 +131,15 @@ library.
   Branches made in one are invisible from another — that swallowed a lane's
   commits until they were ferried across. `git worktree list` and note the common
   dir before starting.
-- **`/tmp` is a 16 GB tmpfs** and a release build fills it; `/var/tmp` is real
-  disk. `kontra-inspect --json` alone writes ~740 MB.
+- **`/tmp` is a 16 GB tmpfs and it is wiped by a reboot.** `/var/tmp` is real
+  disk; a release build does not fit in `/tmp` (`kontra-inspect --json` alone
+  writes ~740 MB). Put **worktrees and anything you want to keep** under
+  `/var/tmp`, not `/tmp`. Measured 2026-11-01: the machine rebooted at 05:28 and
+  every worktree, screenshot, oracle log and the background job board under
+  `/tmp/opencode` was gone; `/var/tmp` kept the target dirs and a running sweep's
+  shard files. Nothing was actually lost because every commit had been pushed —
+  which is the other half of this trap: **push early, and never leave a lane's
+  only copy of its work in `/tmp`.**
 - **A shared `CARGO_TARGET_DIR` lets worktrees link each other's rlibs**, which
   produces false passes. One target dir per lane.
 - **`mv` preserves mtime**, so restoring a file with it makes cargo skip the
