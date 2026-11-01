@@ -374,9 +374,9 @@ mod tests {
         let r = saved(0x11, &bytes(V11_RECORD)).expect("v0x11");
         assert_eq!(r.mode, 4);
         assert_eq!(r.ms, 3.0);
-        assert!((r.feedback - 0.43150899).abs() < 1e-7);
-        assert!((r.low_cut - 0.76630902).abs() < 1e-7);
-        assert!((r.high_cut - 0.86252701).abs() < 1e-7);
+        assert!((r.feedback - 0.431509).abs() < 1e-7);
+        assert!((r.low_cut - 0.766309).abs() < 1e-7);
+        assert!((r.high_cut - 0.862527).abs() < 1e-7);
         assert_eq!(r.depth, 0.0);
         assert!(r.stereo && !r.pingpong);
         assert_eq!(r.beats, Some(0.125));
@@ -434,7 +434,7 @@ mod tests {
         // Stage 0's taps against the capture (241.15866, 356.00998, 245.3382,
         // 355.18109): the capture's taps sat inside the window, the port
         // uses its floor, so they agree to the window's width.
-        let want = [241.158_66, 356.009_98, 245.338_2, 355.181_09];
+        let want = [241.158_66, 356.009_98, 245.338_2, 355.181_1];
         for (tap, want) in d.taps[0].iter().zip(want) {
             assert!((tap - want).abs() < 0.02 * want, "{tap} vs {want}");
         }

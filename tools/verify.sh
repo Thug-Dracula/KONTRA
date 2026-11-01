@@ -3,6 +3,12 @@
 #
 #   tools/verify.sh            run every check, print a table, exit non-zero on failure
 #   tools/verify.sh --quick    skip the audio render (fast; still runs the unit layers)
+#   tools/verify.sh --portable run only the rows that need nothing from this
+#                              machine: no sample library, no Kontakt, no GUI.
+#                              That is tests, build, clap_entry, rustfmt and
+#                              clippy -- the same checks CI can run. It prints
+#                              its own PORTABLE PASSED line, because it is not a
+#                              delivery gate and must never be read as one.
 #
 # What it refuses to let through:
 #   - a failing test in the crates the change touched;
@@ -42,7 +48,19 @@ MAX_UNHANDLED=${MAX_UNHANDLED:-55}
 MAX_INIT_UNANSWERED=${MAX_INIT_UNANSWERED:-51}
 # Percent of the page allowed to differ from Kontakt's own render.
 MAX_PIXEL_PCT=${MAX_PIXEL_PCT:-0.5}
-QUICK=${1:-}
+# A build or a GUI step that hangs is a failed row, not a hung gate: every cargo
+# and ui call below is wrapped. 30 minutes is generous for a cold release build
+# of the crates the gate names and still finite.
+STEP_TIMEOUT=${STEP_TIMEOUT:-1800}
+QUICK=
+MODE=full
+for arg in "$@"; do
+    case "$arg" in
+        --quick) QUICK=--quick ;;
+        --portable) MODE=portable ;;
+        *) echo "verify: unknown argument '$arg'" >&2; exit 2 ;;
+    esac
+done
 
 cd "$REPO"
 # One private directory holds every log, JSON and PNG this gate writes, made
@@ -59,6 +77,64 @@ declare -a ROWS
 row() { ROWS+=("$(printf '%-42s %s' "$1" "$2")"); }
 bad() { row "$1" "FAIL  $2"; FAILED=1; }
 ok()  { row "$1" "ok    $2"; }
+
+# Does a captured string contain a substring? A `case` rather than
+# `printf ... | grep -q`, because with `pipefail` a grep that exits at its first
+# match makes the writer take SIGPIPE, the pipeline returns 141, and
+# `! printf ... | grep -q` then reads as "not found". That misfired on cargo
+# fmt's 200 KB of diffs: the row reported "could not run" while holding the
+# diffs in its hand. Under 64 KB (the pipe buffer) the same pattern works, which
+# is why the older `test result:` checks below never showed it -- latent until a
+# test log is big.
+has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+
+# Print the table and exit, for both modes. A function rather than two copies of
+# the tail, so the portable path can never drift into printing the delivery
+# gate's success line.
+finish() {
+    echo
+    printf '%s\n' "${ROWS[@]}"
+    echo
+    echo "logs: $LOGS"
+    if [ "$FAILED" -ne 0 ]; then
+        echo "VERIFY FAILED -- do not deploy"
+        exit 1
+    fi
+    # The play dump is a few hundred MB of per-voice detail that nothing reads
+    # after the rows above, and /tmp is a 16 GB tmpfs here. Keep it (and the
+    # rest) only when something failed and it is worth reading.
+    rm -f "$LOGS/verify-play.json"
+    if [ "$MODE" = portable ]; then
+        echo "PORTABLE PASSED -- not a delivery gate: the library, render, ui-drive"
+        echo "and pixel rows did not run. tools/verify.sh (no flag) is what gates a deploy."
+        exit 0
+    fi
+    echo "VERIFY PASSED -- safe to deploy with tools/deploy.sh"
+}
+
+# Print the table and exit, for both modes. A function rather than two copies of
+# the tail, so the portable path can never drift into printing the delivery
+# gate's success line.
+finish() {
+    echo
+    printf '%s\n' "${ROWS[@]}"
+    echo
+    echo "logs: $LOGS"
+    if [ "$FAILED" -ne 0 ]; then
+        echo "VERIFY FAILED -- do not deploy"
+        exit 1
+    fi
+    # The play dump is a few hundred MB of per-voice detail that nothing reads
+    # after the rows above, and /tmp is a 16 GB tmpfs here. Keep it (and the
+    # rest) only when something failed and it is worth reading.
+    rm -f "$LOGS/verify-play.json"
+    if [ "$MODE" = portable ]; then
+        echo "PORTABLE PASSED -- not a delivery gate: the library, render, ui-drive"
+        echo "and pixel rows did not run. tools/verify.sh (no flag) is what gates a deploy."
+        exit 0
+    fi
+    echo "VERIFY PASSED -- safe to deploy with tools/deploy.sh"
+}
 
 # One layer-3 row from one pixel-diff run: the label, then pixel-diff's own
 # arguments (reference, render, thresholds). Exit 1 is over the ceiling, exit 2
@@ -85,18 +161,65 @@ pixel_row() {
 run_tests() {
     local crate=$1
     local out
-    out=$(CARGO_TARGET_DIR="$TARGET" cargo test -p "$crate" 2>&1)
+    out=$(CARGO_TARGET_DIR="$TARGET" timeout "$STEP_TIMEOUT" cargo test -p "$crate" 2>&1)
     local line
     line=$(printf '%s\n' "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6} END {print p" passed, "f" failed"}')
     # A crate that fails to COMPILE prints no result line at all, so "no
     # result" is a failure, not a pass -- that is how a broken test file once
     # reported ok.
-    if printf '%s\n' "$out" | grep -qE "^test result: FAILED"; then
+    if has "$out" "test result: FAILED"; then
         bad "tests: $crate" "${line:-some tests failed}"
-    elif ! printf '%s\n' "$out" | grep -qE "^test result:"; then
+    elif ! has "$out" "test result:"; then
         bad "tests: $crate" "did not compile or did not run"
     else
         ok "tests: $crate" "${line:-no result line}"
+    fi
+}
+
+# rustfmt, first-party only. cargo fmt --all --check exits non-zero when
+# vendor/ differs, which it does and always has, so the exit code is not the
+# verdict: the verdict is whether any *first-party* file appears in the diff
+# list. A run that produced no diff list at all (no rustfmt, broken manifest) is
+# a failure too -- "nothing to report" must never mean "passed".
+lint_fmt() {
+    local out status diffs
+    out=$(cargo fmt --all --check 2>&1); status=$?
+    diffs=$(printf '%s\n' "$out" | grep '^Diff in ' | grep -v '/vendor/' |
+        sed 's/^Diff in //;s/:[0-9]*:$//' | sort -u)
+    if [ -n "$diffs" ]; then
+        bad "rustfmt" "$(printf '%s\n' "$diffs" | wc -l) first-party file(s) not formatted"
+        printf '%s\n' "$diffs" | head -5 | sed 's/^/      /'
+    elif [ "$status" -ne 0 ] && ! has "$out" "Diff in "; then
+        bad "rustfmt" "could not run: $(printf '%s\n' "$out" | head -1)"
+    else
+        ok "rustfmt" "first-party code is formatted (vendor/ excluded)"
+    fi
+}
+
+# clippy, every target, first-party only, warnings are errors. The exclusion
+# list is derived from the manifests' paths, not hand-kept, so vendoring another
+# crate cannot silently put it inside our lint.
+lint_clippy() {
+    local out status errs excludes
+    excludes=$(cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+print(" ".join("--exclude " + p["name"] for p in m["packages"]
+               if "/vendor/" in p["manifest_path"].replace("\\\\", "/")))
+' 2>/dev/null)
+    # Word-splitting is intended: $excludes is a list of --exclude flags.
+    # shellcheck disable=SC2086
+    out=$(CARGO_TARGET_DIR="$TARGET" timeout "$STEP_TIMEOUT" cargo clippy \
+        --workspace $excludes --all-targets --no-deps \
+        --message-format=short -- -D warnings 2>&1); status=$?
+    errs=$(printf '%s\n' "$out" | grep -E '^[^ :]+:[0-9]+:[0-9]+: error' | sort -u)
+    if [ -n "$errs" ]; then
+        bad "clippy" "$(printf '%s\n' "$errs" | wc -l) finding(s) under -D warnings"
+        printf '%s\n' "$errs" | head -5 | sed 's/^/      /'
+    elif [ "$status" -ne 0 ]; then
+        bad "clippy" "could not run: $(printf '%s\n' "$out" | grep -m1 '^error' || printf '%s\n' "$out" | head -1)"
+    else
+        ok "clippy" "first-party crates clean under -D warnings (all targets)"
     fi
 }
 
@@ -105,7 +228,14 @@ echo "== layer 0/1: tests =="
 # ships: a page that renders in the harness and not in the host is exactly how
 # the wallpaper went missing (a 7952-row picture became 15904 at the live 2x
 # device scale, past the renderer's 8192-pixel atlas, and was dropped silently).
-for c in kontra-engine kontra-host kontra-ui mui kontra-native-host kontra-plugin kontra-ui-pictures; do run_tests "$c"; done
+#
+# kontra-racks, kontra-ledger, kontra-inspect and ui-drive are here because
+# their tests ran in NEITHER this gate nor CI (the CI layers list neither crate,
+# and `cargo test -p kontra-engine` compiles racks without running it). Two of
+# them are the gate's own instruments -- kontra-inspect measures every audio row
+# below and ui-drive asserts the UI -- so a silent break there would make the
+# gate report a pass it could not justify.
+for c in kontra-engine kontra-host kontra-ui mui kontra-native-host kontra-plugin kontra-ui-pictures kontra-racks kontra-ledger kontra-inspect ui-drive; do run_tests "$c"; done
 if [ -d crates/dsp/delay ]; then run_tests kontra-dsp-delay; fi
 
 # The two parity regressions need a Kontakt library installed outside the
@@ -114,11 +244,11 @@ if [ -d crates/dsp/delay ]; then run_tests kontra-dsp-delay; fi
 # when the library is present, and fail the gate if either one fails.
 PARITY=${KONTRA_TEST_LIBRARY:-${HOME}/Armory/VSTs/Kontakt1}
 if [ -d "$PARITY" ]; then
-    out=$(CARGO_TARGET_DIR="$TARGET" cargo test -p kontra-host --test parity_regressions -- --ignored 2>&1)
+    out=$(CARGO_TARGET_DIR="$TARGET" timeout "$STEP_TIMEOUT" cargo test -p kontra-host --test parity_regressions -- --ignored 2>&1)
     line=$(printf '%s\n' "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6} END {print p" passed, "f" failed"}')
-    if printf '%s\n' "$out" | grep -qE "^test result: FAILED"; then
+    if has "$out" "test result: FAILED"; then
         bad "tests: parity regressions" "${line:-some tests failed}"
-    elif ! printf '%s\n' "$out" | grep -qE "^test result:"; then
+    elif ! has "$out" "test result:"; then
         bad "tests: parity regressions" "did not compile or did not run"
     else
         ok "tests: parity regressions" "${line:-no result line}"
@@ -128,7 +258,7 @@ else
 fi
 
 echo "== build =="
-if CARGO_TARGET_DIR="$TARGET" cargo build --release -p kontra-plugin >"$LOGS/verify-build.log" 2>&1; then
+if CARGO_TARGET_DIR="$TARGET" timeout "$STEP_TIMEOUT" cargo build --release -p kontra-plugin >"$LOGS/verify-build.log" 2>&1; then
     ok "build kontra-plugin" "$(stat -c%s "$TARGET/release/libkontra_plugin.so" 2>/dev/null || echo '?') bytes"
 else
     bad "build kontra-plugin" "see $LOGS/verify-build.log"
@@ -137,6 +267,31 @@ if nm -D --defined-only "$TARGET/release/libkontra_plugin.so" 2>/dev/null | grep
     ok "exports clap_entry" "a CLAP host will see it"
 else
     bad "exports clap_entry" "the .so has no CLAP entry"
+fi
+
+echo "== layer 0/1: the style the review checklist claims =="
+# Neither this gate nor CI ran rustfmt or clippy before 2026-11-01, so the
+# review checklist's "fmt and clippy clean on the touched crates" was a
+# convention with nothing behind it: a warning could be merged and nobody would
+# know for a week. Both are rows now, and both are strict.
+#
+# vendor/ is excluded from both. It is third-party source we consume, its
+# formatting is not ours to churn, and it carries two clippy errors we did not
+# write (vendor/mui's #[allow] without a reason). Excluding by manifest path
+# rather than by a hand-kept list, so vendoring another crate cannot silently
+# put it inside our lint.
+lint_fmt
+lint_clippy
+
+# Portable mode stops here. Everything below needs this machine's sample
+# library, and on a runner that has none the rows would print "skipped" -- a
+# word this project has learned to read as "passed". Named as not-run instead.
+if [ "$MODE" = portable ]; then
+    row "load + render (Electric Mint)" "local-only, not run (--portable)"
+    row "ui-drive (both pages)" "local-only, not run (--portable)"
+    row "library free of probe copies" "local-only, not run (--portable)"
+    row "pixel diff (golden + Kontakt panel)" "local-only, not run (--portable)"
+    finish
 fi
 
 echo "== layer 0: Electric Mint =="
@@ -309,18 +464,4 @@ else
         --crop "$PANEL_CROP" --merge 1 --max-pct "$MAX_PANEL_PCT" --out "$LOGS/verify-panel"
 fi
 
-echo
-printf '%s\n' "${ROWS[@]}"
-echo
-echo "logs: $LOGS"
-if [ "$FAILED" -eq 0 ]; then
-    # The play dump is a few hundred MB of per-voice detail that nothing reads
-    # after the rows above, and /tmp is a 16 GB tmpfs here. Keep it (and the
-    # rest) only when something failed and it is worth reading.
-    rm -f "$LOGS/verify-play.json"
-fi
-if [ "$FAILED" -ne 0 ]; then
-    echo "VERIFY FAILED -- do not deploy"
-    exit 1
-fi
-echo "VERIFY PASSED -- safe to deploy with tools/deploy.sh"
+finish

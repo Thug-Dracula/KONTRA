@@ -93,6 +93,21 @@ impl<'a> Compiler<'a> {
         index: Option<&Expr<'a>>,
         span: Span,
     ) -> Result<Ty, Error> {
+        // A system variable or array spelled exactly as the manual spells it
+        // is that system variable, whatever a script declares: KSP names are
+        // case-sensitive (KSP reference, "Variables and Constants"), so
+        // `$event_id` is a different name from `$EVENT_ID`. Harpsichord
+        // declares `$event_id` and then calls `ignore_event($EVENT_ID)`;
+        // resolving the declaration hid the system variable, so the host
+        // note was never ignored and it started every group it overlapped.
+        if let Some(b) = Builtin::from_name(name).filter(|b| b.name().starts_with(['$', '%'])) {
+            return match (b.array_len(), index) {
+                (Some(_), Some(i)) => self.value_builtin(b, std::slice::from_ref(i), span),
+                (None, None) => self.value_builtin(b, &[], span),
+                (Some(_), None) => Err(Error::new(span, "an array needs an index")),
+                (None, Some(i)) => Err(Error::new(i.span, format!("{name} is not an array"))),
+            };
+        }
         if let Ok(v) = self.lookup(name, span) {
             let var = self.var(v)?;
             let (ty, home) = (var.ty, var.home);
@@ -126,14 +141,6 @@ impl<'a> Compiler<'a> {
                     Err(Error::new(span, "an array needs an index"))
                 }
                 (_, Some(i)) => Err(Error::new(i.span, format!("{name} is not an array"))),
-            };
-        }
-        if let Some(b) = Builtin::from_name(name).filter(|b| b.name().starts_with(['$', '%'])) {
-            return match (b.array_len(), index) {
-                (Some(_), Some(i)) => self.value_builtin(b, std::slice::from_ref(i), span),
-                (None, None) => self.value_builtin(b, &[], span),
-                (Some(_), None) => Err(Error::new(span, "an array needs an index")),
-                (None, Some(i)) => Err(Error::new(i.span, format!("{name} is not an array"))),
             };
         }
         if let Some(i) = index {
@@ -224,13 +231,13 @@ impl<'a> Compiler<'a> {
         let ExprKind::Var(name, None) = &e.kind else {
             return Ok(None);
         };
-        if self.lookup(name, e.span).is_ok() {
+        // An exactly spelled system array is the system array, whatever a
+        // script declares in another case (Kontakt names are case-sensitive).
+        let builtin = Builtin::from_name(name).filter(|b| b.name().starts_with('%'));
+        if builtin.is_none() && self.lookup(name, e.span).is_ok() {
             return Ok(None);
         }
-        let Some((action, len)) = Builtin::from_name(name)
-            .filter(|b| b.name().starts_with('%'))
-            .and_then(|b| Some((b.action()?, b.array_len()?)))
-        else {
+        let Some((action, len)) = builtin.and_then(|b| Some((b.action()?, b.array_len()?))) else {
             return Ok(None);
         };
         let i = Self::cells(&mut self.cells, len + 1, e.span)?;

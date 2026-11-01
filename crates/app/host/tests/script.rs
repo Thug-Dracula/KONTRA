@@ -3606,3 +3606,69 @@ fn an_xy_pad_click_writes_both_coordinates_and_names_its_event() {
         assert_eq!(e.last_message(), said, "the {event:?} event");
     }
 }
+
+/// A script that allows one of two groups starts exactly that group's
+/// voices on the first note: `set_event_par_arr(.., $EVENT_PAR_ALLOW_GROUP,
+/// ..)` gates the note that is entering the callback, not the next event.
+#[test]
+fn an_allow_set_gates_the_entering_note() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.25, 0), zone(&mut store, 0.5, 1)];
+    let mut e = engine(
+        &store,
+        zones,
+        "on note
+            set_event_par_arr($EVENT_ID, $EVENT_PAR_ALLOW_GROUP, 0, -1)
+            set_event_par_arr($EVENT_ID, $EVENT_PAR_ALLOW_GROUP, 1, 1)
+        end on",
+    );
+    let mut out = vec![[0.0; 2]; 4096];
+    e.process(&mut out, &[on(60)]);
+    assert_eq!(e.active_voices(), 1, "one group of two starts");
+    let peak = out
+        .iter()
+        .flat_map(|frame| frame.iter())
+        .fold(0.0f32, |m, v| m.max(v.abs()));
+    assert!(
+        (peak - 0.5).abs() < 1e-3,
+        "group 1 alone: peak {peak} (0.75 is both groups)"
+    );
+}
+
+/// Harpsichord's shape: `declare $event_id` in `on init`, then
+/// `ignore_event($EVENT_ID)` and an allow set on the note the callback plays.
+/// KSP names are case-sensitive (KSP reference, "Variables and Constants"), so
+/// `$EVENT_ID` is the system variable and the host note is ignored; when the
+/// declaration hid the system variable, `ignore_event` got 0, the host note
+/// played every group it overlapped (157 voices of 144 groups) and the
+/// instrument was ~26 dB too loud.
+#[test]
+fn a_declaration_in_another_case_does_not_hide_the_event_from_the_script() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.25, 0), zone(&mut store, 0.5, 1)];
+    let mut e = engine(
+        &store,
+        zones,
+        "on init
+            declare $event_id
+            declare $id
+        end on
+        on note
+            ignore_event($EVENT_ID)
+            $id := play_note($EVENT_NOTE, $EVENT_VELOCITY, 0, -1)
+            set_event_par_arr($id, $EVENT_PAR_ALLOW_GROUP, 0, -1)
+            set_event_par_arr($id, $EVENT_PAR_ALLOW_GROUP, 1, 1)
+        end on",
+    );
+    let mut out = vec![[0.0; 2]; 4096];
+    e.process(&mut out, &[on(60)]);
+    assert_eq!(e.active_voices(), 1, "the played note's one allowed group");
+    let peak = out
+        .iter()
+        .flat_map(|frame| frame.iter())
+        .fold(0.0f32, |m, v| m.max(v.abs()));
+    assert!(
+        (peak - 0.5).abs() < 1e-3,
+        "group 1 alone: peak {peak} (0.75 is the ignored host note too)"
+    );
+}

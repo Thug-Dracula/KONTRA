@@ -126,12 +126,15 @@ fn harpsichord_compiles_its_script_and_renders_audio() {
         diagnostics.contains("scripts: 2 slots [\"Performance\", \"FX Rack\"]"),
         "its scripts are missing from the load report:\n{diagnostics}"
     );
-    // Measured 2026-10-31: 2.475 with both scripts compiled; the regression
-    // this pins rendered exact silence (0.0) because `%NOTE_DURATION` failed
-    // the compile. 1.0..=4.0 lets the instrument be loud (it clips today) but
-    // not silent.
+    // Measured 2026-10-31, key 60: 0.126 (one voice, -18.0 dBFS), against
+    // Kontakt's own captures at 0.120/0.152 (-16.3..-18.4 dBFS). The
+    // regression this pins rendered exact silence (0.0) because
+    // `%NOTE_DURATION` failed the compile; the 157-voice overload that
+    // `ignore_event($EVENT_ID)` reading 0 produced peaked at 2.475. The
+    // window admits neither failure and the instrument's own level.
     assert!(
-        (1.0..=4.0).contains(&peak),
-        "peak {peak:.3} is outside 1.0..=4.0 (silent when the script fails to compile):\n{diagnostics}"
+        (0.05..=0.5).contains(&peak),
+        "peak {peak:.3} is outside 0.05..=0.5 (silent when the script fails to compile, \
+         overloaded when the host note is not ignored):\n{diagnostics}"
     );
 }

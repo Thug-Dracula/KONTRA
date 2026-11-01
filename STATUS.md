@@ -13,7 +13,7 @@ given so it can be re-run rather than believed.
 
 | Claim | Evidence |
 |---|---|
-| The workspace builds and every test suite passes | `tools/verify.sh` — engine, host, ui, mui, native-host, plugin, ui-pictures and dsp-delay suites, 0 failures (the counts in the gate's own table are the authority; they grow) |
+| The workspace builds and every test suite the gate names passes | `tools/verify.sh` — engine, host, ui, mui, native-host, plugin, ui-pictures, **racks, ledger, inspect, ui-drive** and dsp-delay suites, 0 failures (the counts in the gate's own table are the authority; they grow). The four in bold were run by *nothing* before 2026-11-01 — not this gate, not CI — and two of them are the gate's own instruments: `kontra-inspect` measures every audio row and `ui-drive` asserts the UI |
 | The plugin a host loads is the one that was tested | gate builds `kontra-plugin`, asserts `clap_entry` is exported, and installs to **both** `~/.clap` and `~/.vst3` |
 | Electric Mint plays end to end | gate render: completes, 0 missing frames, 0 clipped, `actions_unhandled` 55, `init unanswered` 51 |
 | The rendered audio is reproducible | fingerprint `7fd5a1ae59790ffc` (stable run to run; has moved five times as stages were modelled: Hot Solo+, Choral, Diffusion, the diffusion knob order and the Supercharger make-up) |
@@ -31,7 +31,7 @@ given so it can be re-run rather than believed.
 | Real Kontakt can be driven headless | `tools/oracle-mcp` — Kontakt 8.14.1 on Xvfb with DXVK + lavapipe paints its instrument page and takes pointer input (`paints=yes click_px=44485`) |
 | The Hot Solo+ amp really closes the gap | an independent re-measurement on fresh sessions: level +0.02 → **−0.06 dB**, band RMS 0.94 → **0.90 dB**, worst band +2.2 → **+2.12 dB @ 1613 Hz**, per-band max difference 1.07 dB / RMS 0.32 dB — which is exactly the cross-session capture noise (0.31 dB) |
 | Parity can be judged, not admired | `tools/oracle-mcp/parity.py` exits non-zero on a level, band-RMS, worst-band or lag breach; the limits (0.5 dB / 1.0 dB / 3.0 dB / 10 ms) are 4.2×, 2.6×, 1.9× and 1× the measured Kontakt-against-itself floor |
-| KONTRA's Rust meets its own lint bar | 48 opted-in crates, `clippy --all-targets --no-deps -- -D warnings` → 0 diagnostics; **no `#[allow]`** anywhere and 7 `#[expect]`s, each with a reason, all in the new Choral kernel (modulus-masked ring positions, bank indices from the same table) |
+| KONTRA's Rust meets its own lint bar, and the gate enforces it | `clippy --workspace --all-targets --no-deps -- -D warnings` and `cargo fmt --all --check` are rows of `tools/verify.sh` as of 2026-11-01, excluding `vendor/` by manifest path. Turned on for the first time they found six diagnostics — four `excessive_precision` float literals in a Replika test (constants written with more digits than an f32 holds, so the value in the source was not the value compared), a dead `Widget::ground` field, and an unused `use super::*` — all fixed. 48 opted-in crates; **no `#[allow]`** anywhere and 8 `#[expect]`s, each with a reason: seven in the new Choral kernel (modulus-masked ring positions, bank indices from the same table), one in `crates/app/host/tests/parity_regressions.rs` |
 
 ## What is implemented
 
@@ -86,6 +86,8 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | **Bus slot 7 phantom filter** | the instrument stores it `bypass: false`, but Kontakt behaves as if it is not running; removing it closes 11.8 dB at 12.9 kHz | wrong to decide by assumption. The decisive test needs the bypass toggled at runtime via KSP in an audio-capable session — editing the `.nki` is refused because Kontakt validates an MD5 in `BNISoundHeader` |
 | **An XY pad's selected cursor is not drawn** | `input::read` now reads pads and the engine answers `$NI_MOUSE_EVENT_TYPE`, so a click on Electric Mint (Melody)'s articulation or pattern row runs `change_slot` and moves the selection (keyswitch and `$CONTROL_PAR_ACTIVE_INDEX`; `tools/ui-drive`'s `a_click_on_a_melody_row_selects_that_row`). The page itself shows no highlight: KONTRA has no pass that draws an `ui_xy`'s cursors, so the per-cursor picture (`$CONTROL_PAR_CURSOR_PICTURE`) and the active one are not on screen | draw each cursor at its own cells' coordinates, framed by which one `$CONTROL_PAR_ACTIVE_INDEX` marks |
 | **A control edit can cost one silent block** | the price of having no lock on the audio path: if the host resumes while the control tick holds the audio side, that block renders silence | accepted trade-off; counted and logged as `block_missed` |
+| A lane's build directory is allocated, and reclaimed | `tools/build-slot --gc` removes a slot when its worktree is gone, or its branch is merged into `feat/integration` and the worktree is clean; it refuses to start a build below `--min-free-gb` (default 40) and prints the reclaim command. `tools/test_build_slot.sh` — 41 assertions, no cargo. Its absence is why this machine reached 156 GB of target dirs on a 147 GB disk |
+| The v3 plan's conflict locks name files that exist | `tools/plan/plan.py validate --max-warnings baseline` — `test_lock_paths_exist` fails if a lock names a deleted path (four did: `src/sound/v2.rs`, `src/plugin.rs`, `crates/sampler-core/*`), and the warning count is a committed baseline (119) so a new overlap fails CI instead of joining a scroll of warnings |
 
 ## What is *not* verified — do not cite these as facts
 
@@ -113,18 +115,30 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 ## How to check the tree
 
 ```
-tools/verify.sh          # the delivery gate; refuses to pass on any of the above
-tools/verify.sh --quick  # everything except the audio render
+tools/verify.sh            # the delivery gate; refuses to pass on any of the above
+tools/verify.sh --quick    # everything except the audio render
+tools/verify.sh --portable # only the rows a CI runner can run; prints PORTABLE
+                           # PASSED, never VERIFY PASSED
 ```
 
-`VERIFY PASSED` means: tests pass, the plugin builds and exports a CLAP entry,
-Electric Mint renders completely with no dropped frames or clipping, the UI
-hit-tests where it draws, the page matches its golden, and the preset panel is
-within 21% of Kontakt's own render of it. It does **not** mean the instrument
-matches Kontakt — that is the oracle's job, and it is on demand.
+`.github/workflows/gate.yml` runs `--portable` on every PR to `main`: the same
+script and the same rows, restricted to those that need nothing from a local
+disk. It reports the library, render, `ui-drive` and pixel rows as **not run**
+rather than skipped, because on this project "skipped" has been read as
+"passed".
+
+`VERIFY PASSED` means: tests pass (12 suites), the plugin builds and exports a
+CLAP entry, first-party code is rustfmt-clean and clippy-clean under
+`-D warnings`, Electric Mint renders completely with no dropped frames or
+clipping, the UI hit-tests where it draws, the page matches its golden, and the
+preset panel is within 21% of Kontakt's own render of it. It does **not** mean
+the instrument matches Kontakt — that is the oracle's job, and it is on demand.
 
 ## Where the work is
 
-The change set is a stack of four PRs against `DerpcatMusic/KONTRA`:
-#1275 (UI), #1276 (audio), #1277 (engine), #1278 (tooling). Each is based on the
-previous; the tip is tree-identical to the branch they were cut from.
+One PR against `DerpcatMusic/KONTRA`: **#1274**, consolidated. The stack that
+preceded it (#1275 UI, #1276 audio, #1277 engine, #1278 tooling) was cut for
+review, no human read it, and the work outgrew the cut — those four are closed
+and their content is in #1274. Local branches named `stack/*` are superseded:
+every symbol their unique commits add (the `mf_*` object, `$MOD_TARGET_INVERT_SOURCE`,
+`by_track`, `get_event_ids`) exists on `feat/integration`.
