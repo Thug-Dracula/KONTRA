@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """KONTRA v3 planner: docs/architecture-v3/tasks.toml -> checks, briefs, GitHub.
 
-  plan.py validate               manifest is well-formed, DAG acyclic, doc links resolve
+  plan.py validate [--max-warnings N|baseline]
+                                 manifest is well-formed, DAG acyclic, doc links resolve;
+                                 with --max-warnings the warning count is a ratchet: it may not
+                                 grow past N (or past tools/plan/warnings-baseline.txt)
   plan.py index                  regenerate docs/architecture-v3/TASKS.md
   plan.py brief ID               print the self-contained agent brief (= issue body)
   plan.py ready [--offline]      tasks that can start now, as a conflict-free batch
@@ -26,6 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "docs/architecture-v3/tasks.toml"
+WARNINGS_BASELINE = ROOT / "tools/plan/warnings-baseline.txt"
 REPO = "DerpcatMusic/KONTRA"
 OWNER = "DerpcatMusic"
 MARK = "<!-- v3-task: {id} -->"
@@ -224,6 +228,47 @@ def validate(plan: dict) -> tuple[list[str], list[str]]:
             if hit:
                 warnings.append(f"serialized: {a['id']} and {b['id']} share {hit[0]}")
     return errors, warnings
+
+
+# ── warning ratchet ─────────────────────────────────────────────────────────
+
+# The warning count is a ratchet: `validate` alone stays lenient (muscle memory),
+# `--max-warnings baseline` fails when a warning is added. The baseline is the
+# committed list of today's warnings, so a growth diff names the tasks that caused it.
+
+def read_baseline(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return [l for l in path.read_text().splitlines() if l.strip() and not l.startswith("#")]
+
+
+def shown(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def write_baseline(path: Path, warnings: list[str]) -> None:
+    path.write_text("\n".join([
+        "# v3 plan warnings: the ratchet baseline. CI fails when the count grows past this.",
+        "# Regenerate in a v3-plan- PR: python3 tools/plan/plan.py validate --write-baseline",
+        "# Never hand-edit: the diff is the review - it shows exactly which warning was accepted.",
+        "# Fixing a warning needs no regeneration (the count may fall below the baseline),",
+        "# but regenerating after a fix tightens the ratchet, which is the point of it.",
+        *sorted(warnings),
+    ]) + "\n")
+
+
+def budget(warnings: list[str], cap: int | None, baseline: list[str]) -> list[str]:
+    """Errors for the warnings beyond `cap`; names each one the baseline does not already have."""
+    if cap is None or len(warnings) <= cap:
+        return []
+    known = set(baseline)
+    return [f"new warning: {w}" for w in warnings if w not in known] + [
+        f"warning budget exceeded: {len(warnings)} warnings, budget {cap} ({len(warnings) - cap} over). "
+        "Fix the conflict, or accept it in a v3-plan- PR with `plan.py validate --write-baseline`."
+    ]
 
 
 # ── briefs ──────────────────────────────────────────────────────────────────
@@ -645,10 +690,24 @@ def scope(plan: dict, tid: str, base: str) -> list[str]:
 
 # ── cli ─────────────────────────────────────────────────────────────────────
 
+def budget_cap(text: str) -> int | str:
+    if text == "baseline":
+        return text
+    if not text.isdigit():
+        raise argparse.ArgumentTypeError(
+            "give a number, or 'baseline' to use tools/plan/warnings-baseline.txt")
+    return int(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("validate")
+    v = sub.add_parser("validate")
+    v.add_argument("--manifest", type=Path, default=MANIFEST, help="check another manifest (tests)")
+    v.add_argument("--max-warnings", type=budget_cap, default=None,
+                   help="fail when warnings exceed N, or 'baseline' for tools/plan/warnings-baseline.txt")
+    v.add_argument("--warnings-baseline", type=Path, default=WARNINGS_BASELINE, help="baseline file to read")
+    v.add_argument("--write-baseline", action="store_true", help="rewrite the baseline from today's warnings")
     sub.add_parser("index").add_argument("--check", action="store_true", help="fail if TASKS.md is stale")
     sub.add_parser("brief").add_argument("id")
     r = sub.add_parser("ready")
@@ -664,7 +723,7 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("branch")
     m.add_argument("--pr", default="?")
     a = ap.parse_args(argv)
-    plan = load()
+    plan = load(getattr(a, "manifest", None) or MANIFEST)
 
     if a.cmd == "validate":
         errors, warnings = validate(plan)
@@ -672,8 +731,28 @@ def main(argv: list[str] | None = None) -> int:
             print("warning:", w)
         for e in errors:
             print("error:", e)
+        if a.write_baseline:
+            if errors:
+                print("refusing to write the baseline: fix the errors first")
+                return 1
+            write_baseline(a.warnings_baseline, warnings)
+            print(f"wrote {len(warnings)} warnings to {shown(a.warnings_baseline)}")
+            return 0
+        baseline = read_baseline(a.warnings_baseline)
+        if a.max_warnings == "baseline" and not baseline:
+            print(f"error: no baseline at {shown(a.warnings_baseline)}; commit one with "
+                  "`plan.py validate --write-baseline` in a v3-plan- PR")
+            return 1
+        cap = None if a.max_warnings is None else (
+            len(baseline) if a.max_warnings == "baseline" else a.max_warnings)
         print(f"{len(plan['task'])} tasks, {len(errors)} errors, {len(warnings)} warnings")
-        return 1 if errors else 0
+        over = budget(warnings, cap, baseline)
+        for e in over:
+            print("error:", e)
+        if cap is not None and len(warnings) < len(baseline):
+            print(f"note: {len(baseline) - len(warnings)} warnings fewer than the baseline; "
+                  "run `plan.py validate --write-baseline` in a v3-plan- PR to tighten the ratchet")
+        return 1 if errors or over else 0
     if a.cmd == "index":
         text = index(plan)
         out = ROOT / "docs/architecture-v3/TASKS.md"

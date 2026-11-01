@@ -1,0 +1,124 @@
+# v3 plan warnings: the ratchet baseline. CI fails when the count grows past this.
+# Regenerate in a v3-plan- PR: python3 tools/plan/plan.py validate --write-baseline
+# Never hand-edit: the diff is the review - it shows exactly which warning was accepted.
+# Fixing a warning needs no regeneration (the count may fall below the baseline),
+# but regenerating after a fix tightens the ratchet, which is the point of it.
+serialized: P0.0 and P0.5 share tools/plan/plan.py
+serialized: P0.2 and P0.8 share tools/probe/** ~ **/*.rs
+serialized: P0.3 and P0.8 share tools/probe/** ~ **/*.rs
+serialized: P0.3b and P0.8 share tools/probe/** ~ **/*.rs
+serialized: P0.4 and P0.8 share Cargo.toml ~ **/*.rs
+serialized: P0.5 and P0.7 share .github/workflows/v3.yml
+serialized: P0.5 and P0.8 share .github/workflows/v3.yml
+serialized: P0.5 and P4.0 share .github/scripts/check_glibc.py
+serialized: P0.5 and P4.10 share .github/scripts/check_glibc.py
+serialized: P0.5 and P4.3 share .github/scripts/check_glibc.py
+serialized: P0.5 and P4.4 share .github/scripts/check_glibc.py
+serialized: P0.5 and P4.8 share .github/scripts/check_glibc.py
+serialized: P0.5 and P4.9 share .github/scripts/check_glibc.py
+serialized: P0.5 and P7.1 share .github/scripts/check_glibc.py
+serialized: P0.5 and P7.4 share .github/scripts/check_glibc.py
+serialized: P0.5 and P7.5 share .github/scripts/check_glibc.py
+serialized: P0.5 and P7.6 share .github/scripts/check_glibc.py
+serialized: P0.6 and P0.8 share docs/architecture-v3/00-BASELINE.md ~ **/*.rs
+serialized: P0.7 and P4.0 share .github/workflows/v3.yml
+serialized: P0.7 and P4.10 share .github/workflows/v3.yml
+serialized: P0.7 and P4.3 share .github/workflows/v3.yml
+serialized: P0.7 and P4.4 share .github/workflows/v3.yml
+serialized: P0.7 and P4.8 share .github/workflows/v3.yml
+serialized: P0.7 and P4.9 share .github/workflows/v3.yml
+serialized: P0.7 and P6.4c share tools/xtask/dag.toml
+serialized: P0.7 and P7.1 share .github/workflows/v3.yml
+serialized: P0.7 and P7.4 share .github/workflows/v3.yml
+serialized: P0.7 and P7.5 share .github/workflows/v3.yml
+serialized: P0.7 and P7.6 share .github/workflows/v3.yml
+serialized: P0.7 and P8.4b share tools/xtask/dag.toml
+serialized: P0.8 and P1.1 share **/*.rs ~ crates/sampler-kontakt/src/stream_initial_hints.rs
+serialized: P0.8 and P1.1b share **/*.rs ~ crates/sampler-kontakt/src/stream_initial_hints.rs
+serialized: P0.8 and P1.2 share **/*.rs ~ crates/sampler-kontakt/src/stream.rs
+serialized: P0.8 and P1.3 share **/*.rs ~ crates/sampler-core/src/source.rs
+serialized: P0.8 and P1.4 share **/*.rs ~ crates/sampler-core/src/onset.rs
+serialized: P0.8 and P1.4b share **/*.rs ~ tools/probe/src/**
+serialized: P0.8 and P1.5 share **/*.rs ~ docs/architecture-v3/gates/G1.md
+serialized: P0.8 and P2.1 share plugin/build.rs
+serialized: P0.8 and P2.2 share **/*.rs ~ crates/sampler-core/src/behavior.rs
+serialized: P0.8 and P2.3 share **/*.rs ~ docs/architecture-v3/gates/G2.md
+serialized: P0.8 and P3.1 share tools/spikes/luau-alloc/src/arena.rs
+serialized: P0.8 and P3.1b share tools/spikes/luau-alloc/src/arena.rs
+serialized: P0.8 and P3.1c share tools/spikes/luau-alloc/src/arena.rs
+serialized: P0.8 and P3.2 share plugin/build.rs
+serialized: P0.8 and P3.3 share plugin/build.rs
+serialized: P0.8 and P3.4 share **/*.rs ~ docs/architecture-v3/gates/G3.md
+serialized: P0.8 and P4.0 share .github/workflows/v3.yml
+serialized: P0.8 and P4.1 share crates/base/macros/src/lib.rs
+serialized: P0.8 and P4.10 share .github/workflows/v3.yml
+serialized: P0.8 and P4.11 share crates/model/protocol/src/lib.rs
+serialized: P0.8 and P4.12 share **/*.rs ~ docs/architecture-v3/gates/G4.md
+serialized: P0.8 and P4.2 share crates/base/law/src/catalog.rs
+serialized: P0.8 and P4.3 share .github/workflows/v3.yml
+serialized: P0.8 and P4.4 share .github/workflows/v3.yml
+serialized: P0.8 and P4.5 share crates/base/macros/src/lib.rs
+serialized: P0.8 and P4.6 share crates/model/params/src/lib.rs
+serialized: P0.8 and P4.7 share **/*.rs ~ crates/sampler-core/src/engine_parameters.rs
+serialized: P0.8 and P4.8 share .github/workflows/v3.yml
+serialized: P0.8 and P4.9 share .github/workflows/v3.yml
+serialized: P0.8 and P5.0 share crates/base/macros/src/lib.rs
+serialized: P0.8 and P5.1 share crates/dsp/dynamics/src/compressor.rs
+serialized: P0.8 and P5.10 share **/*.rs ~ docs/architecture-v3/gates/G5.md
+serialized: P0.8 and P5.2 share crates/dsp/eq/src/lib.rs
+serialized: P0.8 and P5.3a share crates/dsp/filter/src/cascade.rs
+serialized: P0.8 and P5.3b share crates/dsp/filter/src/ladder.rs
+serialized: P0.8 and P5.3c share crates/dsp/filter/src/formant.rs
+serialized: P0.8 and P5.4a share crates/dsp/delay/src/chorus.rs
+serialized: P0.8 and P5.4b share **/*.rs ~ crates/dsp/delay/src/replika*
+serialized: P0.8 and P5.5 share crates/dsp/reverb/src/combs.rs
+serialized: P0.8 and P5.6a share crates/dsp/drive/src/clipper.rs
+serialized: P0.8 and P5.6b share **/*.rs ~ crates/dsp/drive/src/amp*
+serialized: P0.8 and P5.6c share crates/dsp/drive/src/crush.rs
+serialized: P0.8 and P5.7 share crates/dsp/spatial/src/lib.rs
+serialized: P0.8 and P5.8 share crates/dsp/modulators/src/lib.rs
+serialized: P0.8 and P5.9 share crates/model/ir/src/bus.rs
+serialized: P0.8 and P6.1a share crates/engine/stream/src/cache.rs
+serialized: P0.8 and P6.1b share crates/engine/stream/src/cache.rs
+serialized: P0.8 and P6.1c share crates/engine/stream/src/cache.rs
+serialized: P0.8 and P6.2 share crates/engine/voice/src/envelope.rs
+serialized: P0.8 and P6.3a share crates/engine/vm/src/action.rs
+serialized: P0.8 and P6.3b share crates/engine/vm/src/action.rs
+serialized: P0.8 and P6.4a share crates/engine/engine/src/admit.rs
+serialized: P0.8 and P6.4b share crates/engine/engine/src/admit.rs
+serialized: P0.8 and P6.4c share crates/base/macros/src/lib.rs
+serialized: P0.8 and P6.5 share **/*.rs ~ docs/architecture-v3/gates/G6.md
+serialized: P0.8 and P7.1 share .github/workflows/v3.yml
+serialized: P0.8 and P7.2 share crates/script/lua/src/alloc.rs
+serialized: P0.8 and P7.3 share crates/base/macros/src/lib.rs
+serialized: P0.8 and P7.4 share .github/workflows/v3.yml
+serialized: P0.8 and P7.5 share .github/workflows/v3.yml
+serialized: P0.8 and P7.6 share .github/workflows/v3.yml
+serialized: P0.8 and P7.7 share **/*.rs ~ docs/architecture-v3/gates/G7.md
+serialized: P0.8 and P8.1 share crates/model/protocol/src/lib.rs
+serialized: P0.8 and P8.2 share crates/app/host/examples/align.rs
+serialized: P0.8 and P8.3 share crates/app/align/src/lib.rs
+serialized: P0.8 and P8.4 share crates/app/ui/examples/app_shot.rs
+serialized: P0.8 and P8.4b share crates/app/host/src/ui/keybed.rs
+serialized: P0.8 and P8.5 share plugin/build.rs
+serialized: P0.8 and P8.6 share plugin/build.rs
+serialized: P1.2 and P2.1 share tools/probe/tests/fixtures.rs ~ tools/probe/tests/fixtures.rs
+serialized: P1.4 and P1.4b share tools/probe/** ~ tools/probe/src/**
+serialized: P1.4 and P2.1 share tools/probe/** ~ tools/probe/tests/fixtures.rs
+serialized: P2.1 and P3.3 share plugin/Cargo.toml
+serialized: P3.2 and P3.3 share plugin/Cargo.toml
+serialized: P4.3 and P4.8 share .cargo/config.toml
+serialized: P4.3 and P4.9 share .cargo/config.toml
+serialized: P4.4 and P4.10 share .cargo/config.toml
+serialized: P4.4 and P4.8 share .cargo/config.toml
+serialized: P4.4 and P4.9 share .cargo/config.toml
+serialized: P4.8 and P4.10 share .cargo/config.toml
+serialized: P4.8 and P4.9 share .cargo/config.toml
+serialized: P4.9 and P4.10 share .cargo/config.toml
+serialized: P7.1 and P7.5 share .cargo/config.toml
+serialized: P7.1 and P7.6 share .cargo/config.toml
+serialized: P7.4 and P7.5 share .cargo/config.toml
+serialized: P7.4 and P7.6 share .cargo/config.toml
+serialized: P7.5 and P7.6 share .cargo/config.toml
+serialized: P8.2 and P8.4b share crates/app/host/src/ui/keybed.rs
+serialized: P8.4b and P8.5 share .cargo/config.toml

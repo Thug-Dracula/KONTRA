@@ -117,11 +117,24 @@ Hot shared files are named **locks** in `tasks.toml` and referenced as `@name`:
 | `@manifests` | root `Cargo.toml`, `.cargo/**`, toolchain | exclusive |
 | `@lockfile` | `Cargo.lock` | regenerate: never hand-merged (§6); any task may change it, so it never serializes tasks |
 | `@ci` | `.github/workflows/**`, `.github/scripts/**` | exclusive |
-| `@v2rs` | `src/sound/v2.rs` | exclusive |
-| `@plugin` | `src/plugin.rs`, `src/plugin/**`, `src/lib.rs` | exclusive |
-| `@corelib` | `sampler-core` `lib.rs` + `Cargo.toml` | exclusive |
+| `@plugin` | `plugin/Cargo.toml`, `plugin/build.rs`, `plugin/src/**` | exclusive |
 | `@registry` | `crates/dsp/registry` | append: several tasks add one line each |
 | `@plan` | `tasks.toml`, `TASKS.md` | exclusive (coordinator) |
+
+`@v2rs` (`src/sound/v2.rs`) and `@corelib` (the `sampler-core` monolith's
+`lib.rs` + `Cargo.toml`) were deleted with their subject: the crates/
+reorganisation moved every file out of `src/` and split `sampler-core` into
+`crates/{base,model,engine}/*`. Both locks then named paths that no longer
+exist, so the dispatch and PR rules above compared empty sets and reported
+"no conflict" for work that really did overlap. Deleting a lock whose subject
+is gone is the fix; inventing a new one to fill the slot is not. There is no
+successor to the v2 sound engine, and the core library has no single entry
+point any more — P4.0 scaffolds the crate families once, so later tasks edit
+only inside their own crate.
+
+`plan.py test_plan.py` holds `Locks.test_lock_paths_exist`, which fails if any
+lock names a path that is not in the tree: the empty-set failure above cannot
+come back silently.
 
 Design choices that keep the lock set small:
 
@@ -137,6 +150,14 @@ Design choices that keep the lock set small:
 `python3 tools/plan/plan.py validate` lists every pair of tasks that could run
 in parallel by the DAG but share an exclusive path ("serialized: …"). Those
 pairs simply run one after the other; that list is the honest parallel width.
+
+The count is a ratchet. `tools/plan/warnings-baseline.txt` lists today's
+warnings, one per line, and CI runs `plan.py validate --max-warnings baseline`,
+which fails when the count grows — naming each warning the baseline does not
+already have, so the added task pair is visible in the log. To accept a new
+warning (or to tighten the ratchet after fixing one) run
+`plan.py validate --write-baseline` in a `v3-plan-` PR: the diff of that file is
+the review. Plain `validate` stays lenient, as before.
 
 ## 6. Conflicts and rebases
 

@@ -41,7 +41,7 @@ jobs:
           shared-key: v3-plan-xtask
       - name: Manifest
         run: |
-          python3 tools/plan/plan.py validate
+          python3 tools/plan/plan.py validate --max-warnings baseline
           python3 tools/plan/plan.py index --check
           python3 -m unittest tools/plan/test_plan.py
       - name: Scope
