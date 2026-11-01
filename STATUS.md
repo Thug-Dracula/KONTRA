@@ -89,6 +89,8 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 | A lane's build directory is allocated, and reclaimed | `tools/build-slot --gc` removes a slot when its worktree is gone, or its branch is merged into `feat/integration` and the worktree is clean; it refuses to start a build below `--min-free-gb` (default 40) and prints the reclaim command. `tools/test_build_slot.sh` — 41 assertions, no cargo. Its absence is why this machine reached 156 GB of target dirs on a 147 GB disk |
 | The v3 plan's conflict locks name files that exist | `tools/plan/plan.py validate --max-warnings baseline` — `test_lock_paths_exist` fails if a lock names a deleted path (four did: `src/sound/v2.rs`, `src/plugin.rs`, `crates/sampler-core/*`), and the warning count is a committed baseline (119) so a new overlap fails CI instead of joining a scroll of warnings |
 
+| The oracle can load any installed library | `tools/oracle-mcp/register-libraries.py` writes `Service Center/LibraryHints.xml` and the `Settings.cfg` library sections — that, not the content database, is what gates loading. Measured after it: `Electric Sunburst Deluxe` (a different Session Guitarist library) loads in 5.16 s and `smoke.sh` passes end to end on it. The populated `komplete.db3` is installed too, for the browser index (45,195 presets) — and 8.14.1 **silently migrates** it (drops two Leap tables, widens triggers) without changing `db3_master.version`, so a copy of the migrated file must never go back into `Kontakt 8 Portable`; the README records this and the setup script names the backup |
+
 ## What is *not* verified — do not cite these as facts
 
 - **Only the Sound Preset panel is compared to a live Kontakt capture.** The

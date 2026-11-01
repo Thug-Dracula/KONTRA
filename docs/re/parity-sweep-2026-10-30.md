@@ -39,6 +39,14 @@ Verdicts use the limits `parity.py` set from the measured noise floor: level 0.5
 
 ## How the sample was chosen, and what it could not include
 
+> **Superseded 2026-10-31.** Every NICNT library on this machine is loadable now:
+> `tools/oracle-mcp/register-libraries.py` writes the `Service Center/LibraryHints.xml` entries
+> and the library sections in `Settings.cfg`, which is what the refusal below was actually
+> about — not the content database (copying the database in changed the browser index, not
+> whether an instrument loads). Measured after registration: `Electric Sunburst Deluxe`, a
+> different Session Guitarist library, loads in 5.16 s. The paragraph below describes the
+> oracle before that command existed, and the coverage limit it states no longer applies.
+
 The oracle's Kontakt has exactly one NICNT library registered (Session Guitarist - Electric Mint). Every other `.nki` that belongs to a library is refused with *"This instrument belongs to a library that is not installed currently!"* -- including copies outside the library folder, and after adding the library's `Settings.cfg` entry and content-database row. Non-NICNT instruments (`#Non NICNT/…`) load normally, so the sweep is Electric Mint plus two renders of it and thirteen non-NICNT instruments.
 
 That means two requested families could not be represented at all: **Kontakt Factory Library is not installed on this machine** (no such library folder exists under `Armory/VSTs`), and the other Session Guitarist libraries (Sunburst, Ruby, Picked Acoustic/Nylon, Strummed Acoustic 2) are NICNT libraries the oracle cannot load. The spread below is still deliberate: two session-guitar patches, two basses (one dry DI, one with printed reverb), two solo winds, a sax, an organ, a harpsichord, a synthetic loop, a processed string ensemble, a textural violin, a dry violin, and a synth.
