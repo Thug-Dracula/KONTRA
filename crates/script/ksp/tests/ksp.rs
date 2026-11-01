@@ -346,6 +346,24 @@ fn type_and_name_errors() {
     assert_eq!(e.line_column(source), (3, 1));
 }
 
+/// Fredonia Grand Organ writes a quote inside a string as `\"` in its help
+/// texts. The backslash ended the string early and the whole 461-control
+/// console script failed to compile, so the page it builds was never drawn.
+/// This is the shape of the source, reduced.
+#[test]
+fn a_string_with_an_escaped_quote_compiles_and_reads_back_unescaped() {
+    let r = Run::new(
+        "on init
+            declare @s := \"different divisions live on different keybeds or \\\"manuals\\\" on a real organ\"
+            message(@s)
+        end on",
+    );
+    assert_eq!(
+        r.host.messages,
+        ["different divisions live on different keybeds or \"manuals\" on a real organ"]
+    );
+}
+
 /// Areia's 275k-line script, from `KONTRA_AREIA_KSP` (a library dump; run
 /// with `--ignored`).
 fn areia() -> String {

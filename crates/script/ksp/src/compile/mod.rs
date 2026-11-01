@@ -314,7 +314,7 @@ fn prefix(name: &str) -> (Ty, bool) {
 struct Compiler<'a> {
     code: Vec<Op>,
     texts: Vec<Text>,
-    text_ids: HashMap<&'a str, u32>,
+    text_ids: HashMap<String, u32>,
     vars: Vec<Var>,
     /// Lowercase name → variable. Kontakt's names are case-sensitive (KSP
     /// reference, "Variables and Constants"); matching them case-insensitively
@@ -403,13 +403,13 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn text(&mut self, s: &'a str) -> u32 {
+    fn text(&mut self, s: &str) -> u32 {
         if let Some(&id) = self.text_ids.get(s) {
             return id;
         }
         let id = self.texts.len() as u32;
         self.texts.push(Text::from_str_cut(s).0);
-        self.text_ids.insert(s, id);
+        self.text_ids.insert(s.to_owned(), id);
         id
     }
 

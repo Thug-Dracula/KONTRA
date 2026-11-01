@@ -37,7 +37,7 @@ impl<'a> Compiler<'a> {
             ExprKind::Int(n) => Ok(self.constant(Value::Int(int_literal(*n, e.span)?))),
             ExprKind::Real(n) => Ok(self.constant(Value::Real(*n))),
             ExprKind::Str(s) => {
-                let id = self.text(s);
+                let id = self.text(&crate::lex::unescape(s));
                 self.emit(Op::Text(id));
                 Ok(Ty::Text)
             }

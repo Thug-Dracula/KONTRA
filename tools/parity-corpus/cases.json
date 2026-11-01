@@ -88,11 +88,11 @@
       },
       "why": "3,927 prepared zones and no round robin: the most deterministic case in the corpus, so its threshold is the floor the others are judged against.",
       "baseline": {
-        "level_db": -15.97,
-        "band_rms_db": 24.01,
-        "align_ms": 29.0,
+        "level_db": 0.16,
+        "band_rms_db": 0.38,
+        "align_ms": 31.0,
         "measured": "2026-11-01",
-        "kontra_sha256": "44ba265f9a9ff6aae2af2393ed780fa8fac1eaf440f1648d1dcaa4c8c51180c2"
+        "kontra_sha256": "6517979573a499204fd2df3cebcc7632b38ecb2dfc0eda67e9bc5b88fa8dbd69"
       }
     },
     {

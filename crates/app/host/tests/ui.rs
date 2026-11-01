@@ -107,6 +107,41 @@ fn the_tree_carries_what_init_set() {
     assert!(ui.unsupported.is_empty(), "{:?}", ui.unsupported);
 }
 
+/// Fredonia Grand Organ's organ console declares 461 controls, panels and all,
+/// and writes `\"manuals\"` inside one help string. The backslash ended the
+/// string early, the whole script failed to compile, and the editor drew the
+/// instrument's other script (a mixer) instead. This is the shape of it: the
+/// help text with an escaped quote, and a panel whose child is a control.
+#[test]
+fn a_help_text_with_an_escaped_quote_still_builds_its_panels() {
+    let ui = tree(
+        "on init
+            declare ui_panel $PanelStops
+            declare ui_knob $Swell (0, 127, 1)
+            set_control_par(get_ui_id($Swell), $CONTROL_PAR_PARENT_PANEL, get_ui_id($PanelStops))
+            set_control_par_str(get_ui_id($Swell), $CONTROL_PAR_HELP, \"different divisions live on different keybeds or \\\"manuals\\\" on a real organ\")
+            set_control_par(get_ui_id($PanelStops), $CONTROL_PAR_HIDE, $HIDE_WHOLE_CONTROL)
+        end on",
+    );
+    assert!(ui.unsupported.is_empty(), "{:?}", ui.unsupported);
+    assert_eq!(
+        widget(&ui, "$Swell").tooltip,
+        "different divisions live on different keybeds or \"manuals\" on a real organ"
+    );
+    assert!(
+        widget(&ui, "$PanelStops").hidden,
+        "the script hid the panel"
+    );
+    let panel = ui.widgets.iter().position(|w| w.name == "$PanelStops");
+    assert_eq!(widget(&ui, "$Swell").parent.map(|p| p.0), panel);
+    assert!(
+        !ui.visible(ui::WidgetRef(
+            ui.widgets.iter().position(|w| w.name == "$Swell").unwrap()
+        )),
+        "a control under a hidden panel is not shown"
+    );
+}
+
 #[test]
 fn a_performance_view_gives_its_controls_type_place_and_parent() {
     let view = br#"{"value":{"performanceView":{"size":{"width":700,"height":300},

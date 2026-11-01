@@ -1,5 +1,7 @@
 //! Tokens, then Kontakt's source-order condition preprocessor.
 
+use std::borrow::Cow;
+
 use crate::{Error, Span};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,6 +53,34 @@ fn word_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
+/// A string literal's raw text with its escaped quotes resolved: `\"` reads
+/// as `"`. Fredonia Grand Organ's help texts write `\"manuals\"` inside one
+/// string. Any other backslash pair is left exactly as the source has it,
+/// because nothing measured says what Kontakt makes of it.
+#[must_use]
+pub fn unescape(s: &str) -> Cow<'_, str> {
+    if !s.contains('\\') {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('"') => out.push('"'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    Cow::Owned(out)
+}
+
 /// Tokenizes `source`. Newlines carry no meaning; `...` continuations are skipped.
 pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Error> {
     if u32::try_from(source.len()).is_err() {
@@ -81,14 +111,27 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>, Error> {
                 continue;
             }
             b'"' => {
-                let end = s
-                    .get(i + 1..)
-                    .and_then(|r| r.iter().position(|&c| c == b'"' || c == b'\n'));
-                let Some(len) = end.filter(|&len| at(i + 1 + len) == b'"') else {
+                let mut j = i + 1;
+                let mut end = None;
+                while j < s.len() {
+                    match at(j) {
+                        // A backslash escapes the character after it, so a
+                        // quote inside a string does not end it (Fredonia's
+                        // help text writes `\"manuals\"`).
+                        b'\\' if j + 1 < s.len() && at(j + 1) != b'\n' => j += 2,
+                        b'"' => {
+                            end = Some(j);
+                            break;
+                        }
+                        b'\n' => break,
+                        _ => j += 1,
+                    }
+                }
+                let Some(end) = end else {
                     return Err(Error::new(Span::new(i, i + 1), "unterminated string"));
                 };
-                i += len + 2;
-                Tok::Str(text(start + 1, i - 1))
+                i = end + 1;
+                Tok::Str(text(start + 1, end))
             }
             b'.' => {
                 let ops = [
@@ -269,6 +312,33 @@ mod tests {
 
     fn toks(source: &str) -> Vec<Tok<'_>> {
         lex(source).unwrap().into_iter().map(|t| t.tok).collect()
+    }
+
+    /// Fredonia Grand Organ's help strings write a quote inside a string as
+    /// `\"`; the backslash used to end the string early and fail the whole
+    /// script's compile, so the instrument's console was never built.
+    #[test]
+    fn an_escaped_quote_stays_inside_the_string() {
+        let t = toks(r#"set_help("talk about \"manuals\" here")"#);
+        assert_eq!(t[1], Tok::P(P::LParen));
+        assert_eq!(t[2], Tok::Str(r#"talk about \"manuals\" here"#));
+        assert_eq!(t[3], Tok::P(P::RParen));
+        assert_eq!(
+            unescape("talk about \\\"manuals\\\" here"),
+            r#"talk about "manuals" here"#
+        );
+        assert_eq!(t.len(), 5, "one string token, then Eof");
+        // A string still cannot run past a newline.
+        assert!(lex("\"a\\\nb\"").is_err());
+    }
+
+    #[test]
+    fn a_backslash_that_escapes_nothing_is_kept_verbatim() {
+        assert_eq!(unescape(r"a\nb"), r"a\nb");
+        assert!(matches!(
+            unescape("plain"),
+            std::borrow::Cow::Borrowed("plain")
+        ));
     }
 
     #[test]
