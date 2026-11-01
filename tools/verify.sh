@@ -270,7 +270,7 @@ else
 fi
 
 echo "== layer 0/1: the style the review checklist claims =="
-# Neither this gate nor CI ran rustfmt or clippy before 2026-11-01, so the
+# Neither this gate nor CI ran rustfmt or clippy before 2026-10-31, so the
 # review checklist's "fmt and clippy clean on the touched crates" was a
 # convention with nothing behind it: a warning could be merged and nobody would
 # know for a week. Both are rows now, and both are strict.
