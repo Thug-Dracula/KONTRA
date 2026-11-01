@@ -6,6 +6,9 @@
 pub mod chorus;
 pub mod diffusion;
 
+#[cfg(test)]
+mod reference;
+
 use std::f64::consts::TAU;
 
 use kontra_dsp_core::{Biquad, Side, high_pass, shelf};

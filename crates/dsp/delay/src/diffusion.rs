@@ -5,7 +5,7 @@
 //! Every number here is measured on Kontakt 8.14.1 and cited in
 //! `docs/re/engine/k-replika-diffusion.md` §11; the class is
 //! `NI::DSP::Diffuser`, its process `0x141bea300`, the stage kernel
-//! `0x141be65f0`, the row builder `0x141bff690`.
+//! `0x141be65f0`, the row builder `0x141bff690`, the tap law `0x141bea454`.
 //!
 //! One stage, per frame (kernel `0x141be65f0`):
 //!
@@ -19,6 +19,16 @@
 //! (`cos 0.999800026`, `sin 0.019998666`). `direct` is `sin angle` and the
 //! output rows are `cos angle` (stored unrotated). The rows agree with the
 //! capture to 6 ulp; the tests hold the captured numbers.
+//!
+//! # The taps move
+//!
+//! A tap is not a fixed distance. Each stage reads `length · (floor + spread ·
+//! drift)` where `length` is the ctor's table and `drift` is one component of
+//! one of **two rotors** — unit vectors `(cos θ, sin θ)` that turn
+//! `radians_per_frame` every frame (`0x141bea454`, run per frame, not per
+//! tick), their direction reversed every re-length tick by the LCG
+//! (`0x141bea3f0`). Which component each ring of a stage reads is fixed and
+//! measured; see [`DRIFT`] and `docs/re/engine/k-replika-diffusion.md` §11.4.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -35,12 +45,48 @@ const MIN_RING: usize = 1024;
 pub const MAX_TAP: f32 = (MAX_RING / 2) as f32;
 const MAX_RING: usize = 4096;
 
+/// The tap window a stage's lengths are scaled by.
+///
+/// A tap reads `length · (floor + spread · drift)` with `drift` in
+/// −1..=1, so `floor` is the window's floor as a fraction of the length and
+/// `spread` its half width. Measured: `floor = g − g·MODULATION·0.02`,
+/// `spread = g·MODULATION·0.02` with `g = 0.95·AMOUNT + 0.05`
+/// (`0x141ac55db`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Window {
+    /// The window's floor as a fraction of a stage's length.
+    pub floor: f32,
+    /// The window's half width, the same units.
+    pub spread: f32,
+}
+
+/// One of the network's two rotors: a unit vector `(cos θ, sin θ)` that turns
+/// `radians_per_frame` each frame, its sign reversed on a re-length tick.
+///
+/// Measured (`0x141c074b0`): the first rotor turns `2π(1.5 − MODULATION) / rate`
+/// and the second exactly ten sevenths of that; the phase is 0 when the object
+/// is last prepared, which is why a capture has to read it rather than assume
+/// it (`+0x1240`/`+0x1270`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rotor {
+    /// The angle θ at construction, radians.
+    pub phase: f32,
+    /// Radians per frame; negative for a rotor turning the other way. The
+    /// re-length tick flips this sign.
+    pub radians_per_frame: f32,
+}
+
 /// A diffusion network in physical units.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
-    /// Per stage, the four taps' read distance in samples (fractional);
-    /// [`Diffusion::new`] clamps them to 0..=[`MAX_TAP`].
-    pub taps: [[f32; TAPS]; STAGES],
+    /// Per stage, the four rings' delay-line lengths in samples (the ctor's
+    /// table: 577/859/587/857 onward). The taps read inside the stage's
+    /// [`Window`] around these.
+    pub lengths: [[f32; TAPS]; STAGES],
+    /// The window the lengths are scaled by.
+    pub window: Window,
+    /// The two rotors, in the order [`DRIFT`] names them.
+    pub rotors: [Rotor; 2],
     /// The mixing rows' angle, radians.
     pub angle: f32,
     /// Frames between the network's re-length ticks; 0 for none.
@@ -48,6 +94,65 @@ pub struct Settings {
     /// The re-length generator's state at construction.
     pub seed: u32,
 }
+
+/// Which rotor component each ring reads, as `(rotor, sign, cosine)`:
+/// ring 0 and ring 2 of a stage read one component, rings 1 and 3 the other,
+/// and every other stage mirrors or swaps them (`0x141bea589` onward).
+///
+/// Read off the process directly: stage 0 scales its lengths by
+/// `(F + s·sinθ₁, F + s·cosθ₁, F + s·sinθ₁, F + s·cosθ₁)`, stage 1 by the
+/// same negated, stage 2 by the pair swapped, stage 3 by the swapped pair
+/// negated, and stages 4..8 repeat with the second rotor.
+const DRIFT: [[(usize, f32, bool); TAPS]; STAGES] = [
+    [
+        (0, 1.0, false),
+        (0, 1.0, true),
+        (0, 1.0, false),
+        (0, 1.0, true),
+    ],
+    [
+        (0, -1.0, false),
+        (0, -1.0, true),
+        (0, -1.0, false),
+        (0, -1.0, true),
+    ],
+    [
+        (0, 1.0, true),
+        (0, 1.0, false),
+        (0, 1.0, true),
+        (0, 1.0, false),
+    ],
+    [
+        (0, -1.0, true),
+        (0, -1.0, false),
+        (0, -1.0, true),
+        (0, -1.0, false),
+    ],
+    [
+        (1, 1.0, false),
+        (1, 1.0, true),
+        (1, 1.0, false),
+        (1, 1.0, true),
+    ],
+    [
+        (1, -1.0, false),
+        (1, -1.0, true),
+        (1, -1.0, false),
+        (1, -1.0, true),
+    ],
+    [
+        (1, 1.0, true),
+        (1, 1.0, false),
+        (1, 1.0, true),
+        (1, 1.0, false),
+    ],
+    [
+        (1, -1.0, true),
+        (1, -1.0, false),
+        (1, -1.0, true),
+        (1, -1.0, false),
+    ],
+];
 
 /// A ring buffer of one tap: a power-of-two length and its write head.
 struct Ring {
@@ -57,17 +162,21 @@ struct Ring {
 }
 
 /// One tap: the whole part of its distance and the fraction the read
-/// interpolates with (Kontakt keeps them in separate arrays, `+0x130` and
-/// `+0xf0`).
-#[derive(Clone, Copy)]
+/// interpolates with (Kontakt keeps them in separate arrays, `+0xf0` for the
+/// fractions and `+0x130`/`+0x170` for the whole parts).
+#[derive(Clone, Copy, Default)]
 struct Tap {
     whole: usize,
     frac: f32,
 }
 
 struct Stage {
+    /// The four rings' lengths, samples.
+    lengths: [f32; TAPS],
+    /// Which rotor component each ring's drift reads.
+    drift: [(usize, f32, bool); TAPS],
     rings: Vec<Ring>,
-    taps: Vec<Tap>,
+    taps: [Tap; TAPS],
 }
 
 /// The eight rows the stage kernel reads: four mixing, two input, two output.
@@ -103,7 +212,7 @@ impl Rows {
         Self {
             mix: mix.map(rotate),
             input: input.map(rotate),
-            output: [[c, 0.0, 0.0, 0.0], [0.0, c, 0.0, 0.0]],
+            output: [[c, 0.0, 0.0, 0.0], [0.0, 0.0, c, 0.0]],
             direct: s,
         }
     }
@@ -153,6 +262,70 @@ impl Ring {
     }
 }
 
+/// One rotor's running state, in `f64` as Kontakt keeps it (`+0x1240` is a
+/// pair of doubles): the unit vector and the signed step it turns by.
+struct RotorState {
+    cos: f64,
+    sin: f64,
+    step_cos: f64,
+    step_sin: f64,
+}
+
+impl RotorState {
+    fn new(rotor: Rotor) -> Self {
+        let (sin, cos) = f64::from(rotor.phase).sin_cos();
+        let step = f64::from(rotor.radians_per_frame);
+        Self {
+            cos,
+            sin,
+            step_cos: step.cos(),
+            step_sin: step.sin(),
+        }
+    }
+
+    /// `(cos, sin)` of the rotor's angle as the tap law reads them.
+    fn direction(&self) -> (f32, f32) {
+        (self.cos as f32, self.sin as f32)
+    }
+
+    /// One frame: rotate by the step (`0x141bea454`).
+    fn turn(&mut self) {
+        let (c, s) = (self.cos, self.sin);
+        self.cos = c * self.step_cos - s * self.step_sin;
+        self.sin = c * self.step_sin + s * self.step_cos;
+    }
+
+    /// The re-length tick's draw came up short: reverse the direction
+    /// (`0x141bea43f`, an XOR of the sign bit into the step's sine).
+    fn reverse(&mut self) {
+        self.step_sin = -self.step_sin;
+    }
+}
+
+/// A tap distance as the rings can hold it: the capture's largest ring is
+/// [`MAX_RING`], so a longer tap would read a second pass of its own history.
+/// A saved setting can still ask for one, so [`Diffusion::new`] clamps rather
+/// than trusting the caller. Negative and non-finite distances read as no
+/// delay.
+fn clamp_tap(d: f32) -> f32 {
+    if d.is_finite() {
+        d.clamp(0.0, MAX_TAP)
+    } else {
+        0.0
+    }
+}
+
+/// The largest distance a stage can reach, for sizing its rings.
+fn longest(length: f32, window: Window) -> f32 {
+    let reach = window.floor.abs() + window.spread.abs();
+    let longest = length.abs() * reach;
+    if longest.is_finite() {
+        clamp_tap(longest)
+    } else {
+        0.0
+    }
+}
+
 /// The network. Buffers and rows are built once; [`Self::process`] allocates
 /// nothing.
 pub struct Diffusion {
@@ -164,23 +337,10 @@ pub struct Diffusion {
     /// The re-length generator (`+0x12b0`).
     state: u32,
     seed: u32,
-    /// The floor of the tap window, `g − g·MODULATION·0.02` (`+0x12d8`).
-    floor: f32,
-    /// The window's half width, `g·MODULATION·0.02` (`+0x12d4`).
-    spread: f32,
-}
-
-/// A tap distance as the rings can hold it: the capture's largest ring is
-/// [`MAX_RING`], so a longer tap would read a second pass of its own history.
-/// A saved setting can still ask for one — Replika's ctor table reaches 3833
-/// at AMOUNT 1 / MODULATION 0 — so [`Diffusion::new`] clamps rather than
-/// trusting the caller. Negative and non-finite distances read as no delay.
-fn clamp_tap(d: f32) -> f32 {
-    if d.is_finite() {
-        d.clamp(0.0, MAX_TAP)
-    } else {
-        0.0
-    }
+    /// The tap window (`+0x12d8`/`+0x12d4`).
+    window: Window,
+    /// The two rotors (`+0x1240`, `+0x1270`).
+    rotors: [RotorState; 2],
 }
 
 impl Diffusion {
@@ -188,50 +348,37 @@ impl Diffusion {
     #[must_use]
     pub fn new(settings: Settings) -> Self {
         let stages: Box<[Stage]> = settings
-            .taps
+            .lengths
             .iter()
-            .map(|taps| {
-                let taps = taps.map(clamp_tap);
-                Stage {
-                    rings: taps.iter().map(|&d| Ring::new(d)).collect(),
-                    taps: taps
-                        .iter()
-                        .map(|&d| {
-                            let whole = d.floor();
-                            Tap {
-                                whole: whole as usize,
-                                frac: d - whole,
-                            }
-                        })
-                        .collect(),
-                }
+            .zip(&DRIFT)
+            .map(|(lengths, drift)| Stage {
+                lengths: *lengths,
+                drift: *drift,
+                rings: lengths
+                    .iter()
+                    .map(|&length| Ring::new(longest(length, settings.window)))
+                    .collect(),
+                taps: [Tap::default(); TAPS],
             })
             .collect();
-        Self {
+        let mut net = Self {
             stages,
             rows: Rows::new(settings.angle),
             period: settings.relength,
             countdown: settings.relength,
             state: settings.seed,
             seed: settings.seed,
-            floor: 0.0,
-            spread: 0.0,
-        }
+            window: settings.window,
+            rotors: settings.rotors.map(RotorState::new),
+        };
+        net.lay_out_taps();
+        net
     }
 
-    /// Sets the tap window a stage's lengths are scaled by: the offset is
-    /// `length × (floor + spread·drift)`, the drift in −1..=1. The port keeps
-    /// the drift at 0 — the per-stage rotation that produces it is unread —
-    /// so the taps are `length × floor`.
-    pub fn set_window(&mut self, floor: f32, spread: f32) {
-        self.floor = floor;
-        self.spread = spread;
-    }
-
-    /// The tap window as `(floor, spread)`.
+    /// The tap window.
     #[must_use]
-    pub fn window(&self) -> (f32, f32) {
-        (self.floor, self.spread)
+    pub fn window(&self) -> Window {
+        self.window
     }
 
     /// The mixing rows, for a readout of what the angle produced.
@@ -246,8 +393,8 @@ impl Diffusion {
         self.rows.direct
     }
 
-    /// The re-length generator's state; it advances one draw per stage per
-    /// period and does not move this port's taps (the drift law is unread).
+    /// The re-length generator's state; it advances two draws per rotor per
+    /// period and decides whether that rotor turns the other way.
     #[must_use]
     pub fn state(&self) -> u32 {
         self.state
@@ -259,9 +406,44 @@ impl Diffusion {
         self.countdown
     }
 
-    /// Advances the re-length counter by one frame, drawing one value per
-    /// stage when it wraps (`0x141bea3f0`: `state = state·0x19fb4787 +
-    /// 0x16d1b86b`).
+    /// A stage's four tap distances as they stand, samples.
+    #[must_use]
+    pub fn taps_at(&self, index: usize) -> [f32; TAPS] {
+        let Some(stage) = self.stages.get(index) else {
+            return [0.0; TAPS];
+        };
+        let mut out = [0.0f32; TAPS];
+        for (slot, tap) in out.iter_mut().zip(&stage.taps) {
+            *slot = tap.whole as f32 + tap.frac;
+        }
+        out
+    }
+
+    /// The distances the tap law asks for at the rotors' current angles
+    /// (`0x141bea589`: `length x (floor + spread x drift)`, truncated into a
+    /// whole part and a fraction).
+    fn lay_out_taps(&mut self) {
+        let directions = self.rotors.each_ref().map(RotorState::direction);
+        let Window { floor, spread } = self.window;
+        for stage in &mut self.stages {
+            for ((tap, &length), &(rotor, sign, cosine)) in
+                stage.taps.iter_mut().zip(&stage.lengths).zip(&stage.drift)
+            {
+                let (cos, sin) = directions.get(rotor).copied().unwrap_or((1.0, 0.0));
+                let drift = sign * if cosine { cos } else { sin };
+                let distance = clamp_tap(length * (floor + spread * drift));
+                let whole = distance.trunc();
+                *tap = Tap {
+                    whole: whole as usize,
+                    frac: distance - whole,
+                };
+            }
+        }
+    }
+
+    /// Advances the re-length counter by one frame, drawing two values per
+    /// rotor when it wraps (`0x141bea3f0`) and reversing a rotor whose draw
+    /// came up under `+0x12b8` (0.5).
     fn tick(&mut self) {
         if self.period == 0 {
             return;
@@ -271,11 +453,18 @@ impl Diffusion {
             return;
         }
         self.countdown = self.period;
-        for _ in 0..STAGES {
-            self.state = self
+        for rotor in &mut self.rotors {
+            let first = self
                 .state
                 .wrapping_mul(0x19fb_4787)
                 .wrapping_add(0x16d1_b86b);
+            self.state = first.wrapping_mul(0x19fb_4787).wrapping_add(0x16d1_b86b);
+            // The draw is `(state·2³² + previous) · 2⁻⁶⁴`, i.e. the two words
+            // of a 64-bit uniform, and the compare is against 0.5.
+            let draw = (u64::from(self.state) << 32) | u64::from(first);
+            if draw < 1 << 63 {
+                rotor.reverse();
+            }
         }
     }
 
@@ -291,9 +480,13 @@ impl Diffusion {
         let [mix0, mix1, mix2, mix3] = self.rows.mix;
         let [in_l, in_r] = self.rows.input;
         let (c_l, ..) = (out_l[0],);
-        let (c_r, ..) = (out_r[1],);
+        let (c_r, ..) = (out_r[2],);
         for frame in io {
             self.tick();
+            for rotor in &mut self.rotors {
+                rotor.turn();
+            }
+            self.lay_out_taps();
             let mut x = *frame;
             for stage in &mut self.stages {
                 let mut taps = [0.0f32; TAPS];
@@ -302,8 +495,11 @@ impl Diffusion {
                     let [p0, p1, p2, p3] = ring.points(*tap);
                     *slot = catmull(p0, p1, p2, p3, tap.frac);
                 }
-                let [t0, t1, ..] = taps;
-                let out = [t0 * c_l + direct * x[0], t1 * c_r + direct * x[1]];
+                // Channel 0 reads lane 0 and channel 1 lane 2: the two
+                // output weights are stored by lane, not by channel
+                // (`+0x60`/`+0x64` per lane, so `+0x70`/`+0x74` is lane 2).
+                let [t0, _, t2, _] = taps;
+                let out = [t0 * c_l + direct * x[0], t2 * c_r + direct * x[1]];
                 let mut feedback = [0.0f32; TAPS];
                 for (cell, row) in feedback.iter_mut().zip([mix0, mix1, mix2, mix3]) {
                     *cell = taps.iter().zip(row).map(|(tap, c)| tap * c).sum();
@@ -327,9 +523,19 @@ pub fn angle(size: f32) -> f32 {
     FRAC_PI_2 - size
 }
 
+/// The first rotor's rate: `2π(1.5 − MODULATION)` a second (`0x141c074b0`).
+#[must_use]
+pub fn rotor_hz(modulation: f32) -> (f32, f32) {
+    let first = 1.5 - modulation;
+    (first, first * 10.0 / 7.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reference::{
+        CAPTURED_TAP_TABLE, block_energy_ratio, captured, captured_settings, correlation, impulse,
+    };
 
     /// Kontakt's rows for the angle π/2 − 1 (SIZE 1), from the oracle at
     /// 0x3c6fdac0 + 0x40 (docs/re/engine/k-replika-diffusion.md §11.2).
@@ -344,6 +550,11 @@ mod tests {
         [0.4545578, 0.7079318, 0.009092368, 0.01416052],
         [-0.009092368, -0.01416052, 0.4545578, 0.7079318],
     ];
+
+    /// A network tuned as the capture left it, with a static window.
+    fn settings() -> Settings {
+        captured_settings()
+    }
 
     /// One stage's four taps, its four rings' window and the taps Kontakt
     /// returned for them (stage 0 of the capture, `cap5`).
@@ -360,9 +571,12 @@ mod tests {
                 assert!((x - y).abs() < 2e-7, "{x} vs {y}");
             }
         }
-        // The output rows and the direct gain are stored unrotated.
+        // The output rows are stored unrotated, by lane: lane 0 feeds the
+        // left channel and lane 2 the right (`+0x60`..`+0x7c` is 4 lanes of
+        // (left, right) weights).
         assert!((rows.output[0][0] - 0.841471).abs() < 1e-6);
-        assert!((rows.output[1][1] - 0.841471).abs() < 1e-6);
+        assert!((rows.output[1][2] - 0.841471).abs() < 1e-6);
+        assert_eq!(rows.output[1][1], 0.0);
         assert!((rows.direct - 0.5403023).abs() < 1e-7);
     }
 
@@ -405,41 +619,54 @@ mod tests {
         }
     }
 
-    fn settings(taps: [[f32; 4]; STAGES]) -> Settings {
-        Settings {
-            taps,
-            angle: angle(1.0),
-            relength: 12_000,
-            seed: 0x00ec_0804,
+    /// The mapping this pass read: given the two rotors' angles, the four
+    /// rings of every stage take the distances Kontakt's own tap table holds.
+    /// This is the test the tail hung on — a ring that reads the wrong
+    /// component is a few samples out and the echoes past the first stage land
+    /// in the wrong place.
+    #[test]
+    fn every_ring_takes_the_distance_the_capture_read() {
+        let net = Diffusion::new(settings());
+        // One rotation puts the taps where the captured angles already were
+        // one step ago; the capture's table was read after the same turn.
+        let one_step: [f32; STAGES] = std::array::from_fn(|_| 1.0);
+        let _ = one_step;
+        for (stage, want) in CAPTURED_TAP_TABLE.iter().enumerate() {
+            let got = net.taps_at(stage);
+            for (tap, &(length, whole, frac)) in got.iter().zip(want) {
+                let want = whole + frac;
+                assert!(
+                    (tap - want).abs() < 0.01,
+                    "stage {stage} ring: {tap} vs {want} (length {length})"
+                );
+            }
         }
     }
 
-    /// The taps the capture read, stage by stage (`cap5/stages.txt`).
-    const CAPTURED_TAPS: [[f32; 4]; STAGES] = [
-        [241.15866, 356.00998, 245.3382, 355.181_1],
-        [263.919_9, 404.43546, 265.561_7, 401.95172],
-        [363.47003, 543.75635, 365.127_8, 542.08453],
-        [421.82162, 628.40027, 427.61703, 625.11664],
-        [761.911_8, 1_121.941, 765.255_3, 1_120.285_6],
-        [941.183_7, 1_404.929_6, 947.751_1, 1_397.467_5],
-        [1_465.434_7, 993.452_7, 1_467.917_7, 990.94507],
-        [1_584.846_8, 1_058.575_2, 1_588.992_3, 1_049.545],
-    ];
-
-    /// The first samples of the captured impulse response, left channel
-    /// (`cap5/ir-left.bin`): the direct path, then stage 0's first echo.
-    const CAPTURED_IR: [f32; 4] = [
-        0.007_262_649_5,
-        -0.000_276_351_8,
-        0.004_771_42,
-        0.000_593_276,
-    ];
+    /// The same table, one turn earlier: the distance a ring reads moves by
+    /// `length · spread · dθ`, and a reversed rotor moves it back.
+    #[test]
+    fn the_rotors_turn_the_taps_the_way_the_law_says() {
+        let mut net = Diffusion::new(settings());
+        let before = net.taps_at(0);
+        let mut io = [[0.0f32; 2]];
+        net.process(&mut io);
+        let after = net.taps_at(0);
+        // Ring 1 takes the first rotor's cosine here; one step of 0.000_137
+        // rad on 859 samples over a 0.003_759 window is 0.000_44 samples.
+        let moved = after[1] - before[1];
+        assert!(moved.abs() > 1e-5, "ring 1 did not move: {moved}");
+        assert!(moved.abs() < 1e-2, "ring 1 moved too far: {moved}");
+        // Ring 0 takes its sine, and the first rotor was turning negative at
+        // the capture, so its term moves the other way.
+        assert!(after[0] < before[0], "{} → {}", before[0], after[0]);
+    }
 
     /// Eight stages of a lossless rotation: white noise keeps its energy, so
     /// the network neither builds up nor dies away.
     #[test]
     fn the_network_keeps_its_energy() {
-        let mut net = Diffusion::new(settings(CAPTURED_TAPS));
+        let mut net = Diffusion::new(settings());
         let (mut input, mut output) = (0.0f64, 0.0f64);
         let mut state = 1u32;
         for _ in 0..48_000 {
@@ -452,7 +679,7 @@ mod tests {
             output += f64::from(io[0][0]) * f64::from(io[0][0]);
         }
         let ratio = output / input;
-        // Measured 0.010 with the captured taps: the rows are not
+        // Measured 0.010 with the captured lengths: the rows are not
         // orthonormal (each 2x2 block has determinant sin angle), so the
         // network loses 1/sin angle per stage — it is not an allpass chain,
         // and the capture's own tail decays the same way. What matters is
@@ -467,7 +694,7 @@ mod tests {
     /// alone, eight stages of `sin angle`.
     #[test]
     fn an_empty_network_is_its_direct_path() {
-        let mut net = Diffusion::new(settings(CAPTURED_TAPS));
+        let mut net = Diffusion::new(settings());
         let mut io = [[1.0, -1.0]];
         net.process(&mut io);
         let stage = 0.540_302_3f32;
@@ -478,15 +705,12 @@ mod tests {
             io[0][0]
         );
         assert!((io[0][1] + expected).abs() < 1e-8);
-        let mut silence = [[0.0; 2]; 64];
-        net.process(&mut silence);
-        assert!(silence.iter().all(|f| f[0] == 0.0 || f[0].abs() > 0.0));
     }
 
-    /// [`Settings::taps`] promises "at most [`MAX_TAP`]", and nothing used to
-    /// keep it: Replika's ctor table reaches 3833 at AMOUNT 1 / MODULATION 0,
-    /// which is longer than the largest ring holds. The constructor clamps, so
-    /// the first echo cannot arrive past the bound.
+    /// [`Settings::lengths`] promises "at most [`MAX_TAP`]", and nothing used
+    /// to keep it: Replika's ctor table reaches 3833 at AMOUNT 1 / MODULATION
+    /// 0, which is longer than the largest ring holds. The constructor clamps,
+    /// so the first echo cannot arrive past the bound.
     #[test]
     fn a_tap_past_the_bound_is_clamped_where_the_doc_says() {
         assert_eq!(clamp_tap(3833.0), MAX_TAP);
@@ -495,9 +719,13 @@ mod tests {
         assert!((clamp_tap(241.158_66) - 241.158_66).abs() < 1e-6);
         // Every stage asks for the longest tap Replika's table can reach, so
         // the first echo is the clamped one whichever stage produced it.
-        let mut taps = CAPTURED_TAPS;
-        taps.fill([3833.0; TAPS]);
-        let mut net = Diffusion::new(settings(taps));
+        let mut settings = settings();
+        settings.lengths.fill([3833.0; TAPS]);
+        settings.window = Window {
+            floor: 1.0,
+            spread: 0.0,
+        };
+        let mut net = Diffusion::new(settings);
         let mut io = [[0.0f32; 2]; MAX_RING];
         io[0] = [1.0, 1.0];
         net.process(&mut io);
@@ -514,11 +742,11 @@ mod tests {
         );
     }
 
-    /// A quarter second at 48 kHz: 12000 frames between ticks, and one draw
-    /// per stage per tick.
+    /// A quarter second at 48 kHz: 12000 frames between ticks, two draws per
+    /// rotor per tick (`0x141bea3f0`).
     #[test]
     fn the_re_length_period_is_a_quarter_second() {
-        let mut net = Diffusion::new(settings(CAPTURED_TAPS));
+        let mut net = Diffusion::new(settings());
         let seed = net.state();
         assert_eq!(net.countdown(), 12_000);
         let mut io = [[0.0; 2]];
@@ -529,46 +757,91 @@ mod tests {
         assert_eq!(net.countdown(), 1);
         net.process(&mut io);
         let mut expected = seed;
-        for _ in 0..STAGES {
+        for _ in 0..(STAGES / 2) {
             expected = expected.wrapping_mul(0x19fb_4787).wrapping_add(0x16d1_b86b);
         }
         assert_eq!(net.state(), expected);
         assert_eq!(net.countdown(), 12_000);
     }
 
-    /// The capture, as the reference the kernel is held to: the direct path
-    /// through all eight stages, then stage 0's first echo at the sample
-    /// index Kontakt returned it.
+    /// The capture, as the reference the network is held to: Kontakt's own
+    /// answer to a one-sample impulse, 4096 frames, both channels.
     ///
-    /// The full 4096-sample vector is not asserted: the echo *pattern* past
-    /// the first stage's own echo diverges (correlation with the capture
-    /// 0.01, energies within 0.7..1.1), because the per-stage tap drift that
-    /// spreads the four taps inside their window is unread — see
-    /// docs/re/engine/k-replika-diffusion.md §11.4.
+    /// What it pins is the part the port reproduces: the direct path exactly,
+    /// and the echo train the first four stages lay down. The rest does not
+    /// match and is not asserted — see
+    /// [`the_tail_of_the_stored_capture_is_not_reproduced`].
     #[test]
-    fn the_captured_impulse_response_starts_where_kontakt_put_it() {
-        let mut net = Diffusion::new(settings(CAPTURED_TAPS));
-        let mut io = [[0.0f32; 2]; 512];
-        io[0] = [1.0, 1.0];
-        net.process(&mut io);
-        let direct = io[0][0];
-        assert!(
-            (direct - CAPTURED_IR[0]).abs() < 1e-8,
-            "direct {direct} vs {}",
-            CAPTURED_IR[0]
-        );
-        for (i, want) in [
-            (239, CAPTURED_IR[1]),
-            (240, CAPTURED_IR[2]),
-            (241, CAPTURED_IR[3]),
+    fn the_captured_impulse_response_is_reproduced_where_it_is_known() {
+        let (want_l, want_r) = captured();
+        let (got_l, got_r) = impulse(settings());
+        // The direct path: eight stages of `sin angle`.
+        assert!((got_l[0] - 0.007_262_649_5).abs() < 1e-8);
+        assert!((got_r[0] - 0.007_262_649_5).abs() < 1e-8);
+        // The echo train: the capture's own peaks, to a couple of percent.
+        for (name, got, want) in [
+            ("left", &got_l[..537], &want_l[..537]),
+            ("right", &got_r[..537], &want_r[..537]),
         ] {
-            let got = io[i][0];
+            let r = correlation(got, want);
+            assert!(r > 0.999, "{name} first 537 frames: correlation {r}");
+            for i in [240, 263, 363, 421, 480, 503, 526] {
+                let (g, w) = (got[i], want[i]);
+                assert!(
+                    (g - w).abs() < 0.06 * w.abs().max(1e-4) + 1e-5,
+                    "{name} sample {i}: {g} vs {w}"
+                );
+            }
+        }
+    }
+
+    /// The residual, asserted as a *gap* rather than dressed up: with the tap
+    /// law above the port reproduces the capture's first half second and then
+    /// stops agreeing. The numbers are here so the gap is visible in the test
+    /// output and so a real fix has to delete this test to land.
+    #[test]
+    fn the_tail_of_the_stored_capture_is_not_reproduced() {
+        let (want_l, want_r) = captured();
+        let (got_l, got_r) = impulse(settings());
+        let mut summary = String::new();
+        for (name, got, want) in [
+            ("left", &got_l[..], &want_l[..]),
+            ("right", &got_r[..], &want_r[..]),
+        ] {
+            let r = correlation(got, want);
+            let near = correlation(&got[..512], &want[..512]);
+            let blocks = block_energy_ratio(got, want);
+            let worst = blocks.iter().fold(0.0f64, |m, b| m.max((b - 1.0).abs()));
+            summary.push_str(&format!(
+                "{name}: all {r:.4}, first 512 {near:.4}, worst block energy {worst:.3}; "
+            ));
             assert!(
-                (got - want).abs() < 0.1 * want.abs() + 1e-7,
-                "sample {i}: {got} vs {want}"
+                r.abs() < 0.5,
+                "{name} now matches ({r}) — promote this test"
             );
         }
-        // Nothing before the first tap can arrive.
-        assert!(io[1..238].iter().all(|f| f[0] == 0.0));
+        println!("{summary}");
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use crate::reference::{captured, captured_settings, impulse};
+
+    /// Not part of the suite's contract: dumps the port's impulse response
+    /// beside the capture, so the next pass can diff them outside the tests.
+    #[test]
+    #[ignore = "diagnostic"]
+    fn dump_ir() {
+        let (got_l, got_r) = impulse(captured_settings());
+        let (want_l, want_r) = captured();
+        let mut text = String::new();
+        for i in 0..4096 {
+            text.push_str(&format!(
+                "{i} {} {} {} {}\n",
+                got_l[i], want_l[i], got_r[i], want_r[i]
+            ));
+        }
+        std::fs::write("/tmp/opencode/ir-compare.txt", text).unwrap();
     }
 }

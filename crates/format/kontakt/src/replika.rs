@@ -166,10 +166,6 @@ pub(crate) fn lost(r: Replika) -> impl Iterator<Item = &'static str> {
     [
         // Diffusion renders; the other three are only named.
         (!matches!(r.mode, 0 | 4), mode),
-        // The captured network's taps move inside their window every quarter
-        // second; which products land where is unread, so the port holds
-        // them still (docs/re/engine/k-replika-diffusion.md §11.4).
-        (r.mode == 4, Some("Replika diffusion tap drift")),
         (r.depth > 0.0, Some("Replika modulation")),
         (r.beats.is_some(), Some("Replika tempo sync")),
         (!r.stereo && !r.pingpong, Some("Replika mono mode")),
@@ -203,17 +199,24 @@ const DIFFUSION_LENGTHS: [[f32; 4]; 8] = [
 const DIFFUSION_RATE: u32 = 48_000;
 
 /// The saved knobs' effect on the network, all measured
-/// (`0x141ac54b0`, cases 0..3): the rows turn by `π/2 − SIZE`, the taps of a
-/// stage scale by `g − g·MODULATION·0.02` with `g = 0.95·AMOUNT + 0.05`, and
-/// the network re-lengths a quarter second apart.
+/// (`0x141ac54b0`, cases 0..3 and `0x141c074b0`): the rows turn by
+/// `π/2 − SIZE`, every ring reads `length · (floor + spread · drift)` with
+/// `floor = g − spread`, `spread = g·MODULATION·0.02` and `g = 0.95·AMOUNT +
+/// 0.05`, the two drift rotors turn `1.5 − MODULATION` Hz and ten sevenths of
+/// that, and the network re-lengths a quarter second apart.
 pub(crate) fn diffusion(r: Replika) -> ir::Diffusion {
     let g = 0.95 * r.amount.clamp(0.0, 1.0) + 0.05;
     let spread = g * r.modulation.clamp(0.0, 1.0) * 0.02;
-    let scale = g - spread;
-    let taps = DIFFUSION_LENGTHS.map(|lengths| lengths.map(|length| length * scale));
+    let first = 1.5 - r.modulation.clamp(0.0, 1.0);
     ir::Diffusion {
-        taps,
+        lengths: DIFFUSION_LENGTHS,
         rate: DIFFUSION_RATE,
+        window: (g - spread, spread),
+        rotor_hz: (first, first * 10.0 / 7.0),
+        // The object starts both rotors at phase 0 when it is prepared
+        // (`0x141be4080`'s `+ 1.0` into the pair); a render therefore begins
+        // where a freshly loaded Kontakt does.
+        rotor_phase: (0.0, 0.0),
         angle: std::f32::consts::FRAC_PI_2 - r.size.clamp(0.0, 1.0),
         relength_s: 0.25,
         seed: 0,
@@ -392,20 +395,18 @@ mod tests {
         let Some(ir::EffectKind::Diffusion(d)) = effect(r) else {
             panic!("type 4 must render as a diffusion network");
         };
-        // The captured network's own angle and tap scale
-        // (docs/re/engine/vectors/replika-diffusion-taps.tsv: stage 0's taps
-        // 241/356/245/355 against the ctor's 577/859/587/857 = 0.4142).
+        // The captured network's own angle, lengths and window
+        // (docs/re/engine/vectors/replika-diffusion-taps.tsv: stage 0's rings
+        // 577/859/587/857 read 241/356/245/355, i.e. a floor of 0.4142).
         assert!((d.angle - 0.570_796_4).abs() < 1e-6, "{}", d.angle);
+        assert_eq!(d.lengths[0], [577.0, 859.0, 587.0, 857.0]);
+        assert!((d.window.0 - 0.414_201_74).abs() < 1e-6, "{}", d.window.0);
         assert!(
-            (d.taps[0][0] / 577.0 - 0.414_2).abs() < 1e-3,
+            (d.window.1 - 0.003_758_912_2).abs() < 1e-9,
             "{}",
-            d.taps[0][0]
+            d.window.1
         );
-        assert!((d.taps[0][0] - 239.0).abs() < 1.5, "{}", d.taps[0][0]);
-        assert_eq!(
-            lost(r).collect::<Vec<_>>(),
-            ["Replika diffusion tap drift", "Replika tempo sync"]
-        );
+        assert_eq!(lost(r).collect::<Vec<_>>(), ["Replika tempo sync"]);
         assert_eq!(saved(0x13, &bytes(V11_RECORD)), None);
     }
 
@@ -431,15 +432,18 @@ mod tests {
         };
         assert!((d.angle - 0.570_796_4).abs() < 1e-6);
         assert!((d.relength_s - 0.25).abs() < 1e-9);
-        // Stage 0's taps against the capture (241.15866, 356.00998, 245.3382,
-        // 355.18109): the capture's taps sat inside the window, the port
-        // uses its floor, so they agree to the window's width.
-        let want = [241.158_66, 356.009_98, 245.338_2, 355.181_09];
-        for (tap, want) in d.taps[0].iter().zip(want) {
-            assert!((tap - want).abs() < 0.02 * want, "{tap} vs {want}");
-        }
+        // The window is the one the capture read (floor 0.4142, spread
+        // 0.003759), and the two rotors turn `1.5 − MODULATION` and ten
+        // sevenths of it (`0x141c074b0`).
+        assert!((d.window.0 - 0.414_201_74).abs() < 1e-6, "{}", d.window.0);
+        assert!((d.window.1 - 0.003_758_91).abs() < 1e-8, "{}", d.window.1);
+        assert!((d.rotor_hz.0 - 1.050_327).abs() < 1e-5, "{}", d.rotor_hz.0);
+        assert!((d.rotor_hz.1 - 1.050_327 * 10.0 / 7.0).abs() < 1e-5);
+        assert_eq!(d.rotor_phase, (0.0, 0.0));
+        // The lengths are the ctor's table, not the scaled taps.
+        assert_eq!(d.lengths[0], [577.0, 859.0, 587.0, 857.0]);
         // The last stage is the longest pair.
-        assert!(d.taps[7][0] > 1500.0 && d.taps[7][1] > 1000.0);
+        assert!(d.lengths[7][0] > 3800.0 && d.lengths[7][1] > 2500.0);
         // And SIZE 0 turns the rows a quarter turn further.
         let open = diffusion(Replika { size: 0.0, ..r });
         assert!((open.angle - std::f32::consts::FRAC_PI_2).abs() < 1e-6);

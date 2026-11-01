@@ -168,21 +168,35 @@ pub const DIFFUSION_TAPS: usize = 4;
 /// ring buffers read at four fractional taps, mixed by a 4×4 whose rows are
 /// built from one angle (docs/re/engine/k-replika-diffusion.md §11).
 ///
-/// The tap distances arrive as data, as read delays **in samples at
-/// [`Self::rate`]**: which saved knob sets the size and how the per-stage
-/// drift moves the taps inside its window is measured in part only, so the
-/// format, not the DSP, decides the positions. The rate is what makes those
-/// sample counts a time — a format bakes its tap table for 48 kHz, so the
-/// network scales them for the rate it is built at. Without it a 44.1 kHz
-/// render played every delay line 8.8 % short, while [`Self::relength_s`] next
-/// to it was already in seconds.
+/// The tap distances arrive as data, as the stage lengths **in samples at
+/// [`Self::rate`]** and the window they are scaled by: which saved knob sets
+/// the size and how the per-stage drift moves the taps inside its window is
+/// measured (`docs/re/engine/k-replika-diffusion.md` §11.4), but the format,
+/// not the DSP, decides the lengths. The rate is what makes those sample
+/// counts a time — a format bakes its table for 48 kHz, so the network scales
+/// them for the rate it is built at. Without it a 44.1 kHz render played every
+/// delay line 8.8 % short, while [`Self::relength_s`] next to it was already
+/// in seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Diffusion {
-    /// Per stage, the four taps' read distance in samples at [`Self::rate`]
-    /// (fractional).
-    pub taps: [[f32; DIFFUSION_TAPS]; DIFFUSION_STAGES],
-    /// The rate [`Self::taps`] is a sample count of.
+    /// Per stage, the four rings' delay-line lengths in samples at
+    /// [`Self::rate`].
+    pub lengths: [[f32; DIFFUSION_TAPS]; DIFFUSION_STAGES],
+    /// The rate [`Self::lengths`] is a sample count of.
     pub rate: u32,
+    /// The tap window: a ring reads `length · (floor + spread · drift)` with
+    /// the drift in −1..=1, so `floor` is the window's floor as a fraction of
+    /// the length and `spread` its half width (measured:
+    /// `floor = g − g·MODULATION·0.02`, `spread = g·MODULATION·0.02`,
+    /// `g = 0.95·AMOUNT + 0.05`).
+    pub window: (f32, f32),
+    /// The two drift rotors' rates, Hz (measured: `1.5 − MODULATION`, and
+    /// exactly ten sevenths of it).
+    pub rotor_hz: (f32, f32),
+    /// The rotors' phases at construction, radians. Kontakt starts them both
+    /// at 0 when the object is prepared; they are carried here so a capture
+    /// can be held to its own instant.
+    pub rotor_phase: (f32, f32),
     /// The mixing rows' angle, radians (measured: π/2 − SIZE).
     pub angle: f32,
     /// Seconds between the network's re-length ticks; 0 for none
