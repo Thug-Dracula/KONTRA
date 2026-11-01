@@ -829,7 +829,6 @@ fn pan_gains(gain: f32, pan: f32) -> (f32, f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::rack::{Rack, Store, StoreConfig};
 
     /// A block the host asked for while the other side holds the audio side

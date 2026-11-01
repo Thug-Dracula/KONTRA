@@ -31,11 +31,6 @@ pub(super) struct Widget<'a> {
     pub source: &'a model::Widget,
     pub rect: model::Rect,
     pub picture: Option<Picture<'a>>,
-    /// The pictured control this widget is painted on: the inner region of
-    /// the last picture behind its centre, in the same coordinates. A text
-    /// field on one is that control's own text: it draws no frame of its own
-    /// (`stock::shows`) and stays inside the region (`inside`).
-    pub ground: Option<model::Rect>,
     pub style: Option<&'a model::TextStyle>,
     pub position: f64,
     pub look: Option<stock::Look>,
@@ -140,7 +135,6 @@ pub(super) fn page<'a>(
                 index,
                 source: w,
                 rect,
-                ground,
                 picture,
                 style,
                 position,
@@ -628,17 +622,16 @@ mod tests {
             .find(|w| w.index == WidgetRef(1))
             .expect("the name field is on the page");
 
-        // The plate it is painted on, one pixel clear of the plate's frame.
-        assert_eq!(
-            field.ground,
-            Some(model::Rect::new(447, 33, 169, 19)),
-            "the field did not find the plate it sits on"
-        );
         assert!(
             !field.stock,
             "the field drew a frame of its own over the plate: a flat edge \
              inside a graded one reads as an overlay, not as the plate's text"
         );
+        // The plate is 447..616 by 33..52 and the field asked for 37..55: the
+        // 15 is the field brought inside the plate's inner region, so this
+        // assertion fails if the plate is not found or is not 19 rows tall.
+        // It used to read the plate's rect off the widget; the field carried
+        // one for nobody, and a field only a test reads is dead weight.
         assert_eq!(
             field.rect,
             model::Rect::new(455, 37, 128, 15),
