@@ -379,7 +379,7 @@ impl Engine {
                     kind: m.kind,
                     source: input.and_then(|s| {
                         self.source(zone, s, note, age)
-                            .map(|x| self.inverted(m.invert, s, x))
+                            .map(|x| self.inverted(m.invert, x))
                     }),
                     routed: input.and_then(|s| self.routed(zone, s, note, age, m.invert)),
                 });

@@ -140,7 +140,7 @@ impl Engine {
                     .and_then(|r| r.get_mut(usize::from(side)))
             {
                 let input = self.source(zone, source, note, age);
-                let value = input.map_or(1.0, |x| self.inverted(m.invert, source, x));
+                let value = input.map_or(1.0, |x| self.inverted(m.invert, x));
                 #[cfg(feature = "trace")]
                 self.trace_route(zone, m, input, value, crate::RouteUnit::MixMultiplier);
                 *cell *= value;
@@ -214,7 +214,7 @@ impl Engine {
                             depth,
                         } if l == n && !matches!(source, ir::Source::Lfo(_)) => {
                             let input = self.source(zone, source, note, Age::START);
-                            let x = input.map(|x| self.inverted(m.invert, source, x));
+                            let x = input.map(|x| self.inverted(m.invert, x));
                             let value = x.unwrap_or(0.0) * depth;
                             #[cfg(feature = "trace")]
                             self.trace_route(zone, m, input, value, crate::RouteUnit::PhaseCycles);
@@ -228,7 +228,7 @@ impl Engine {
                             range_hz: [lo, hi],
                         } if l == n && !matches!(source, ir::Source::Lfo(_)) => {
                             let input = self.source(zone, source, note, Age::START);
-                            let x = input.map(|x| self.inverted(m.invert, source, x));
+                            let x = input.map(|x| self.inverted(m.invert, x));
                             let f = (x.unwrap_or(0.0) * depth * octaves).exp2();
                             #[cfg(feature = "trace")]
                             self.trace_route(zone, m, input, f, crate::RouteUnit::RateMultiplier);
@@ -308,14 +308,14 @@ impl Engine {
         invert: bool,
     ) -> Option<f32> {
         let x = self.source(zone, source, note, age)?;
-        let x = self.inverted(invert, source, x);
+        let x = self.inverted(invert, x);
         Some(x * self.scale(zone, source, note, age))
     }
 
     /// A route's source read as its `invert` flag sets it
     /// (`$MOD_TARGET_INVERT_SOURCE`): see [`inverted`].
-    pub(crate) fn inverted(&self, invert: bool, source: ir::Source, raw: f32) -> f32 {
-        inverted(invert, source, raw)
+    pub(crate) fn inverted(&self, invert: bool, raw: f32) -> f32 {
+        inverted(invert, raw)
     }
 
     /// `s` on 0..=1: a bipolar source read as `(x + 1)/2`.
@@ -328,7 +328,7 @@ impl Engine {
         invert: bool,
     ) -> Option<f32> {
         let x = self.source(zone, s, note, age)?;
-        let x = self.inverted(invert, s, x);
+        let x = self.inverted(invert, x);
         Some(match s {
             ir::Source::Lfo(_) | ir::Source::PitchBend => (x + 1.0) * 0.5,
             _ => x,
@@ -419,7 +419,7 @@ impl Engine {
                 && let Some(x) = self.source(zone, source, note, Age::START)
                 && let Some(s) = shift.get_mut(usize::from(length))
             {
-                let value = self.inverted(m.invert, source, x) * depth;
+                let value = self.inverted(m.invert, x) * depth;
                 #[cfg(feature = "trace")]
                 self.trace_route(zone, m, Some(x), value, crate::RouteUnit::LoopFraction);
                 *s += value;
@@ -444,7 +444,7 @@ impl Engine {
                         ir::Source::HeldTime { span_ms } => kontra_plan::held_time(span_ms, held),
                         source => self.source(zone, source, note, Age::START)?,
                     };
-                    let value = self.inverted(m.invert, source, x) * depth;
+                    let value = self.inverted(m.invert, x) * depth;
                     #[cfg(feature = "trace")]
                     self.trace_route(
                         zone,
@@ -488,7 +488,7 @@ impl Engine {
             };
             let x = match source {
                 ir::Source::HeldTime { span_ms } => {
-                    Some(self.inverted(m.invert, source, kontra_plan::held_time(span_ms, held)))
+                    Some(self.inverted(m.invert, kontra_plan::held_time(span_ms, held)))
                 }
                 // Outside the signed families the law compiler (FUN_140873040)
                 // reads a bipolar source without `frange_bi`: 0..=1.
@@ -534,7 +534,7 @@ impl Engine {
                         ..
                     } => {
                         let raw = kontra_plan::held_time(ms, held);
-                        let x = self.inverted(m.invert, ir::Source::HeldTime { span_ms: ms }, raw);
+                        let x = self.inverted(m.invert, raw);
                         curve.gain(intensity, x)
                     }
                     _ => 1.0,
@@ -582,29 +582,43 @@ impl Engine {
 }
 
 /// A route's source read as its `invert` flag sets it
-/// (`$MOD_TARGET_INVERT_SOURCE`): the source mirrored over the middle of its
-/// domain, with its magnitude kept and its direction reversed.
+/// (`$MOD_TARGET_INVERT_SOURCE`): the value negated about zero.
 ///
-/// A bipolar source ([`ir::Source::Lfo`], [`ir::Source::PitchBend`]) is negated
-/// raw, and [`Engine::unit`] normalises it to `(x + 1)/2` *after* this, so `-x`
-/// reads `1 − (x + 1)/2`: the same mirror on 0..=1 that every other source,
-/// already 0..=1, gets as `1 − x`. The order (source, then invert, then the
-/// law and the depth) is the one `docs/architecture-v3/gold/modulation.md` §6.2
-/// records for a route.
+/// Measured, not inferred. `FX - Funky MW - Harpsichord` (Soundiron Harpsichord)
+/// routes its filter cutoff from the mod wheel and carries the patch's own
+/// INVERT switch in the FILTER section, so one load of it renders both states:
+/// nine wheel positions with the flag off, the switch clicked, the same nine
+/// with it on (`docs/re/kontakt-invert-source-2026-11-01.md`). The flag's fixed
+/// point is the bottom of the range, not its middle:
 ///
-/// Not a measured Kontakt law: `docs/re/ksp/SYMBOLS.tsv` lists
-/// `$MOD_TARGET_INVERT_SOURCE` as a symbolic identity with no native value or
-/// behaviour read from the binary, so neither branch has an address or a probe
-/// behind it — no probe in `tools/kontakt-oracle/probes` sets it. The branches
-/// are pinned by the tests below; a capture would settle them.
-pub(crate) fn inverted(invert: bool, source: ir::Source, raw: f32) -> f32 {
-    if !invert {
-        return raw;
-    }
-    match source {
-        ir::Source::Lfo(_) | ir::Source::PitchBend => -raw,
-        _ => 1.0 - raw,
-    }
+/// - Wheel 0 is the *same render* either way — centroid 278 Hz against 277,
+///   nothing above −61 dBFS in the 4–16 kHz band either way. A mirror about
+///   the middle would have put the inverted reads at the bright end instead:
+///   wheel 127 reads 926 Hz and −12.5 dBFS in the same band.
+/// - Wheel 16, 32 and 48 land at 253, 124 and 42 Hz — darker than wheel 0,
+///   and darker than anything the un-inverted route reaches at any wheel
+///   position, so the inverted read goes *below* the range rather than folding
+///   back into it. A curve clamped at zero cannot do that: it would hold
+///   wheel 16 and 32 at wheel 0's value.
+/// - Wheel 64 and up put the cutoff under the fundamental: peak −66 dBFS and
+///   RMS −78, against wheel 0's −27 and −53.
+///
+/// So a unipolar source (`0..=1`) reads `0..=−1`, not `1..=0` — not the
+/// complement. [`Engine::unit`] normalises a bipolar source ([`ir::Source::Lfo`],
+/// [`ir::Source::PitchBend`]) to `(x + 1)/2` *after* this, so `-x` there reads
+/// `1 − u`: the same negation one domain over. That branch is not measured —
+/// no instrument this reader accepts stores the flag set (the 21 patches that
+/// name the symbol hold 0, and every script-source route in the library is
+/// `invert false`), so only a patch's own switch could set it and none of those
+/// routes carries an LFO — but it is the same law, and negating a bipolar value
+/// is the identity on its domain (`-(-1..=1) = 1..=-1`).
+///
+/// A negative read lands wherever its target can take one: a cutoff route
+/// lowers the cutoff (the measurement above), and a volume route's `Curve`
+/// clamps it to its floor, as [`ir::Curve::gain`] does with any value off its
+/// 0..=1 domain.
+pub(crate) fn inverted(invert: bool, raw: f32) -> f32 {
+    if invert { -raw } else { raw }
 }
 
 // ponytail: balance pan law only; equal-power and Kontakt's raised cosine
@@ -622,29 +636,53 @@ fn gain(zone: &Zone, note: &Note, level: Level, modulated: f32) -> [f32; 2] {
 mod tests {
     use super::*;
 
-    /// `Engine::unit` reads a bipolar source as `(x + 1)/2` after the invert,
-    /// so negating the raw value mirrors the normalised one about 0.5.
+    /// The measured law: the flag negates the source, so its fixed point is
+    /// the bottom of a unipolar range and the middle of a bipolar one.
     #[test]
-    fn an_inverted_route_mirrors_bipolar_and_unipolar_sources() {
+    fn an_inverted_route_negates_its_source() {
         let unit = |x: f32| (x + 1.0) * 0.5;
-        // Pitch bend a quarter of the way up, and an LFO below centre.
+        // Pitch bend a quarter of the way up, and an LFO below centre: the
+        // negation is the mirror on a bipolar source's own domain.
         for raw in [0.25f32, -0.5] {
-            let mirrored = inverted(true, ir::Source::PitchBend, raw);
-            assert_eq!(mirrored, -raw, "bipolar raw {raw}");
+            let negated = inverted(true, raw);
+            assert_eq!(negated, -raw, "bipolar raw {raw}");
             assert_eq!(
-                unit(mirrored),
+                unit(negated),
                 1.0 - unit(raw),
                 "bipolar unit {raw} is not the mirror"
             );
         }
-        assert_eq!(inverted(true, ir::Source::Lfo(0), 0.5), -0.5);
-        // Already 0..=1: the mirror is the complement.
-        assert_eq!(inverted(true, ir::Source::Controller(11), 0.25), 0.75);
-        assert_eq!(inverted(true, ir::Source::Script(1), 0.0), 1.0);
-        let eight = 0.8f32;
-        assert_eq!(inverted(true, ir::Source::Constant, eight), 1.0 - eight);
+        // Unipolar sources read 0..=-1, not 1..=0: wheel 0 is the same render
+        // either way (docs/re/kontakt-invert-source-2026-11-01.md).
+        assert_eq!(inverted(true, 0.0), 0.0);
+        assert_eq!(inverted(true, 0.25), -0.25);
+        assert_eq!(inverted(true, 32.0 / 127.0), -(32.0 / 127.0));
+        assert_eq!(inverted(true, 1.0), -1.0);
         // Without the flag the source reads as it is.
-        assert_eq!(inverted(false, ir::Source::PitchBend, 0.25), 0.25);
-        assert_eq!(inverted(false, ir::Source::Controller(11), 0.25), 0.25);
+        assert_eq!(inverted(false, 0.25), 0.25);
+        assert_eq!(inverted(false, 0.0), 0.0);
+    }
+
+    /// The points the law was read from, as the slope they imply: a route's
+    /// cutoff falls as an inverted wheel rises, and starts where it started.
+    #[test]
+    fn an_inverted_wheel_walks_the_cutoff_down_from_its_unmodulated_value() {
+        // A route at six octaves of depth, as `voice_filter` adds it: depth
+        // times the inverted source.
+        let octaves = |wheel: u8, invert: bool| inverted(invert, f32::from(wheel) / 127.0) * 6.0;
+        // Wheel 0 is the fixed point: the flag changes nothing there, which is
+        // what separates a negation from a mirror about the middle.
+        assert_eq!(octaves(0, true), 0.0);
+        assert_eq!(octaves(0, true), octaves(0, false));
+        // Every other position falls below the unmodulated cutoff, and further
+        // the higher the wheel. `1 - x` would rise toward the fixed point here
+        // instead of walking away from it.
+        let mut last = 0.0;
+        for wheel in [16u8, 32, 48, 64, 96, 127] {
+            let at = octaves(wheel, true);
+            assert!(at < last, "wheel {wheel} did not fall further");
+            last = at;
+        }
+        assert!(last < -5.0, "the inverted route never neared the floor");
     }
 }

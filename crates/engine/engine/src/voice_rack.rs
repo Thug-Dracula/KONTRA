@@ -183,7 +183,7 @@ impl Engine {
                 && i == insert
             {
                 let input = self.source(zone, source, note, age);
-                let x = input.map(|x| self.inverted(m.invert, source, x));
+                let x = input.map(|x| self.inverted(m.invert, x));
                 let x = match source {
                     ir::Source::Lfo(_) if unipolar => (x.unwrap_or(0.0) + 1.0) * 0.5,
                     _ => x.unwrap_or(0.0),

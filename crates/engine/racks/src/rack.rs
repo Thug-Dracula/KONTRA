@@ -82,7 +82,7 @@ impl Rack {
     }
 
     /// As [`Self::new`], its slots moved by `mods` reading `blends`. A route's
-    /// `invert` flag is not read here: the single mirroring law lives in
+    /// `invert` flag is not read here: the single negation law lives in
     /// `voice_gain::inverted`, where a route is read per voice.
     pub fn routed(
         slots: &[Option<ir::Effect>],

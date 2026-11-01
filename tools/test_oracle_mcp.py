@@ -49,6 +49,32 @@ class Midi(unittest.TestCase):
             self.assertAlmostEqual(meta["duration_s"], 2.0, places=3)
             self.assertAlmostEqual(om.midi_info(path)["duration_s"], 2.0, places=3)
 
+    def test_a_controller_sent_at_zero_precedes_the_first_note(self):
+        # A patch that reads its mod wheel at note-on has to see the wheel's
+        # position already moved when the note arrives, so the CC event must
+        # sort ahead of a note-on on the same or a later tick.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "wheel.mid"
+            meta = om.write_midi(
+                path,
+                [{"start_s": 0.05, "length_s": 1.5, "key": 60, "velocity": 100}],
+                ccs=[{"at_s": 0.0, "cc": 1, "value": 64}],
+            )
+            self.assertEqual(meta["ccs"], 1)
+            self.assertAlmostEqual(meta["duration_s"], 1.55, places=3)
+            data = path.read_bytes()
+            cc, on = data.find(b"\x00\xb0\x01\x40"), data.find(b"\x30\x90\x3c\x64")
+            self.assertGreaterEqual(cc, 0, "the wheel's position is not in the file")
+            self.assertGreaterEqual(on, 0)
+            self.assertLess(cc, on, "the wheel's position follows the note-on")
+
+    def test_bad_controllers_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "c.mid"
+            for bad in ([{"cc": 200, "value": 0}], [{"cc": 1, "value": 0, "at_s": -1}]):
+                with self.assertRaises(om.ToolError):
+                    om.write_midi(path, [{"key": 60, "length_s": 1}], ccs=bad)
+
     def test_bad_notes_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "c.mid"

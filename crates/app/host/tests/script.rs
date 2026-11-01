@@ -795,7 +795,7 @@ fn route_intensities_follow_kontakts_laws() {
 }
 
 #[test]
-fn a_route_reads_its_source_mirrored_when_inverted() {
+fn an_inverted_route_reads_its_source_negated() {
     use kontra_engine::ir;
     let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
     let route = || ir::Mod {
@@ -835,16 +835,34 @@ fn a_route_reads_its_source_mirrored_when_inverted() {
     };
     let mut plain = engine(&mut store, false);
     let mut inverted = engine(&mut store, true);
-    // The route reads the controller's 32/127 as is, or mirrored as 1 − 32/127.
     assert_eq!(plain.last_message(), "0");
     assert_eq!(inverted.last_message(), "1");
     assert_eq!(plain.stats().actions_unhandled, 0);
     assert_eq!(inverted.stats().actions_unhandled, 0);
     let x = 32.0 / 127.0;
-    let l = level(&mut plain, &[on(60)]);
-    assert!((l - 0.5 * x).abs() < 1e-3, "{l}");
-    let l = level(&mut inverted, &[on(60)]);
-    assert!((l - 0.5 * (1.0 - x)).abs() < 1e-3, "{l}");
+    // What each route read, and what that made the voice do.
+    let read = |e: &mut Engine| {
+        let l = level(e, &[on(60)]);
+        let source = e
+            .inspect_routes()
+            .into_iter()
+            .find_map(|r| r.source)
+            .expect("the route reads its controller");
+        (l, source)
+    };
+    let (plain_level, as_is) = read(&mut plain);
+    let (inverted_level, negated) = read(&mut inverted);
+    assert!((as_is - x).abs() < 1e-6, "{as_is}");
+    assert!((plain_level - 0.5 * x).abs() < 1e-3, "{plain_level}");
+    // Real Kontakt 8, `FX - Funky MW - Harpsichord` with the patch's own
+    // INVERT switch: the flag negates the source, so 32/127 reads -32/127 and
+    // wheel 0 stays 0 (`docs/re/kontakt-invert-source-2026-11-01.md`). It used
+    // to be the complement, `1 - 32/127`.
+    assert!((negated + x).abs() < 1e-6, "{negated}");
+    // A volume route's curve takes no negative source, so the negated read sits
+    // on its floor and the voice is silent: what a cutoff route does with the
+    // same read is the octave drop the measurement recorded.
+    assert!(inverted_level.abs() < 1e-6, "{inverted_level}");
 }
 
 #[test]

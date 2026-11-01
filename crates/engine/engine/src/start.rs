@@ -121,16 +121,14 @@ impl Engine {
                             | ir::ModKind::Attack { .. }
                             | ir::ModKind::Release { .. },
                             ir::Source::HeldTime { span_ms },
-                        ) => {
-                            Some(self.inverted(m.invert, s, plan::held_time(span_ms, held_seconds)))
-                        }
+                        ) => Some(self.inverted(m.invert, plan::held_time(span_ms, held_seconds))),
                         (
                             ir::ModKind::LfoPhase { .. } | ir::ModKind::LfoRate { .. },
                             ir::Source::Lfo(_),
                         ) => None,
                         _ => self
                             .source(zone, s, &n, modulators::Age::START)
-                            .map(|x| self.inverted(m.invert, s, x)),
+                            .map(|x| self.inverted(m.invert, x)),
                     });
                     if let Some(trace) = &mut self.trace {
                         trace.push(TraceEvent::RouteOnset {

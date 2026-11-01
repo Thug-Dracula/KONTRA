@@ -648,8 +648,15 @@ def midi_duration(path: Path) -> float:
     return midi_info(path)["duration_s"]
 
 
-def write_midi(path: Path, notes: list[dict], bpm: float = 120.0) -> dict:
-    """notes: [{start_s, length_s, key, velocity}] -> a type-0/1 SMF at 480 ticks per beat."""
+def write_midi(path: Path, notes: list[dict], bpm: float = 120.0,
+               ccs: list[dict] | None = None) -> dict:
+    """notes: [{start_s, length_s, key, velocity}] -> a type-0/1 SMF at 480 ticks per beat.
+
+    `ccs`: [{at_s, cc, value, channel?}] written into the same track and sorted
+    with the notes, each before a note that starts on its tick. A controller
+    sent at 0 s therefore arrives before the first note-on, which is what a
+    patch reading its mod wheel at note-on needs.
+    """
     if not notes:
         raise ToolError("notes: an empty note list cannot be rendered")
     if not bpm > 0:
@@ -672,6 +679,22 @@ def write_midi(path: Path, notes: list[dict], bpm: float = 120.0) -> dict:
             raise ToolError(f"note {i}: start_s must be >= 0 and length_s > 0")
         events.append((round(start / seconds_per_tick), 1, bytes([0x90 | chan, key, vel])))
         events.append((round((start + length) / seconds_per_tick), 0, bytes([0x80 | chan, key, 0])))
+    for i, ev in enumerate(ccs or []):
+        try:
+            at = float(ev.get("at_s", ev.get("at", 0.0)))
+            num = int(ev.get("cc", ev.get("controller", 1)))
+            value = int(ev.get("value", 0))
+            chan = int(ev.get("channel", 0))
+        except (TypeError, ValueError) as e:
+            raise ToolError(f"cc {i}: {e}")
+        if not (0 <= num <= 127 and 0 <= value <= 127 and 0 <= chan <= 15):
+            raise ToolError(f"cc {i}: controller/value must be 0..127 and channel 0..15")
+        if at < 0:
+            raise ToolError(f"cc {i}: at_s must be >= 0")
+        # Order 1 ties it with a note-on on the same tick, after the note-off
+        # (0) but before the note-on: `sort` is stable, and this one is added
+        # after the notes, so it lands on the note-off side. Use -1 to lead.
+        events.append((round(at / seconds_per_tick), -1, bytes([0xB0 | chan, num, value])))
     events.sort(key=lambda e: (e[0], e[1]))  # note-offs before note-ons on the same tick
     tempo = int(round(60_000_000 / bpm))
     body = bytearray()
@@ -695,7 +718,7 @@ def write_midi(path: Path, notes: list[dict], bpm: float = 120.0) -> dict:
     path.write_bytes(b"MThd" + (6).to_bytes(4, "big") + bytes([0, 0, 0, 1, 0x01, 0xE0])
                      + b"MTrk" + len(body).to_bytes(4, "big") + bytes(body))
     return {"path": str(path), "notes": len(notes), "bpm": bpm,
-            "duration_s": midi_duration(path)}
+            "ccs": len(ccs or []), "duration_s": midi_duration(path)}
 
 
 # --------------------------------------------------------------------------- sink routing
@@ -1233,13 +1256,17 @@ def tool_click(x, y, settle: float = 2.5) -> dict:
 
 
 def tool_render(midi: str | None = None, notes: list | None = None,
-                seconds: float | None = None, pre_roll: float = 0.25,
-                tail: float = 0.7, channel: int = 0, allow_silent: bool = False) -> dict:
+                cc: list | None = None, seconds: float | None = None,
+                pre_roll: float = 0.25, tail: float = 0.7, channel: int = 0,
+                allow_silent: bool = False) -> dict:
     SESSION.require_up("oracle_render")
     if midi and notes:
         raise ToolError("oracle_render: give either midi or notes, not both")
     if not midi and not notes:
         raise ToolError("oracle_render: give a midi path or a note list")
+    if cc and midi:
+        raise ToolError("oracle_render: cc only applies to a note list; put the controllers "
+                        "in the MIDI file instead")
     if seconds is not None:
         try:
             seconds = float(seconds)
@@ -1260,7 +1287,8 @@ def tool_render(midi: str | None = None, notes: list | None = None,
         note_count = info["notes"]
     else:
         midi_path = out_dir / f"render-{n:03d}.mid"
-        meta = write_midi(midi_path, notes, bpm=float(os.environ.get("ORACLE_MCP_BPM", 120)))
+        meta = write_midi(midi_path, notes, bpm=float(os.environ.get("ORACLE_MCP_BPM", 120)),
+                          ccs=cc)
         note_count = meta["notes"]
         info = midi_info(midi_path)
         duration = info["duration_s"]
@@ -1629,6 +1657,12 @@ TOOLS = {
                 "channel": {"type": "integer"}},
                 "required": ["key"]},
                 "description": "note list instead of a MIDI file"},
+            "cc": {"type": "array", "items": {"type": "object", "properties": {
+                "at_s": {"type": "number"}, "cc": {"type": "integer"},
+                "value": {"type": "integer"}, "channel": {"type": "integer"}},
+                "required": ["cc", "value"]},
+                "description": "controllers to send with the note list, e.g. [{at_s: 0, cc: 1, "
+                               "value: 64}] for the mod wheel set before the first note-on"},
             "seconds": {"type": "number", "description": "audio length to record (default: "
                                                        "the whole MIDI plus tail)"},
             "tail": {"type": "number", "description": "seconds of release tail to keep"},
