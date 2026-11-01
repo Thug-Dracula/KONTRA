@@ -4,7 +4,7 @@ The single place to look for where KONTRA stands. If this file and an agent
 disagree about the state, this file wins — and if it is out of date, that is a
 bug worth fixing before anything else.
 
-Last updated: 2026-10-31.
+Last updated: 2026-11-01.
 
 ## What is verified, and how
 
@@ -29,7 +29,8 @@ given so it can be re-run rather than believed.
 | `%NOTE_DURATION` is implemented | the documented KSP system array; its absence failed an entire script compile, and on Harpsichord that silence was total (its `on init` sets the swell controller) |
 | **PGS keys are not capped** | the KSP manual has no key limit ("as many PGS keys as you want, however each key can only have up to 256 elements", *PGS*); the engine used to reserve 64 and silently refuse the rest. `01. Trumpet 1 Multi.nki` creates 409 and carries its dynamic-layer crossfade curve through `pgs_xfade_arr_1/2`, which were the ones dropped. Unit test `a_pgs_key_past_the_sixty_fourth_carries_its_value` fails on the old table and passes now |
 | **Glory Days – Big Band Horns loads and sounds** | 643 of 643 `.nki` load (0 refused, `init unanswered: []` on all, median 0.19 s, worst 2.36 s, 175 s for the whole library). Level against Kontakt on the same MIDI, key 60 vel 100, CC11 127: Trumpet 1 Multi peaks **−36.31 / −32.50 / −28.50 / −23.69 / −19.70 dBFS** at CC1 0/32/64/96/127, where Kontakt reads **−36.35 / −32.54 / −28.53 / −23.70 / −19.70** — and **−28.17 against −28.20 with no controller sent at all** (the instrument's saved dynamics knob is 66). It was silent at every one of those buttons but the last. Alto Sax 1 Multi on the same MIDI: **peak ±0.00 dB, RMS +0.16 dB** |
-| The page fits the renderer's image atlas at the live device scale | test asserts the page's pictures fit at 1 **and** 2 device pixels (the 2× case is what shipped blank once) |
+| **The page fits the renderer's image atlas at the live device scale** | test asserts the page's pictures fit at 1 **and** 2 device pixels (the 2× case is what shipped blank once) |
+| **Fredonia Grand Organ's console page is built, and it sounds like Kontakt** | until 2026-11-01 the instrument's console script (461 controls, nine `ui_panel`s, four divisions) failed to compile on one `\"` inside a help string, so the editor drew the instrument's *other* script — a 418-widget mic-mixer — and the corpus read **−15.97 dB / 24.01 dB**. `ui-shots` now reports 461 widgets / 140 pictures / 7.2 MB and a page named `Fredonia Grand Organ`; one press on its first-run `NOT NOW` shows the four divisions, their stops with register numbers, the MAIN/PERFORM/CRESCENDO EDITOR/KEY EDITOR tabs, TUTTI and the crescendo/swell sliders (617 KB PNG, `/var/tmp/fr-press`). Corpus **+0.16 dB / 0.38 dB**, and the 16 dB was the same cause, not a second one |
 | Real Kontakt can be driven headless | `tools/oracle-mcp` — Kontakt 8.14.1 on Xvfb with DXVK + lavapipe paints its instrument page and takes pointer input (`paints=yes click_px=44485`) |
 | The Hot Solo+ amp really closes the gap | an independent re-measurement on fresh sessions: level +0.02 → **−0.06 dB**, band RMS 0.94 → **0.90 dB**, worst band +2.2 → **+2.12 dB @ 1613 Hz**, per-band max difference 1.07 dB / RMS 0.32 dB — which is exactly the cross-session capture noise (0.31 dB) |
 | Parity can be judged, not admired | `tools/oracle-mcp/parity.py` exits non-zero on a level, band-RMS, worst-band or lag breach; the limits (0.5 dB / 1.0 dB / 3.0 dB / 10 ms) are 4.2×, 2.6×, 1.9× and 1× the measured Kontakt-against-itself floor |
@@ -80,11 +81,12 @@ RMS. `tools/parity-corpus/run.py` renders the same MIDI in KONTRA offline and ex
 drift; `tools/verify.sh` runs the **three-case subset** (Glory Days, Fredonia, Electric Mint) as
 the `parity corpus` row in 6.2 s, printing each case's level/band delta. Ten of the twenty already
 disagree with Kontakt beyond their threshold; those print as `finding (unchanged)` on every run,
-with their absolute deltas, instead of failing the build. Measured today: Fredonia **−15.97 dB /
-24.01 dB** (KONTRA 16 dB loud), EEB Rick Bridge **−3.91 / 23.06**, Spitfire Horns a4 **−29.72 /
-15.07** (Kontakt really is at 0.0035), Vintage Organs C3 Jazz **−2.04 / 13.97**, Electric Mint
-**+1.03 / 0.93**, Melody **+1.67 / 1.28**, Cherry **−0.31 / 2.07**, Unity **−0.16 / 1.99**,
-Session Horns Keyswitch **+0.15 / 1.53**, Stadium Kit **+2.24 / 0.98**. Clean: Trumpet 1 (−0.03 /
+with their absolute deltas, instead of failing the build. Measured today: EEB Rick Bridge **−3.91 /
+23.06**, Spitfire Horns a4 **−29.72 / 15.07** (Kontakt really is at 0.0035), Vintage Organs C3 Jazz
+**−2.04 / 13.97**, Electric Mint **+1.03 / 0.93**, Melody **+1.67 / 1.28**, Cherry **−0.31 / 2.07**,
+Unity **−0.16 / 1.99**, Session Horns Keyswitch **+0.15 / 1.53**, Stadium Kit **+2.24 / 0.98**.
+Clean: Fredonia Grand Organ **+0.16 / 0.38** (was −15.97 / 24.01, KONTRA 16 dB loud — the console
+script did not compile, see below), Trumpet 1 (−0.03 /
 0.03), Trombone 1 chord (0.00 / 0.24), Harpsichord (−0.19 / 1.00), Haunted Strings 2 (−0.47 /
 0.28), Eminent Trombone (−0.12 / 0.10). Two census "silent" instruments are silent only in KONTRA:
 Kontakt plays `Scene - Lotus` at −27.6 dBFS and a zero-zone Glass & Steel patch at −9.8 dBFS; both
@@ -98,6 +100,7 @@ Recorded failures, not skipped: 8Dio Fire Sax (**KONTRA refuses the file** — `
 
 | Gap | Why it is open | What closes it |
 |---|---|---|
+| **Fredonia's first load shows its own Welcome panel, not the console** | the page itself is right: `on init` branches on `%init_settings`, which the `.nki` saves as `1 1 0`, and KONTRA restores saved values *after* `on init` — the order Kontakt documents ("at init completion"). The branch is decided during init from what `load_array(%init_settings,1)` left, and there is no `Fredonia Grand Organ/Data/init_settings.nka` anywhere on this machine (the user Data folder KONTRA never holds, which is why `load_array` mode 1 answers "failed"). One press on `NOT NOW` shows the console, exactly as a fresh Kontakt install does | find where Kontakt's `load_array` mode 1 reads from on this machine (the Session Ukulele fixture shows `UserData/<instrument>/Data/<array>.nka`), point KONTRA at that folder, and show whether the user's Kontakt has the file — if it does not, Kontakt shows the Welcome panel too and this is not a difference |
 | **Electric Mint passes** | the third error was **slot 3, Hot Solo**: ablated inside Kontakt it is **+7.00 dB** of level, ours was **+3.08**. The cause was the measurement, not DSP — the old curve was Kontakt's full chain minus a KONTRA that *passed the slot through*, so it carried every other stage's error and read 1.73 dB low; its target list contained the empty 40 Hz band, which alone put the low shelf 3.8 dB dark; and the gain ×1.283 had been calibrated to make the whole chain match one capture. Re-measured by ablation and refitted: ×1.886, and the slot now prices **+6.96** against Kontakt's +7.00. Chain **−0.14 dB, band RMS 0.93** (was −3.72 / 1.19). Slots 0 and 5 read the floor (−0.005), slot 7 matches to 0.00, the instrument output volume (+3.03 dB) is read correctly | the "pair that cancels" the previous lane recorded here (**slot 1's Eq 0.82 dB too loud**, **1/3/7 bypassed 0.68 dB too quiet**) was **not a pair**: slot 2 sits between the Eq and the output, and its CompXT's gain moves 0.65 dB between those two operating points, which is exactly what the two one-slot ablations differ by. Measured with the Supercharger out on both sides, the Eq is **0.17 dB** and the voice path **+0.21 dB** — `docs/re/electric-mint-slot1-compressor-confound-2026-10-31.md` |
 | **The Supercharger is the last term above 0.5 dB, and it is level-dependent** | Kontakt's CompXT contributes **−2.218 dB** at the delivered input level and **−1.571 dB** with the Eq bypassed (measured Kontakt against Kontakt, one slot apart); KONTRA applies a constant **−2.453 dB** from the static make-up. That is why `s1` (Eq bypassed) reads **+0.67 dB and fails**, while `control` and both Supercharger-bypassed configurations pass | read the CompXT's gain computer (`docs/re/engine/dyn-compressors.md`); two operating points are not a law, so nothing was fitted to them |
 | **Hot Solo is a measured transfer function, not a law** | the module's coefficient law (`0x140ad5440`) and its shaper (`0x140aab1e0`) are not recovered, so the stage is three biquads and a gain fitted to Kontakt's ablated response (0.40 dB RMS). The three shape parameters are loosely identified — several sets fit within the same 0.4 dB — but the stage gain is not, and the gain is what was wrong | read the coefficient law; until then any record whose tone knobs differ from Electric Mint's is **reported**, never silently drawn with the same curve |
