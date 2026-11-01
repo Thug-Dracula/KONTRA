@@ -139,7 +139,10 @@ def main() -> int:
     global LOG
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--nki", default=parity.DEFAULT_NKI)
+    # `DEFAULT_NKI` is relative to the library root, so it has to be joined here:
+    # the default is a path this file resolves against the working directory
+    # otherwise, which finds nothing. `--nki` given by the caller is left alone.
+    ap.add_argument("--nki", default=str(parity.library_path(parity.DEFAULT_NKI)))
     ap.add_argument("--key", type=int, default=60)
     ap.add_argument("--velocity", type=int, default=100)
     ap.add_argument("--hold", type=float, default=1.5)
