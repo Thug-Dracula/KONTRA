@@ -33,10 +33,10 @@ We live by KISS and YAGNI. More often than not the simpler solution is the corre
 
 | Layer | Where | Contents |
 | --- | --- | --- |
-| Engine | `crates/sampler-core/src/dsp/` | Shared cores by family: `eq_family`, `filter`, `dynamics`, `space`, `timemod`, `color`, plus `biquad` and primitives. Source, voice, modulation and scheduling live beside it in `sampler-core`. |
-| Neutral configuration | `crates/sampler-ir/src/fx/` | Per-family `Config` types the engine reads. |
-| Extensions | `crates/sampler-kontakt`, `crates/sampler-uvi` (and future crates) | File/preset/script readers and parameter mapping only. |
-| Evidence | `docs/re/`, `crates/sampler-parity`, golden and recorded vectors | The proof that a mapping matches the original. |
+| Engine | `crates/dsp/` | Shared cores by family, one crate each: `core`, `filter`, `eq`, `dynamics`, `delay`, `reverb`, `drive`, `spatial`, `modulators`, `registry`. Source, voice, modulation and scheduling are `crates/engine/{stream,voice,vm,engine}`. |
+| Neutral configuration | `crates/model/ir/src/` | Per-family `Config` types the engine reads: `effects.rs`, `drive.rs`, `reverb.rs`, `mods.rs`, `output.rs`, `engine_par.rs`. |
+| Extensions | `crates/format/{kontakt,uvi,sfz,native}` (and future crates) | File/preset/script readers and parameter mapping only. |
+| Evidence | `docs/re/`, `tools/oracle-mcp` (real Kontakt over MCP), golden and recorded vectors | The proof that a mapping matches the original. There is no parity *crate*; parity is a tool that renders both sides and compares. |
 
 ## Adding a product or module
 
@@ -44,7 +44,7 @@ We live by KISS and YAGNI. More often than not the simpler solution is the corre
 2. Check whether the shared engine already covers it with a different law or setting. Prefer extending an existing core over adding one.
 3. If a capability is missing, add it to the engine in general form, with a bit-exact test (golden coefficients, recorded vector or null test).
 4. Map the product's parameters in the extension crate. Unsupported parameters must be diagnosed, not silently ignored.
-5. Verify through `sampler-parity` against the original where one is available.
+5. Verify through `tools/oracle-mcp/parity.py` against the original where one is available.
 
 ## Standing constraints
 
@@ -68,9 +68,9 @@ Products map onto the universal modules in the table below; no product gets its 
 
 | Layer | Crate / path | Role |
 |---|---|---|
-| IR | `crates/sampler-ir/src/lib.rs` (`Processor`), `src/fx/*.rs` | Format-neutral description of a chain. `fx::<family>::Config` is the **superset** of one family; `fx::Law` and `fx::Lane` describe stored-value laws and script-addressable knobs. |
-| Cores | `crates/sampler-core/src/dsp/**` | The DSP. `biquad.rs`, `filter/` (cascade, svf, ladder, ar, daft, formant, kontaktfx), `dynamics/` (detector, computer, ballistics, laws, output), `eq_family/`, `timemod/`, `space/`, `color/`, `lanes.rs`, `taps.rs`, `hiir.rs`, `kernels.rs`. |
-| Mapping | `crates/sampler-kontakt/src/effects/*.rs`, `crates/sampler-uvi/src/fx/*.rs` | Per product: read the stored record, choose the preset (config + laws), report what is not modelled. |
+| IR | `crates/model/ir/src/lib.rs` (`Processor`), `effects.rs` | Format-neutral description of a chain. The family `Config` is the **superset** of one family; `Law` and `Lane` describe stored-value laws and script-addressable knobs. |
+| Cores | `crates/dsp/**` | The DSP, one crate per family: `filter` (cascade, svf, ladder, ar, daft, formant), `dynamics` (detector, computer, ballistics, laws, output), `eq`, `delay` (chorus, diffusion), `reverb`, `drive`, `spatial`, `modulators`, with `core` for the shared primitives. |
+| Mapping | `crates/format/kontakt/src/effects.rs`, `crates/format/uvi/src/` | Per product: read the stored record, choose the preset (config + laws), report what is not modelled. |
 | Runtime | `crates/sampler-core` (`Runtime`, processor dispatch) | Runs the IR processors; `Processor::Mix` wraps script-addressable blocks. |
 
 ### Universal module families
