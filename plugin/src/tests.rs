@@ -689,6 +689,79 @@ fn a_preset_picked_in_the_browser_loads_and_plays() {
     assert_eq!(mix, Some((1, 1)));
 }
 
+/// A browser action whose preset the catalog cannot resolve leaves a line
+/// naming the library and preset, in the editor's report *and* on disk. A
+/// silent `return` is how a click that loaded nothing left no trace at all in
+/// the session log; the report is what the editor shows, and the log is what
+/// outlives it.
+#[test]
+fn a_preset_that_cannot_be_found_is_reported_and_logged() {
+    let (params, _dsp) = activate(&Saved::new(Vec::new()).write());
+    let mut browser = kontra_host::browser::Browser::open(None, None);
+    browser.catalog = kontra_library::Catalog {
+        libraries: vec![kontra_library::Library {
+            dir: PathBuf::from("/tmp/kontra-glory"),
+            name: "Glory Days Big Band Horns".into(),
+            vendor: String::new(),
+            format: kontra_library::Format::Kontakt,
+            registered: true,
+            presets: vec![PathBuf::from("/tmp/kontra-glory/01. Trumpet 1 Multi.nki")],
+            multis: 0,
+            art: Vec::new(),
+        }],
+        issues: Vec::new(),
+    };
+    let mut guard = crate::lock(&params.shared.rack);
+    let rack = guard.as_mut().expect("a rack");
+    let mut report = Vec::new();
+    crate::editor::browse(
+        rack,
+        &mut browser,
+        kontra_ui::app::Action::Load {
+            library: 0,
+            preset: 7,
+        },
+        &mut report,
+    );
+    let line = report.join("\n");
+    assert!(
+        line.contains("Glory Days Big Band Horns"),
+        "the report does not name the library: {line:?}"
+    );
+    assert!(
+        line.contains("preset 7"),
+        "the report does not name the preset: {line:?}"
+    );
+    // The half the user hands over: the session log. Read the file, not a
+    // returned value -- a line built and never written is the defect.
+    if std::env::var_os("KONTRA_LOG").is_some_and(|v| v == "0" || v == "off") {
+        eprintln!("skipped: KONTRA_LOG turns the session log off");
+        return;
+    }
+    let file = crate::session::path();
+    let log = std::fs::read_to_string(&file)
+        .unwrap_or_else(|e| panic!("no session log at {}: {e}", file.display()));
+    let logged = log
+        .lines()
+        .find(|l| {
+            l.contains("\"event\":\"preset_missing\"") && l.contains("Glory Days Big Band Horns")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "no preset_missing line for the library in {}:\n{log}",
+                file.display()
+            )
+        });
+    assert!(
+        logged.contains("\"library_index\":\"0\""),
+        "the line does not name the library's index: {logged}"
+    );
+    assert!(
+        logged.contains("\"preset\":\"7\""),
+        "the line does not name the preset: {logged}"
+    );
+}
+
 const SHREDDAGE: &str = "Shreddage 3.5 E-Upright 1.0.1 [Impact Soundworks] rutracker.org/Instruments/Shreddage 3.5 E-Upright.nki";
 
 /// Sets Shreddage's console control `name` to `value`, as its UI would,
@@ -1304,6 +1377,24 @@ fn instrument(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// An instrument under the user's Kontakt libraries, when it is installed.
+fn armory(path: &str) -> Option<PathBuf> {
+    let root = std::env::var_os("KONTRA_LIBRARY_ROOT").map_or_else(
+        || {
+            std::env::var_os("HOME")
+                .map_or_else(|| PathBuf::from("/home"), PathBuf::from)
+                .join("Armory/VSTs/Kontakt1")
+        },
+        PathBuf::from,
+    );
+    let path = root.join(path);
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return None;
+    }
+    Some(path)
+}
+
 /// A state holding `path` in part 0.
 fn one_part(path: &Path) -> String {
     Saved::new(vec![SavedPart {
@@ -1344,6 +1435,50 @@ fn the_editor_face_reads_the_pictures_the_harness_does() {
             "{name}: the editor's face and the harness disagree"
         );
     }
+}
+
+/// The multi from the user's report: five C.A.P.S.U.L.E. slots. Slot 1 asks
+/// for the performance view and carries the artwork (373 widgets, 119
+/// pictures, the 633 px background); slot 0 is a helper's admin page (137
+/// widgets of which three show, four pictures of which two are blank) and
+/// slots 2-4 are 3-4 widget overlays. The editor must open the page the
+/// script asked Kontakt to show, not the first page with a face: the latter
+/// is a black rectangle with a "LOAD" button, which is what the user saw.
+#[test]
+fn a_multis_page_is_the_performance_view_not_its_first_slot() {
+    const GLORY: &str = "Glory Days - Big Band Horns/Instruments/GDH - Glory Days - Big Band Horns 1.0/Multi Instruments/01. Trumpet 1/01. Trumpet 1 Multi.nki";
+    let Some(path) = armory(GLORY) else {
+        return;
+    };
+    let (params, mut dsp) = activate(&one_part(&path));
+    settle(&params, &mut dsp);
+    let (slot, widgets, performance) = {
+        let guard = crate::lock(&params.shared.rack);
+        let part = guard
+            .as_ref()
+            .and_then(|rack| rack.parts()[0].as_ref())
+            .expect("part 0");
+        let view = part.view.as_ref().expect("a view");
+        (
+            view.slot,
+            view.tree().widgets.len(),
+            view.tree().performance,
+        )
+    };
+    let (face, assets) = editor_pictures(&params, &mut dsp);
+    println!(
+        "Glory Days: slot {slot}, {widgets} widgets, performance {performance}, {face}/{assets} pictures"
+    );
+    assert!(performance, "slot {slot} is not the performance view");
+    assert_eq!(
+        slot, 1,
+        "the editor opened slot {slot}: the first page with a face, not the performance view"
+    );
+    assert!(widgets > 300, "slot {slot} shows {widgets} widgets");
+    assert!(
+        face > 100,
+        "the editor's page drew {face}/{assets} pictures, so it is not the instrument's page"
+    );
 }
 
 /// A part whose file is not inside its library (a preset kept elsewhere, a

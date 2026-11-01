@@ -28,6 +28,9 @@ use mui::prelude::{Font, Image};
 /// Reads a library-relative path; `None` when there is no such file.
 pub type Read = dyn Fn(&str) -> Option<Vec<u8>> + Send;
 
+/// Told a picture's path when its bytes were read but did not decode.
+pub type Undecoded = Box<dyn Fn(&str) + Send + Sync>;
+
 /// A rectangle of a picture, in its own pixels: the part a page shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Band {
@@ -94,13 +97,30 @@ impl Pictures {
     /// A store whose worker reads files through `read`.
     #[must_use]
     pub fn new(read: Box<Read>) -> Self {
-        Self::with_look(read, |_| None)
+        Self::with(read, |_| None, None)
     }
 
     /// A store whose worker reads files through `read` and draws each
     /// picture as `look` makes it (`None` keeps it as it is).
     #[must_use]
     pub fn with_look(read: Box<Read>, look: fn(&Image) -> Option<Image>) -> Self {
+        Self::with(read, look, None)
+    }
+
+    /// [`Pictures::new`], telling `undecoded` the path of every picture whose
+    /// bytes were read but are not a picture this decodes. It runs on the
+    /// worker, once per asset, so a page that loses a picture says why
+    /// instead of drawing nothing in silence.
+    #[must_use]
+    pub fn reporting(read: Box<Read>, undecoded: Undecoded) -> Self {
+        Self::with(read, |_| None, Some(undecoded))
+    }
+
+    fn with(
+        read: Box<Read>,
+        look: fn(&Image) -> Option<Image>,
+        undecoded: Option<Undecoded>,
+    ) -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let (outbox, done) = mpsc::channel::<Done>();
         std::thread::spawn(move || {
@@ -144,7 +164,14 @@ impl Pictures {
                         decoded
                             .entry(h.finish())
                             .or_insert_with(|| {
-                                let mut image = decode(&bytes, job.meta, job.frame)?;
+                                let decoded = decode(&bytes, job.meta, job.frame);
+                                if decoded.is_none()
+                                    && !job.font
+                                    && let Some(told) = undecoded.as_ref()
+                                {
+                                    told(&job.path);
+                                }
+                                let mut image = decoded?;
                                 if job.font {
                                     return Some(Arc::new(image));
                                 }
@@ -894,6 +921,51 @@ mod tests {
         // The other frame is asked for; the one shown stands in meanwhile.
         assert!(pictures.frame(AssetRef(0), "a.png", meta, 1, 1.).is_some());
         assert_eq!(pictures.pending(), 1);
+    }
+
+    /// A picture whose bytes were read and do not decode is not a frame and
+    /// is not silent: the store's report names it once, and a second ask does
+    /// not decode it again.
+    #[test]
+    fn a_picture_that_does_not_decode_is_reported_once() {
+        let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let told = {
+            let heard = Arc::clone(&heard);
+            Box::new(move |path: &str| {
+                heard
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(path.to_owned());
+            })
+        };
+        let mut pictures = Pictures::reporting(Box::new(|_| Some(b"not a picture".to_vec())), told);
+        let meta = ImageMeta::default();
+        assert!(
+            pictures
+                .frame(AssetRef(0), "pictures/blank.png", meta, 0, 1.)
+                .is_none()
+        );
+        for _ in 0..1000 {
+            pictures.poll();
+            if pictures.pending() == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            pictures
+                .frame(AssetRef(0), "pictures/blank.png", meta, 0, 1.)
+                .is_none()
+        );
+        for _ in 0..1000 {
+            pictures.poll();
+            if pictures.pending() == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let heard = heard.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(&*heard, &["pictures/blank.png".to_owned()]);
     }
 
     #[test]
