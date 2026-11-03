@@ -396,6 +396,7 @@ fn zone(
     };
     let mut out = Zone::new(region, root, rate);
     out.start_mod = z.start_mod;
+    out.slices = z.slices.clone();
     out.slot = z.slot;
     out.keys = z.keys.clone();
     out.velocities = z.velocities.clone();
@@ -519,6 +520,7 @@ mod tests {
             end: 1_000_000,
             start_mod,
             loops: vec![],
+            slices: Vec::new(),
             reverse: false,
             slot: 0,
         }

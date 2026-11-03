@@ -56,6 +56,7 @@ fn zone(sample: usize) -> ir::Zone {
         end: 48_000,
         start_mod: 0,
         loops: vec![],
+        slices: Vec::new(),
         reverse: false,
         slot: 0,
     }

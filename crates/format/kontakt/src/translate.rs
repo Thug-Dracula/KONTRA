@@ -21,6 +21,8 @@ use crate::timed::timed;
 
 const GROUP_LIST: u16 = 0x33;
 const ZONE_LIST: u16 = 0x34;
+/// A zone's slice grid (ni-file's `ZoneSlices`; see [`slices`]).
+const SLICES: u16 = 0x35;
 const LOOPS: u16 = 0x39;
 const INTERNAL_MODS: u16 = 0x3b;
 const SCRIPT: u16 = 6;
@@ -255,11 +257,24 @@ pub(crate) fn instrument(
             .map(LoopArray::try_from)
             .transpose();
         let loops = loops.map_err(decode("zone loops"))?;
+        let slices = zone
+            .0
+            .find_first(SLICES)
+            .map(|chunk| slices(chunk, frames, &mut notes))
+            .transpose()
+            .map_err(decode("zone slices"))?
+            .unwrap_or_default();
         let reverse =
             g.zones.first().is_some_and(|z| z.reverse) || criteria_reverse(group, &groups);
-        if let Some(translated) =
-            translate_zone(&z, loops.as_ref(), sample, frames, reverse, &mut notes)
-        {
+        if let Some(translated) = translate_zone(
+            &z,
+            loops.as_ref(),
+            &slices,
+            sample,
+            frames,
+            reverse,
+            &mut notes,
+        ) {
             kontra_law::record(|| kontra_law::Application {
                 id: kontra_law::LawId("kontakt.zone_gain_pan_tune.v1"),
                 location: format!("groups/{group}/zones/{}", g.zones.len()),
@@ -758,9 +773,60 @@ fn start_rules(groups: &mut [ir::Group], criteria: &[Vec<StartCriteriaParams>], 
     }
 }
 
+/// A zone's slice grid as `start..end` frame pairs, from the zone's `0x35`
+/// child; empty when the zone has no grid.
+///
+/// The child's body is a structured object (version `0x10`) whose public
+/// payload is `u8` 0, `i32` selected (`-1`), `u32` count, then — only when
+/// `count > 0` — the grid length in frames, then `count` 12-byte markers of
+/// `u32` frame, `f32` frame and `u32` flag (8 on the first marker). ni-file's
+/// `ZoneSlices` (vendor/ni-file/src/kontakt/objects/zone_slices.rs) decodes that
+/// layout from a Beat Machine capture; this reader adds the corpus measurement:
+/// `Spitfire_Studio_Brass/Instruments/a - Horn Solo.nki` zone 0 holds count 33,
+/// length 475686 and frames 0, 14865, …, 475686 over a 509805-frame sample, and
+/// `Heavyocity Vocalise 3/Instruments/III Rhythmic Pedals/Single Pedals (Mono)/
+/// Straight Pedal 01 Mono (Carla).nki` zone 0 holds count 65, length 460800 and
+/// frames 0, 7200, …, 460800 at 460800 frames.
+///
+/// The frames ascend and the last marker is the grid's **end**, so `count`
+/// markers hold `count - 1` slices: Kontakt answers `num_slices_zone` 64 for
+/// that Vocalise zone and 0 for its next slice index (oracle, `zone_slice_start`
+/// at 0, 150000, 300000 µs = 0, 7200, 14400 frames at 48 kHz). A grid whose last
+/// marker is past the sample is dropped whole: `AVANT Modern Keys.nki` zone 0
+/// stores 64 markers ending at 373516 over a 370813-frame sample, and Kontakt
+/// answers `num_slices_zone` 0 for every one of its first 128 zones, while
+/// `Heavyocity - Analog Hybrid Drums/…/Analog Hybrid Loop Designer.nki`, whose
+/// grids fit inside their samples, answers 32 and more.
+fn slices(
+    chunk: &ni_file::kontakt::Chunk,
+    frames: u64,
+    notes: &mut Notes,
+) -> Result<Vec<ir::Slice>, ni_file::Error> {
+    let grid = ni_file::kontakt::objects::ZoneSlices::try_from(chunk)?;
+    let end = grid.markers.last().map_or(0, |m| u64::from(m.frame));
+    if end > frames {
+        notes.add(
+            ir::Impact::Cosmetic,
+            "zone slices",
+            format!("grid ends at {end}, past the sample's {frames} frames"),
+        );
+        return Ok(Vec::new());
+    }
+    Ok(grid
+        .markers
+        .iter()
+        .zip(grid.markers.iter().skip(1))
+        .map(|(from, to)| ir::Slice {
+            start: u64::from(from.frame),
+            end: u64::from(to.frame),
+        })
+        .collect())
+}
+
 fn translate_zone(
     z: &ni_file::kontakt::objects::ZoneParams,
     loops: Option<&LoopArray>,
+    slices: &[ir::Slice],
     sample: usize,
     frames: u64,
     reverse: bool,
@@ -816,6 +882,7 @@ fn translate_zone(
         end,
         start_mod: u64::try_from(z.sample_start_mod_range).unwrap_or(0),
         loops: found,
+        slices: slices.to_vec(),
         reverse,
         slot: 0,
     })
@@ -897,6 +964,70 @@ mod tests {
             private_data,
             children,
         })
+    }
+
+    /// The public payload of the zone child `0x35` captured from a Beat Machine
+    /// grid (four 1/16 slices at 120 BPM, 48 kHz): five markers, 24000 frames.
+    /// Taken from ni-file's own test fixture, not synthesised.
+    const GRID: [u8; 73] = [
+        0x00, 0xff, 0xff, 0xff, 0xff, 0x05, 0x00, 0x00, 0x00, 0xc0, 0x5d, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x70, 0x17, 0x00, 0x00, 0x00,
+        0x80, 0xbb, 0x45, 0x00, 0x00, 0x00, 0x00, 0xe0, 0x2e, 0x00, 0x00, 0x00, 0x80, 0x3b, 0x46,
+        0x00, 0x00, 0x00, 0x00, 0x50, 0x46, 0x00, 0x00, 0x00, 0xa0, 0x8c, 0x46, 0x00, 0x00, 0x00,
+        0x00, 0xc0, 0x5d, 0x00, 0x00, 0x00, 0x80, 0xbb, 0x46, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    fn grid_chunk() -> Chunk {
+        let mut data = vec![0, 0x10, 0];
+        data.extend(GRID);
+        Chunk { id: SLICES, data }
+    }
+
+    /// Five markers are four slices: each pair of consecutive markers is one
+    /// slice, and the last marker is the grid's end.
+    #[test]
+    fn a_grid_holds_one_slice_between_each_pair_of_markers() {
+        let mut notes = Notes::default();
+        let out = slices(&grid_chunk(), 24_000, &mut notes).expect("the captured grid reads");
+        assert_eq!(
+            out,
+            [
+                ir::Slice {
+                    start: 0,
+                    end: 6_000
+                },
+                ir::Slice {
+                    start: 6_000,
+                    end: 12_000
+                },
+                ir::Slice {
+                    start: 12_000,
+                    end: 18_000
+                },
+                ir::Slice {
+                    start: 18_000,
+                    end: 24_000
+                },
+            ]
+        );
+        assert!(
+            notes.finish().is_empty(),
+            "a grid that fits is not reported"
+        );
+    }
+
+    /// Kontakt answers no slices for a grid that runs past its sample: AVANT
+    /// Modern Keys stores 64 markers ending at 373516 over 370813 frames and
+    /// `num_slices_zone` is 0 for every zone of it (oracle).
+    #[test]
+    fn a_grid_past_the_sample_reads_as_no_slices_and_is_reported() {
+        let mut notes = Notes::default();
+        let out = slices(&grid_chunk(), 23_999, &mut notes).expect("the grid still parses");
+        assert!(out.is_empty());
+        let reported = notes.finish();
+        assert_eq!(reported.len(), 1, "{reported:?}");
+        assert_eq!(reported[0].feature, "zone slices");
+        assert!(reported[0].detail.contains("24000"), "{:?}", reported[0]);
     }
 
     /// A bypassed chunk fills its slot all the same. Counting only the chunks

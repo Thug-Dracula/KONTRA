@@ -262,6 +262,26 @@ builtins! {
         GetNumZones "get_num_zones" [] 0 Int;
         GetZoneId "get_zone_id" [I] 0 Int;
         GetSampleLength "get_sample_length" [I] 0 Int;
+        // Zone slices: `num_slices_zone(<zone-id>)` is how many slices the zone
+        // holds and `zone_slice_start(<zone-id>, <slice-index>)` where one
+        // begins. Both answer in KSP's time unit, microseconds: a 460,800-frame
+        // 48 kHz sample answers 9,600,000 as its length, and its first slice
+        // starts at 150,000 (measured on the oracle, Vocalise 3 `Straight Pedal
+        // 01 Mono (Carla).nki` zone 0, whose 65 stored slice markers are 7,200
+        // frames apart). The corpus uses them as a ratio,
+        // `zone_slice_start(...) / get_sample_length(...)`, which only makes
+        // sense with both in the same unit.
+        NumSlicesZone "num_slices_zone" [I] 0 Int;
+        ZoneSliceStart "zone_slice_start" [I I] 0 Int;
+        // `zone_slice_length(<zone-id>, <slice-index>)`: bound, not answered.
+        // The .nki stores only the slice markers; Kontakt's length is derived
+        // from the tempo grid, not stored: on the same Vocalise zone the markers
+        // are 150,000 µs apart while it answers 125,000 µs for every slice —
+        // a 1/16 cell at the session's 120 BPM, not the distance to the next
+        // marker. Reproducing that needs the beat/tempo model this engine does
+        // not carry, so the host reports the action unanswered rather than
+        // inventing a number. Two corpus slots name it.
+        ZoneSliceLength "zone_slice_length" [I I] 0 Int;
         GetZonePar "get_zone_par" [I I] 0 Int;
         SetZonePar "set_zone_par" [I I I] 0 Int;
         // `set_num_user_zones(<value>)`: "Creates empty user zones. ... the

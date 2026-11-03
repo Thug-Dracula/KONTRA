@@ -221,3 +221,119 @@ fn a_kontakt_8_program_keeps_its_scripts_in_its_private_data() {
     assert!(i.scripts[0].saved.iter().any(|s| s.starts_with("%4ikw1")));
     assert!(i.scripts.iter().all(|s| !s.source.trim().is_empty()));
 }
+
+/// A Vocalise pedal: 65 slice markers 7200 frames apart over the whole sample,
+/// so Kontakt answers 64 slices whose last one ends at the sample's length.
+fn vocalise_pedal() -> std::path::PathBuf {
+    instrument(
+        "KONTRA_VOCALISE_PEDAL",
+        "Heavyocity Vocalise 3/Instruments/III Rhythmic Pedals/Single Pedals (Mono)/\
+         Straight Pedal 01 Mono (Carla).nki",
+    )
+}
+
+/// A Spitfire patch whose grid stops 34119 frames before its sample does.
+fn spitfire_horn() -> std::path::PathBuf {
+    instrument(
+        "KONTRA_SPITFIRE_HORN",
+        "Spitfire_Studio_Brass/Instruments/a - Horn Solo.nki",
+    )
+}
+
+/// What a zone's slice grid must look like once read, whatever the instrument:
+/// starts ascend strictly, every slice is non-empty, and none runs past the
+/// sample. These hold only on a grid read from the file.
+fn assert_slice_invariants(i: &kontra_ir::Instrument) {
+    let mut seen = 0;
+    for group in &i.groups {
+        for zone in &group.zones {
+            let frames = i.samples.get(zone.sample).map_or(0, |s| s.frames);
+            let mut previous = None;
+            for slice in &zone.slices {
+                assert!(
+                    slice.start < slice.end,
+                    "{:?} frames {frames}: {slice:?} is empty",
+                    i.name
+                );
+                assert!(
+                    slice.end <= frames,
+                    "{:?} frames {frames}: {slice:?} runs past the sample",
+                    i.name
+                );
+                if let Some(start) = previous {
+                    assert!(
+                        slice.start > start,
+                        "{:?}: {slice:?} does not start after {start}",
+                        i.name
+                    );
+                }
+                previous = Some(slice.start);
+                seen += 1;
+            }
+        }
+    }
+    assert!(seen > 0, "{:?} read no slices at all", i.name);
+}
+
+#[test]
+fn a_vocalise_grid_ends_at_its_sample_and_holds_sixty_four_slices() {
+    let path = vocalise_pedal();
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return;
+    }
+    let i = kontra_format_kontakt::load(&path).unwrap();
+    assert_slice_invariants(&i);
+    let zone = &i.groups[0].zones[0];
+    let frames = i.samples[zone.sample].frames;
+    assert_eq!(frames, 460_800);
+    assert_eq!(zone.slices.len(), 64, "65 markers, so 64 slices");
+    assert_eq!(zone.slices[0].start, 0);
+    assert_eq!(zone.slices[1].start, 7_200);
+    assert_eq!(zone.slices[63].start, 453_600);
+    assert_eq!(
+        zone.slices[63].end, frames,
+        "the last marker is the grid's end, which here is the sample's length"
+    );
+}
+
+#[test]
+fn a_spitfire_grid_stops_at_its_own_end_before_the_sample_does() {
+    let path = spitfire_horn();
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return;
+    }
+    let i = kontra_format_kontakt::load(&path).unwrap();
+    assert_slice_invariants(&i);
+    // Every key of the patch stores the same 33-marker grid; a zone whose
+    // sample is longer than the grid's end keeps its 32 slices.
+    let (zone, frames) = i
+        .groups
+        .iter()
+        .flat_map(|g| &g.zones)
+        .filter(|z| !z.slices.is_empty())
+        .map(|z| (z, i.samples[z.sample].frames))
+        .find(|(z, frames)| z.slices.last().is_some_and(|s| s.end == 475_686) && *frames > 475_686)
+        .expect("a zone whose sample outlasts the grid");
+    assert_eq!(zone.slices.len(), 32, "33 markers, so 32 slices");
+    assert_eq!(zone.slices[0].start, 0);
+    assert_eq!(zone.slices[1].start, 14_865);
+    assert_eq!(zone.slices[31].start, 460_820);
+    assert_eq!(
+        zone.slices[31].end,
+        475_686,
+        "the grid's last marker, which is {} frames short of the sample's {frames}",
+        frames - 475_686
+    );
+    // The zones whose sample is shorter than the grid keep no slices: Kontakt
+    // answers 0 for such a grid (measured on AVANT Modern Keys).
+    assert!(
+        i.groups
+            .iter()
+            .flat_map(|g| &g.zones)
+            .filter(|z| i.samples[z.sample].frames < 475_686)
+            .all(|z| z.slices.is_empty()),
+        "a grid past its sample must read as no slices"
+    );
+}

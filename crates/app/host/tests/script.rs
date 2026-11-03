@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use kontra_engine::{
-    Atom, Engine, Event, HostNote, HostPattern, Plan, Region, SampleTime, Timed, Zone,
+    Atom, Engine, Event, HostNote, HostPattern, Plan, Region, SampleTime, Timed, Zone, ir::Slice,
 };
 use kontra_stream::{BlobKey, Encoding, MemSource, SampleFmt, Store, StoreConfig};
 use kontra_ui_model::MouseEvent;
@@ -157,6 +157,59 @@ fn an_ignored_note_plays_its_child_until_released() {
     // The child's own note-off runs the release callback too, after its parent's.
     assert_eq!(e.last_message(), "released 72");
     assert_eq!(e.active_voices(), 0);
+}
+
+/// Spitfire Studio Brass (`slot-1.ksp`, `getLoopData`) and Vocalise
+/// (`slot-1.ksp`, the slice-length branch): a script asks a zone how many
+/// slices it has, where each one starts, and how long the sample is, and keeps
+/// the starts as fractions of the sample. Both ends answer in microseconds: a
+/// 96,000-frame 48 kHz zone is 2,000,000 long, and its slices start 500,000
+/// apart (measured on the oracle: Vocalise's 460,800-frame zone answers
+/// 9,600,000 and its 7,200-frame slice steps 150,000).
+#[test]
+fn a_script_reads_a_zones_slice_grid_the_way_spitfire_does() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut z = zone(&mut store, 0.5, 0);
+    z.slices = vec![
+        Slice {
+            start: 0,
+            end: 24_000,
+        },
+        Slice {
+            start: 24_000,
+            end: 48_000,
+        },
+        Slice {
+            start: 48_000,
+            end: 72_000,
+        },
+        Slice {
+            start: 72_000,
+            end: 96_000,
+        },
+    ];
+    let mut e = engine(
+        &store,
+        vec![z],
+        "on init
+            declare $cur_zone
+            declare $lpdc
+            declare ?tmp_loop_slice_pos[9]
+            $cur_zone := get_zone_id(0)
+            while ($lpdc < num_slices_zone($cur_zone))
+                ?tmp_loop_slice_pos[$lpdc] := int_to_real(zone_slice_start($cur_zone,$lpdc)) / int_to_real(get_sample_length($cur_zone))
+                inc($lpdc)
+            end while
+            ?tmp_loop_slice_pos[$lpdc] := 1.0
+            message(num_slices_zone($cur_zone) & \" \" & zone_slice_start($cur_zone,1) & \" \" & zone_slice_start($cur_zone,$lpdc - 1) & \" \" & get_sample_length($cur_zone) & \" \" & real_to_int(?tmp_loop_slice_pos[1] * 1000.0))
+        end on",
+    );
+    level(&mut e, &[]);
+    assert_eq!(
+        e.last_message(),
+        "4 500000 1500000 2000000 250",
+        "four slices, 500 ms apart, in a 2 s sample; the second is a quarter in"
+    );
 }
 
 /// Una Corda: the script ignores the key's note and plays a child for its

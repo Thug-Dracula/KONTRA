@@ -499,6 +499,7 @@ impl<L: Library> Translator<'_, '_, L> {
                 end: frames,
                 start_mod: 0,
                 loops: Vec::new(),
+                slices: Vec::new(),
                 reverse: flag(player, "Reverse"),
                 slot,
             };

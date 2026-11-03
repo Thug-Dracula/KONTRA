@@ -609,6 +609,9 @@ pub struct Zone {
     pub start_mod: u64,
     /// Loops in play order. Each is entered when the playhead reaches its end.
     pub loops: Vec<Loop>,
+    /// The zone's slice grid in play order, empty when it has none. KSP indexes
+    /// it with `zone_slice_start` and `zone_slice_length`.
+    pub slices: Vec<Slice>,
     pub reverse: bool,
     /// Each sample channel's left and right gain; empty plays mono on both
     /// sides and the first two channels as left and right.
@@ -616,6 +619,13 @@ pub struct Zone {
     /// The zone's place among the zones of its group that share its keys; a
     /// note that names a slot starts only the zones in it.
     pub slot: u16,
+}
+
+/// One slice of a zone's grid: source frames `start..end`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Slice {
+    pub start: u64,
+    pub end: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

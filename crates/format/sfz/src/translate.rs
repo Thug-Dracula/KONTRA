@@ -172,6 +172,7 @@ impl Build {
             end,
             start_mod: 0,
             loops: self.looped(ops, total).into_iter().collect(),
+            slices: Vec::new(),
             reverse: raw(ops, &["direction"]) == Some("reverse"),
             slot: 0,
         };

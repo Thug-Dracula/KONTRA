@@ -22,7 +22,33 @@ pub(crate) fn micros_to_frames(micros: i64, rate: u32) -> u64 {
     (micros.max(0) as u128 * u128::from(rate) / 1_000_000) as u64
 }
 
+/// Frames as a KSP count: saturating, so a long sequence cannot wrap negative.
+fn frames(value: u64) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+/// Frames as KSP time: microseconds, the unit `get_sample_length`,
+/// `zone_slice_start` and every other KSP time answer in. A 460,800-frame
+/// 48 kHz sample is 9,600,000 (measured on the oracle).
+fn micros(frame: u64, rate: u32) -> i32 {
+    let us = u128::from(frame) * 1_000_000 / u128::from(rate.max(1));
+    i32::try_from(us).unwrap_or(i32::MAX)
+}
+
 impl Engine {
+    /// The plan's zone for a KSP zone id; see the `get_zone_id` arm.
+    fn zone(&self, id: i32) -> Option<&kontra_plan::Zone> {
+        usize::try_from(id)
+            .ok()
+            .and_then(|i| self.plan.zones.get(i))
+    }
+
+    /// Slice `index` of the zone `id`, when both exist.
+    fn slice(&self, id: i32, index: i32) -> Option<&kontra_ir::Slice> {
+        let index = usize::try_from(index).ok()?;
+        self.zone(id)?.slices.get(index)
+    }
+
     /// Fills `out` with the notes an event argument addresses.
     fn targets(&self, id: i32, out: &mut Vec<NoteRef>) {
         out.clear();
@@ -537,6 +563,40 @@ impl HostApi for Engine {
                     }),
             ),
             Action::NumZones | Action::GetNumZones => HostValue::Int(self.plan.zones.len() as i32),
+            // A zone id is this engine's own: the zone's index in the plan, the
+            // number `get_zone_id` answers and the one the slice accessors and
+            // `get_sample_length` take. Kontakt's ids are file-stable handles;
+            // a script only passes back an id it was given, so an index is
+            // interchangeable here. A miss answers $NI_NOT_FOUND, as the other
+            // `get_*_idx` lookups do (Kontakt's own answer for a bad index is
+            // not measured).
+            Action::GetZoneId => HostValue::Int(
+                usize::try_from(int(0))
+                    .ok()
+                    .filter(|&i| i < self.plan.zones.len())
+                    .and_then(|i| i32::try_from(i).ok())
+                    .unwrap_or(NOT_FOUND),
+            ),
+            // Frames in the zone's sample, in KSP's time unit: microseconds. A
+            // 460,800-frame 48 kHz sample answers 9,600,000 (measured on the
+            // oracle, `Vocalise 3/.../Straight Pedal 01 Mono (Carla).nki` zone
+            // 0), which is the denominator a script divides a slice start by.
+            // A miss answers 0, the value KSP's unset integers carry.
+            Action::GetSampleLength => HostValue::Int(
+                self.zone(int(0))
+                    .map_or(0, |z| micros(z.region.sample.frames(), z.sample_rate)),
+            ),
+            // The zone's slice grid: `num_slices_zone` how many slices it holds,
+            // `zone_slice_start` where one begins (microseconds into the
+            // sample). A zone with no grid, and an index past the last slice,
+            // answer 0.
+            Action::NumSlicesZone => HostValue::Int(
+                self.zone(int(0))
+                    .map_or(0, |z| frames(z.slices.len() as u64)),
+            ),
+            Action::ZoneSliceStart => HostValue::Int(self.slice(int(0), int(1)).map_or(0, |s| {
+                micros(s.start, self.zone(int(0)).map_or(0, |z| z.sample_rate))
+            })),
             // find_group answers 0 for an unknown name, get_group_idx $NI_NOT_FOUND.
             Action::FindGroup | Action::GetGroupIdx => {
                 let name = call.texts.first().map_or("", Text::as_str);

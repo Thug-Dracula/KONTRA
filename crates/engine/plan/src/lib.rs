@@ -348,6 +348,10 @@ pub struct Zone {
     /// The sample's own rate, for the step against the engine rate.
     pub sample_rate: u32,
     pub region: Region,
+    /// The zone's slice grid in source frames, in play order; empty when it has
+    /// none. Scripts read it with `num_slices_zone`, `zone_slice_start` and
+    /// `zone_slice_length`.
+    pub slices: Vec<ir::Slice>,
     /// Frames a [`ir::ModKind::SampleStart`] may move the start either way.
     pub start_mod: u64,
     /// Linear gain at full velocity.
@@ -380,6 +384,7 @@ impl Zone {
             tune: 0.0,
             sample_rate,
             region,
+            slices: Vec::new(),
             start_mod: 0,
             gain: 1.0,
             pan: 0.0,
