@@ -60,10 +60,18 @@ fn payload<R: Read + Seek>(
                 crate::fastlz::expand(&nks.compressed_data, expected)
                     .map_err(|e| Error::new(path, "NKS preset", e))
             }
+            // Every pre-V42 header family is refused here, and the name matters:
+            // an unprotected V2 body is a zlib stream (`vendor/ni-file`'s
+            // `decompressed_preset_bounded`), which this reader has no path
+            // for. The Garritan cluster calls itself "legacy XML" in older
+            // diagnostics, but measured on 2026-11-03 its payload inflates
+            // under no codec at any offset (723 zlib candidates, raw deflate,
+            // FastLZ and LZ4 across 40 files), so what those files carry is a
+            // protected body, not an XML document waiting for a parser.
             _ => Err(Error::new(
                 path,
                 "NKS preset",
-                "legacy XML instruments are not read",
+                "Kontakt 2 (V2) preset body is not decoded",
             )),
         },
         NIFile::NISoundContainer(nis) => nis_payload(nis, path, 0, encrypted),

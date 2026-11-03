@@ -100,7 +100,7 @@ answered for each instrument it counts.
 | $MARK_2 … $MARK_28 (27 constants) | bookkeeping | 1,339 | 47 | a ledger table to fill — the values already exist | 40s Very Own - Drums |
 | LASS `.nicnt` access data | out of scope | 1,151 | 1 | nothing we may do: Kontakt refuses it too | Aleatoric Non Vib Cellos.nki |
 | %NOTE_DURATION | bookkeeping | 767 | 13 | nothing: implemented, the ledger row is stale | 02. Trumpet 1 Bucket Multi |
-| legacy XML instrument (pre-Kontakt 4) | reader | 624 | 1 | a format to read (Kontakt-2 XML preset) | Bb Clarinet 1.nki |
+| Kontakt 2 (V2) preset body not decoded | reader | 624 | 1 | not a parser gap: the payload is protected (see §2) | Bb Clarinet 1.nki |
 | modulator category 3 | reader | 544 | 6 | one reader case, decoded from the native reader | Dramatic Techtronic 02.nki |
 | unknown function num_slices_zone | function | 362 | 4 | a zone-slice model | a - Horn Solo - Core techniques.nki |
 | SetEnginePar | command | 321 | 24 | a write law per id, plus the async type swap | Electro-Acoustic.nki |
@@ -176,7 +176,7 @@ action; "script fails" is instruments whose slot does not compile.
 | Evolve R2 Library | 1,267 | 922 | 345 | 0 | 0 | 922 | 0 | 0 | modulator category 3 (327 of the refusals), then the two `*EnginePar` reads |
 | AudioBro LASS Bundles | 1,151 | 0 | 1,151 | 0 | 0 | 0 | 0 | 0 | nothing we can do: key-locked `.nicnt`, Kontakt refuses it too |
 | Glory Days – Big Band Horns | 643 | 643 | 0 | 0 | 0 | 0 | 0 | 2,076 | nothing: every instrument loads, no unanswered action, no dead script; only pictures, which the library does not ship |
-| Garritan – Jazz & Big Band | 624 | 0 | 624 | 0 | 0 | 0 | 0 | 0 | the legacy XML reader |
+| Garritan – Jazz & Big Band | 624 | 0 | 624 | 0 | 0 | 0 | 0 | 0 | the payload is protected, not unparsed (§2) |
 | Spitfire Glass & Steel | 242 | 242 | 0 | 242 | 0 | 242 | 0 | 490 | saved purge state, not a gap; `GetFolder`/`GetEnginePar` after that |
 | Kinetic Metal Library | 211 | 130 | 81 | 0 | 17 | 0 | 0 | 0 | modulator category 3 (81), then the silence |
 | Spitfire Studio Brass | 204 | 204 | 0 | 0 | 0 | 204 | **204** | 1,020 | the zone-slice model — all 204 fail on it |
@@ -320,11 +320,23 @@ instrument each in two Heavyocity Damage libraries. Slices are an edit-time
 division of a sample that neither the plan nor the playback has, so this is the
 largest row that needs a *model* rather than a binding.
 
-### 2. Garritan's legacy XML — 624 instruments Kontakt loads and we refuse
+### 2. Garritan — 624 instruments Kontakt loads and we refuse (measured: not XML)
 
 The single largest reader gap where the two sides disagree: Kontakt reads these
-and we answer "legacy XML instruments are not read". 624 instruments in one
-library. It was listed under "out of scope" in the first version; it should not
+and we refuse them. 624 instruments in one library.
+
+**Measured 2026-11-03, and it changes the shape of this gap.** The label above
+was inherited from our own error text, not from the files. They are NKSv2
+containers with a `Kon2` header (format word `0x0100`, payload from offset 170);
+an unprotected file of the same family inflates there to `K2_Container` XML,
+and **these do not** — 723 zlib candidates across 40 files, raw deflate, FastLZ
+and LZ4, all failed, and their samples sit in two `.nks` monoliths whose members
+carry no `RIFF` header either. So the work is not "parse 38 XML elements"; it is
+"decode a protected payload we have no key for". The XML inventory is still
+useful (219 attributes, ~40 load-bearing, taken from an unprotected Kon3 file)
+because it bounds what a decoded file would need. The one measurement that
+decides whether this is worth doing: an unprotected copy of one instrument,
+re-saved from Kontakt. It was listed under "out of scope" in the first version; it should not
 be — out of scope is LASS, where Kontakt refuses too. This is a format someone
 has to decide to read or to declare unsupported on purpose.
 

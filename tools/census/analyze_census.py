@@ -56,8 +56,8 @@ def main():
         t = (r.get("refusal") or "") + (r.get("refusal_head") or "")
         if "no .nicnt access data" in t:
             return "library access: no .nicnt present"
-        if "legacy xml" in t.lower():
-            return "legacy XML instrument (pre-Kontakt 4 format)"
+        if "legacy xml" in t.lower() or "preset body is not decoded" in t.lower():
+            return "Kontakt 2 (V2) preset body not decoded"
         if "modulator" in t.lower():
             return "modulator category 3"
         if "program: missing" in t:
