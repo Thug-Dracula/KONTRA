@@ -268,6 +268,13 @@ rules, `LoadArray`, and the zone-slice model. Two of those are gone:
   unblocked, no regressions. What is left of that family is small:
   `dont_use_machine_mode` (25 slots), `_pgs_changed` (42),
   `mf_get_note_length` (7), `set_num_user_zones` (4).
+
+  **All four were closed the next day** (`docs/re/ksp-bindings-2026-11-02.md`):
+  478 failing slots in 470 instruments → **404 in 404**, none the other way.
+  Three are bindings; `set_num_user_zones` compiles and is reported unanswered,
+  because its slots need the user-zone model (`set_sample`,
+  `%NI_USER_ZONE_IDS`) and do not compile either way — this line's four are
+  first errors, not isolated causes.
 - **`LoadArray` is not a silence cause, and the measurement says so.** 504
   keyswept instruments call it; **112 are silent, 22 % — *below* the 26 % base
   rate** of the 704 keyswept. The 57-of-61 figure this section was built on
