@@ -168,6 +168,9 @@ pub struct Group {
     /// Read by `Source::Blend(n)`.
     pub blends: Vec<ir::Blend>,
     pub routes: Vec<ir::Routes>,
+    /// Its stored start criteria, which `$ENGINE_PAR_START_CRITERIA_*` reads
+    /// back: libraries store tags there and select groups by them.
+    pub criteria: Vec<ir::StartCriterion>,
     /// It plays on release (scripts read this).
     pub release_trigger: bool,
     /// The bus its voices play into, an index into [`Plan::buses`]; a
@@ -262,6 +265,7 @@ impl Group {
             shapers: Vec::new(),
             blends: Vec::new(),
             routes: Vec::new(),
+            criteria: Vec::new(),
             release_trigger: false,
             bus: 0,
         }

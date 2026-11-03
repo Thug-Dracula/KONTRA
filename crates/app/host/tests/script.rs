@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use kontra_engine::{
-    Atom, Engine, Event, HostNote, HostPattern, Plan, Region, SampleTime, Timed, Zone, ir::Slice,
+    Atom, Engine, Event, HostNote, HostPattern, Plan, Region, SampleTime, Timed, Zone, ir,
+    ir::Slice,
 };
 use kontra_stream::{BlobKey, Encoding, MemSource, SampleFmt, Store, StoreConfig};
 use kontra_ui_model::MouseEvent;
@@ -3928,4 +3929,51 @@ fn set_num_user_zones_is_reported_unanswered() {
         e.unhandled_actions(),
         [(kontra_engine::Action::SetNumUserZones, 1)]
     );
+}
+
+/// Three libraries keep their own data in engine parameters and read it back to
+/// choose groups, and one note reads all three: Accordions 2 stores a register
+/// number in `START_CRITERIA_CC_MIN` and a family in `START_CRITERIA_CONTROLLER`
+/// (`%yrudk[cc_min] := group`), Brass Band Soloists keeps its articulation tag
+/// in a Solid G-EQ's LF gain with a switch beside it, and Heavyocity Gravity 2
+/// names the group with `$EVENT_PAR_CUSTOM`. Before these reads were carried the
+/// tags all answered 0 and the three products' group gates closed every group
+/// (22 silent instruments, `docs/re/silent-products-2026-11-03.md` §5).
+#[test]
+fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut sounding = zone(&mut store, 0.5, 0);
+    sounding.keys = 60..=60;
+    let mut plan = Plan::new(vec![sounding], 16);
+    for g in &mut plan.groups {
+        g.mods.clear();
+    }
+    plan.groups[0].criteria = vec![ir::StartCriterion {
+        mode: 2,
+        controller: 2,
+        cc: (7, 64),
+        ..ir::StartCriterion::default()
+    }];
+    let mut bands = [ir::Bell::FLAT; 4];
+    bands[0].shape = ir::Shape::Peak;
+    bands[3].shape = ir::Shape::HighShelf;
+    plan.groups[0].inserts = vec![Some(ir::Effect {
+        kind: ir::EffectKind::Eq(bands),
+        bypass: true,
+        output: 1.0,
+        dry: 0.0,
+    })];
+    let script = kontra_ksp::compile(
+        "on note
+            set_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 42, 3)
+            message(get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_LF_BELL, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_HF_BELL, 0, 0, -1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 3))
+        end on",
+        &[],
+    )
+    .unwrap();
+    plan.scripts = vec![kontra_host::script::plan(&script, &[], &[])];
+    let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
+    let heard = level(&mut e, &[on(60)]);
+    assert!((heard - 0.5).abs() < 1e-3, "{heard}");
+    assert_eq!(e.last_message(), "2,7,1,0,42");
 }

@@ -38,6 +38,7 @@ pub fn engine_pars() -> Vec<ir::ScriptPar> {
 const FIXED: &[(&str, ir::EnginePar)] = {
     use ir::EnginePar as P;
     use ir::ReverbPar as R;
+    use ir::StartPar as S;
     &[
         ("$ENGINE_PAR_ATTACK", P::Attack),
         ("$ENGINE_PAR_HOLD", P::Hold),
@@ -85,6 +86,57 @@ const FIXED: &[(&str, ir::EnginePar)] = {
         ("$ENGINE_PAR_VOLUME", P::Volume),
         ("$ENGINE_PAR_PAN", P::Pan),
         ("$ENGINE_PAR_TUNE", P::Tune),
+        // A group's stored start criteria, which libraries also use as tags:
+        // Accordions 2 stores a register number in `CC_MIN` and a family in
+        // `CONTROLLER`, then names groups by reading them back (see
+        // `docs/re/silent-products-2026-11-03.md` §5).
+        ("$ENGINE_PAR_START_CRITERIA_MODE", P::StartCriteria(S::Mode)),
+        (
+            "$ENGINE_PAR_START_CRITERIA_NEXT_CRIT",
+            P::StartCriteria(S::Next),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_KEY_MIN",
+            P::StartCriteria(S::KeyMin),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_KEY_MAX",
+            P::StartCriteria(S::KeyMax),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_CONTROLLER",
+            P::StartCriteria(S::Controller),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_CC_MIN",
+            P::StartCriteria(S::CcMin),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_CC_MAX",
+            P::StartCriteria(S::CcMax),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_CYCLE_CLASS",
+            P::StartCriteria(S::CycleClass),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_ZONE_IDX",
+            P::StartCriteria(S::ZoneIdx),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_SLICE_IDX",
+            P::StartCriteria(S::SliceIdx),
+        ),
+        (
+            "$ENGINE_PAR_START_CRITERIA_SEQ_ONLY",
+            P::StartCriteria(S::SequencerOnly),
+        ),
+        // The Solid G-EQ's bell switches: 1 a peak, 0 a shelf
+        // (docs/re/kontakt-bindings/filters_eq.tsv, "bool: stored=1 when
+        // value>=1"). Fracture Sounds stores its round-robin flag there and
+        // gates every group on it.
+        ("$ENGINE_PAR_SEQ_LF_BELL", P::EqBell(0)),
+        ("$ENGINE_PAR_SEQ_HF_BELL", P::EqBell(3)),
     ]
 };
 

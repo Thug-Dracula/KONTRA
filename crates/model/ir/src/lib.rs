@@ -300,6 +300,11 @@ pub struct Group {
     pub one_shot: bool,
     /// Start rules folded left to right by their joins; empty always starts.
     pub start: Vec<(Join, StartRule)>,
+    /// The group's start criteria rows as the file stores them, the field
+    /// `$ENGINE_PAR_START_CRITERIA_*` reads back (bar the ones `start` also
+    /// lowers). Libraries use the stored tags as data, so the raw rows stay
+    /// beside the lowered rules: a row `start` drops still reads back.
+    pub criteria: Vec<StartCriterion>,
     /// Voices of this group that may sound at once.
     pub polyphony: Option<u16>,
     /// Voices of this group fade when a voice of that group starts (hi-hat choke).
@@ -351,6 +356,7 @@ impl Group {
         release_decay_db: 0.0,
         one_shot: false,
         start: Vec::new(),
+        criteria: Vec::new(),
         polyphony: None,
         off_by: None,
         bus: 0,
@@ -584,6 +590,64 @@ pub enum StartRule {
     },
     /// One zone slot of the group per note, in turn or at random (no repeat), per group.
     Cycle { random: bool },
+}
+
+/// One stored start criterion of a group (Kontakt's Group Start Options row):
+/// the raw fields `$ENGINE_PAR_START_CRITERIA_*` answers with. A group holds up
+/// to four rows; each joins the next by [`Self::next`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StartCriterion {
+    /// 0 always, 1 on key, 2 on controller, 3 cycle round robin, 4 cycle
+    /// random, 5 slice trigger.
+    pub mode: i32,
+    /// How this row joins the next (0 and, 1 and not, 2 or).
+    pub next: i32,
+    pub key: (i16, i16),
+    /// The controller's number, whose meaning is the library's: the corpus
+    /// uses it as a tag to address a group by (`get_engine_par`).
+    pub controller: i16,
+    /// The controller range, again often a tag.
+    pub cc: (i16, i16),
+    pub cycle_class: i32,
+    /// The zone slot and slice a slice trigger plays.
+    pub slice: (i32, i32),
+    pub sequencer_only: bool,
+}
+
+/// A field of a group's stored start criterion that a script reads back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartPar {
+    Mode,
+    Next,
+    KeyMin,
+    KeyMax,
+    Controller,
+    CcMin,
+    CcMax,
+    CycleClass,
+    ZoneIdx,
+    SliceIdx,
+    SequencerOnly,
+}
+
+impl StartCriterion {
+    /// The value `$ENGINE_PAR_START_CRITERIA_*` answers for `par`.
+    #[must_use]
+    pub fn par(self, par: StartPar) -> i32 {
+        match par {
+            StartPar::Mode => self.mode,
+            StartPar::Next => self.next,
+            StartPar::KeyMin => i32::from(self.key.0),
+            StartPar::KeyMax => i32::from(self.key.1),
+            StartPar::Controller => i32::from(self.controller),
+            StartPar::CcMin => i32::from(self.cc.0),
+            StartPar::CcMax => i32::from(self.cc.1),
+            StartPar::CycleClass => self.cycle_class,
+            StartPar::ZoneIdx => self.slice.0,
+            StartPar::SliceIdx => self.slice.1,
+            StartPar::SequencerOnly => i32::from(self.sequencer_only),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

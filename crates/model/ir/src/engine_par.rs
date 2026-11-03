@@ -50,6 +50,13 @@ pub enum EnginePar {
     OutputChannel,
     /// Entry n of the script plan's knobs: a 0..=1 knob through its law.
     Knob(u16),
+    /// A group's stored start criterion, read back: which field of the first
+    /// row (`$ENGINE_PAR_START_CRITERIA_*`). These libraries store tags there
+    /// and select groups by them.
+    StartCriteria(crate::StartPar),
+    /// An EQ band's shape as a switch: 1 a peak (bell), 0 a shelf
+    /// (`$ENGINE_PAR_SEQ_LF_BELL` band 0, `$ENGINE_PAR_SEQ_HF_BELL` band 3).
+    EqBell(u8),
 }
 
 /// What one script parameter name drives.

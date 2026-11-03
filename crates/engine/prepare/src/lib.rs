@@ -81,6 +81,7 @@ pub fn prepare(
             shapers: g.shapers.clone(),
             blends: g.blends.clone(),
             routes: g.routes.clone(),
+            criteria: g.criteria.clone(),
             release_trigger: g.trigger == ir::Trigger::Release,
             bus: g.bus,
         })

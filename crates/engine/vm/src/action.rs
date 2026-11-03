@@ -20,6 +20,9 @@ pub mod event {
 
     /// `0..=3` are free for the script.
     pub const CUSTOM_LAST: i32 = 3;
+    /// The event's array of further free slots, addressed with `*_arr` and an
+    /// index (`$EVENT_PAR_CUSTOM`, 28 — `crates/script/ksp/data/constants.tsv`).
+    pub const CUSTOM_ARRAY: i32 = 28;
     pub const VOLUME: i32 = 4;
     pub const PAN: i32 = 5;
     pub const TUNE: i32 = 6;

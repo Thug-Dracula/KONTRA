@@ -41,7 +41,17 @@ pub(crate) fn solid_knobs(saved: [f32; 10], shapes: [ir::Shape; 2]) -> Vec<SlotK
             BandGain(b) | BandHz(b) | BandWidth(b) => b,
             _ => continue,
         };
-        let fields = [BellHz(band), BellQ(band), BellGain(band)];
+        // The knob's own field first: a read takes the first law's field, and
+        // the gain also moves the Q and the Hz of a shelf, so a read of
+        // `$ENGINE_PAR_SEQ_LMF_GAIN` must land on the gain, not on a coupled
+        // field (`slot_x`). Fracture Sounds' Brass Band Soloists stores its
+        // articulation and round-robin tags in these knobs and gates every
+        // group on reading them back.
+        let fields = match knob {
+            BandGain(_) => [BellGain(band), BellQ(band), BellHz(band)],
+            BandHz(_) => [BellHz(band), BellGain(band), BellQ(band)],
+            _ => [BellQ(band), BellGain(band), BellHz(band)],
+        };
         out.extend(sampled(knob, &fields, &|x| eq(k, x)));
     }
     out
@@ -50,6 +60,36 @@ pub(crate) fn solid_knobs(saved: [f32; 10], shapes: [ir::Shape; 2]) -> Vec<SlotK
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A read (`Engine::slot_x`) takes the **first** law's field, so a knob
+    /// whose law moves several fields must list its own field first. The gain
+    /// also moves the Q of a peak band, so with the fields in any other order
+    /// `$ENGINE_PAR_SEQ_LMF_GAIN` reads back the Q's setting: Fracture Sounds'
+    /// Brass Band Soloists stores its articulation tag in the LF gain and its
+    /// round-robin index in the LMF gain, and gates every group on reading
+    /// them back (measured 2026-11-03: the gate refused all 4,035 zones).
+    #[test]
+    fn a_knob_reads_back_through_its_own_field() {
+        use ir::EffectParam::{BellGain, BellHz, BellQ};
+        use ir::SlotKnob::{BandGain, BandHz, BandWidth};
+        let saved = [9e-6, 1e-6, 1e-6, 0.5, 0.0, 0.5, 0.0, 0.5, 0.5, 0.5];
+        let knobs = solid_knobs(saved, [ir::Shape::HighShelf, ir::Shape::Peak]);
+        let first = |knob| {
+            knobs
+                .iter()
+                .find(|(k, _, _)| *k == knob)
+                .map(|(_, field, _)| *field)
+        };
+        for (knob, field) in [
+            (BandGain(0), BellGain(0)),
+            (BandHz(0), BellHz(0)),
+            (BandGain(1), BellGain(1)),
+            (BandWidth(1), BellQ(1)),
+            (BandGain(3), BellGain(3)),
+        ] {
+            assert_eq!(first(knob), Some(field), "{knob:?}");
+        }
+    }
 
     #[test]
     fn a_solid_eq_knob_lands_where_its_law_puts_the_band() {

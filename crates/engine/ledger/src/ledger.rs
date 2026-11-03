@@ -106,6 +106,11 @@ pub struct Note {
     pub offset: u32,
     /// `EVENT_PAR_0..3`, free for the script.
     pub custom: [i32; 4],
+    /// `$EVENT_PAR_CUSTOM`'s array: the further free slots a script carries on
+    /// the event, by index.
+    // ponytail: 32; no corpus script names a literal index above 15 (the whole
+    // 3,694-script gap corpus), so the computed ones have room.
+    pub custom_par: [i32; 32],
     /// The zone slot the note starts; -1 for any.
     pub zone_slot: i32,
     /// "From script" modulator values, `(index, value)`, ±1 000 000.
@@ -148,6 +153,7 @@ impl Note {
             script_pan: 0,
             offset: 0,
             custom: [0; 4],
+            custom_par: [0; 32],
             zone_slot: -1,
             mod_values: [None; 4],
             first: 0,

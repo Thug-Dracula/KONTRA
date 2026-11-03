@@ -225,6 +225,12 @@ impl Engine {
         if par == EnginePar::EffectType {
             return self.effect_type(group, slot, generic);
         }
+        if let EnginePar::EqBell(band) = par {
+            return self.eq_bell(band, group, slot, generic);
+        }
+        if let EnginePar::StartCriteria(which) = par {
+            return Some(self.start_criteria(which, group));
+        }
         if let Some(which) = effect_par(par) {
             let e = *self.effect_mut(group, slot, generic)?;
             return Some(which.get(&e)?.round().clamp(0.0, 1e6) as i32);
@@ -317,6 +323,13 @@ impl Engine {
         if par == EnginePar::OutputChannel {
             return self.set_output_channel(value, group, generic);
         }
+        if let EnginePar::EqBell(band) = par {
+            let set = self.set_eq_bell(band, value, group, slot, generic);
+            if set {
+                self.refresh_all(None);
+            }
+            return set;
+        }
         if self.set_level(par, value, group, generic)
             || self.set_knob(par, value, group, slot, generic)
             || (par == EnginePar::EffectSubtype && self.set_shape(value, group, slot, generic))
@@ -363,6 +376,53 @@ impl Engine {
             self.refresh_all(None);
         }
         set
+    }
+
+    /// An EQ slot's band `band` as the switch a script reads: 1 for a peak
+    /// (the bell on), 0 otherwise. A slot that holds no EQ answers 0, like a
+    /// known name on a target the instrument lacks.
+    fn eq_bell(&mut self, band: u8, group: i32, slot: i32, generic: i32) -> Option<i32> {
+        let Some(e) = self.effect_mut(group, slot, generic) else {
+            return Some(0);
+        };
+        let ir::EffectKind::Eq(bands) = &e.kind else {
+            return Some(0);
+        };
+        Some(i32::from(
+            bands.get(usize::from(band))?.shape == ir::Shape::Peak,
+        ))
+    }
+
+    /// `set_engine_par` of a bell switch: on makes band `band` a peak, off the
+    /// shelf it started as (LF low, HF high). A band with no switch is dropped.
+    fn set_eq_bell(&mut self, band: u8, value: i32, group: i32, slot: i32, generic: i32) -> bool {
+        let shelf = match band {
+            0 => ir::Shape::LowShelf,
+            3 => ir::Shape::HighShelf,
+            _ => return false,
+        };
+        let Some(ir::EffectKind::Eq(bands)) =
+            self.effect_mut(group, slot, generic).map(|e| &mut e.kind)
+        else {
+            return false;
+        };
+        let Some(b) = bands.get_mut(usize::from(band)) else {
+            return false;
+        };
+        b.shape = if value >= 1 { ir::Shape::Peak } else { shelf };
+        true
+    }
+
+    /// `get_engine_par($ENGINE_PAR_START_CRITERIA_*)` of `group`: field `which`
+    /// of its first stored start criterion, 0 for a group with no row. Kontakt
+    /// reads the start option's own row, and the libraries that read these as
+    /// tags store exactly one row per group.
+    fn start_criteria(&self, which: ir::StartPar, group: i32) -> i32 {
+        usize::try_from(group)
+            .ok()
+            .and_then(|g| self.groups.get(g))
+            .and_then(|g| g.criteria.first())
+            .map_or(0, |c| c.par(which))
     }
 
     /// A group's bus as `BUS_OFFSET + n` (plan bus n + 1), −1 for the main bus; a

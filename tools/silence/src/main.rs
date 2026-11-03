@@ -3,6 +3,7 @@
 //!
 //! ```sh
 //! kontra-silence --manifest list.txt [--json records.jsonl] [--key auto|60] [--all-keys]
+//!                 [--cc 2=64]
 //! ```
 //!
 //! Each manifest line is an instrument path, or a JSON object with a `path`
@@ -53,7 +54,8 @@
 //!
 //! - **One note, one point in time.** Velocity is fixed (default 100), the hold
 //!   is short (default 500 ms) and no controller, pitch bend or key switch is
-//!   sent unless asked for. An instrument that needs a keyswitch held, a mod
+//!   sent unless asked for (`--cc NUM=VALUE` sends a controller before the
+//!   note, for an instrument whose group start criteria read one). An instrument that needs a keyswitch held, a mod
 //!   wheel moved, or a UI control set to make a sound is reported as silent at
 //!   the point measured, with `start_rule`/`velocity`/`key_range`/`trigger`
 //!   saying why. That is a statement about this probe, not about the
@@ -235,13 +237,15 @@ struct Args {
     hold_ms: u32,
     tail_ms: u32,
     sample_frames: u64,
+    /// Controllers sent before the note, as `(number, value)`.
+    ccs: Vec<(u8, u8)>,
     probe: bool,
     quiet: bool,
 }
 
 const USAGE: &str = "usage: kontra-silence --manifest FILE [--json OUT.jsonl] \
 [--key auto|N|N,N,...] [--all-keys] [--velocity 1..=127] [--hold-ms N] \
-[--tail-ms N] [--sample-frames N] [--probe] [--quiet]";
+[--tail-ms N] [--sample-frames N] [--cc NUM=VALUE] [--probe] [--quiet]";
 
 fn main() -> Result<()> {
     let args = parse(std::env::args().skip(1))?;
@@ -304,6 +308,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args> {
         hold_ms: 500,
         tail_ms: 500,
         sample_frames: 0,
+        ccs: Vec::new(),
         probe: false,
         quiet: false,
     };
@@ -326,6 +331,17 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args> {
             "--hold-ms" => parsed.hold_ms = number(&value()?)?,
             "--tail-ms" => parsed.tail_ms = number(&value()?)?,
             "--sample-frames" => parsed.sample_frames = number(&value()?)?,
+            "--cc" => {
+                let pair = value()?;
+                let (cc, value) = pair
+                    .split_once('=')
+                    .with_context(|| format!("--cc takes NUM=VALUE\n{USAGE}"))?;
+                let (cc, value): (u8, u8) = (number(cc)?, number(value)?);
+                if cc > 127 || value > 127 {
+                    bail!("--cc {cc}={value} is outside 0..=127");
+                }
+                parsed.ccs.push((cc, value));
+            }
             "--key" => {
                 let value = value()?;
                 if value != "auto" {
@@ -697,6 +713,12 @@ fn render(plan: &Arc<Plan>, key: u8, args: &Args, store: &mut Store) -> Result<M
             .context("a block does not fit the buffer")?;
         let mut timed: Vec<Timed<Event>> = Vec::new();
         if at == 0 {
+            // Controllers first: a group's start criteria may read one, and the
+            // note's own start is decided when it arrives.
+            timed.extend(args.ccs.iter().map(|&(cc, value)| Timed {
+                at: SampleTime(0),
+                body: Event::midi1(0xb0, cc, value),
+            }));
             timed.push(Timed {
                 at: SampleTime(0),
                 body: on,
