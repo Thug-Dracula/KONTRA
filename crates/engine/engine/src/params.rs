@@ -14,6 +14,22 @@ use kontra_plan::route_depth::{depth, set_signed, signed};
 
 pub(crate) use kontra_plan::par_values::{BUS_OFFSET, LevelPar, effect_par, level_par};
 
+/// The start-criteria record Kontakt answers for a group with no stored row:
+/// its unused fields keep the record's defaults, measured on a synthetic group
+/// with no rows (`tools/kontakt-oracle/probes/start_criteria_law.lua`, Kontakt
+/// 8.14.1, 2026-11-03) — mode 0, key 24..=24, controller 1, cc 0..=64, and the
+/// zone and slice fields -1. A stored row's own unused fields hold the same.
+const NO_START_CRITERION: ir::StartCriterion = ir::StartCriterion {
+    mode: 0,
+    next: 0,
+    key: (24, 24),
+    controller: 1,
+    cc: (0, 64),
+    cycle_class: 0,
+    slice: (-1, -1),
+    sequencer_only: false,
+};
+
 impl Engine {
     /// What the running script's parameter id `id` changes.
     pub(crate) fn engine_par(&self, id: i32) -> Option<EnginePar> {
@@ -414,15 +430,19 @@ impl Engine {
     }
 
     /// `get_engine_par($ENGINE_PAR_START_CRITERIA_*)` of `group`: field `which`
-    /// of its first stored start criterion, 0 for a group with no row. Kontakt
-    /// reads the start option's own row, and the libraries that read these as
-    /// tags store exactly one row per group.
+    /// of its first stored start criterion. Kontakt reads the start option's own
+    /// row, and the libraries that read these as tags store exactly one row per
+    /// group. A group with no stored row still has a record, and its unused
+    /// fields hold [`NO_START_CRITERION`] rather than zero (measured: controller
+    /// 1 and cc 0..=64, not 0 and 0..=0).
     fn start_criteria(&self, which: ir::StartPar, group: i32) -> i32 {
         usize::try_from(group)
             .ok()
             .and_then(|g| self.groups.get(g))
             .and_then(|g| g.criteria.first())
-            .map_or(0, |c| c.par(which))
+            .copied()
+            .unwrap_or(NO_START_CRITERION)
+            .par(which)
     }
 
     /// A group's bus as `BUS_OFFSET + n` (plan bus n + 1), −1 for the main bus; a

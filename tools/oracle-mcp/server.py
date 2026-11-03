@@ -1386,21 +1386,38 @@ def tool_render(midi: str | None = None, notes: list | None = None,
     }
 
 
-def tool_dump_script(nki: str, probe: str = "ksp", timeout: float = 240.0) -> dict:
+def tool_dump_script(nki: str | None = None, probe: str = "ksp",
+                     timeout: float = 240.0) -> dict:
     """Run a Lua probe inside a disposable Kontakt and return what it wrote.
 
     dump.py's contract is kept (ORACLE_INPUTS / ORACLE_OUT globals, one JSON record
     per line, last line {"done":true}), but not dump.py's launcher: it forces
     WINEDLLOVERRIDES=...=b and its default EXE (~/.wine/.../Portapotty/...) is not on
     this machine. The launch below is the same wine install our session runs.
+
+    `probe` is `ksp`, `dump`, or the path of a Lua probe using that contract. A
+    path probe may be given without an `.nki`: a synthetic instrument needs none.
     """
     preflight()
-    path = resolve_path(nki)
-    if not path.is_absolute() or not path.exists():
-        raise ToolError(f"oracle_dump_script: {nki!r} is not an existing absolute path")
-    if probe not in ("ksp", "dump"):
-        raise ToolError("oracle_dump_script: probe must be 'ksp' (script source) or 'dump' (dump.lua)")
-    source = KSP_PROBE if probe == "ksp" else DUMP_LUA
+    path = None
+    if nki:
+        path = resolve_path(nki)
+        if not path.is_absolute() or not path.exists():
+            raise ToolError(f"oracle_dump_script: {nki!r} is not an existing absolute path")
+    custom = probe not in ("ksp", "dump")
+    if custom:
+        source = resolve_path(probe)
+        if not source.is_absolute():
+            # A probe given as a repo-relative path (as the docs spell it).
+            source = REPO / source if (REPO / source).exists() else HERE / source
+        if source.suffix != ".lua" or not source.exists():
+            raise ToolError(f"oracle_dump_script: probe {probe!r} is not an existing .lua file")
+    elif probe in ("ksp", "dump"):
+        source = KSP_PROBE if probe == "ksp" else DUMP_LUA
+        if not nki:
+            raise ToolError(f"oracle_dump_script: probe {probe!r} needs an .nki")
+    else:
+        raise ToolError("oracle_dump_script: probe must be 'ksp', 'dump', or a .lua path")
     if not source.exists():
         raise ToolError(f"oracle_dump_script: probe {source} is missing")
 
@@ -1410,8 +1427,9 @@ def tool_dump_script(nki: str, probe: str = "ksp", timeout: float = 240.0) -> di
     run.mkdir(parents=True, exist_ok=True)
     out = run / "probe.jsonl"
     script = run / "probe.lua"
+    inputs = "" if path is None else lua_str(winpath(path))
     script.write_text(
-        "ORACLE_INPUTS = {" + lua_str(winpath(path)) + "}\n"
+        "ORACLE_INPUTS = {" + inputs + "}\n"
         + "ORACLE_OUT = " + lua_str(winpath(out)) + "\n"
         + source.read_text())
     log_path = run / "probe.log"
@@ -1473,7 +1491,8 @@ def tool_dump_script(nki: str, probe: str = "ksp", timeout: float = 240.0) -> di
     records = [r for r in records if not r.get("done")]
     if not records:
         raise ToolError(f"oracle_dump_script: probe wrote no records ({out})")
-    out_rec = {"nki": str(path), "probe": probe, "probe_file": str(source),
+    out_rec = {"nki": None if path is None else str(path), "probe": probe,
+               "probe_file": str(source),
                "records": records, "seconds": round(time.monotonic() - started, 2),
                "run_dir": str(run), "display": display}
     if probe == "ksp":
@@ -1675,12 +1694,14 @@ TOOLS = {
         "description": "Run a Lua probe inside a disposable Kontakt (dump.py's contract: "
                        "ORACLE_INPUTS/ORACLE_OUT, JSON lines, {\"done\":true}) and return what "
                        "it wrote. probe=ksp (default) returns the KSP script text per slot; "
-                       "probe=dump runs tools/kontakt-oracle/dump.lua (state, hashed sources).",
+                       "probe=dump runs tools/kontakt-oracle/dump.lua (state, hashed sources); "
+                       "probe=<path.lua> runs that probe, with no .nki needed when the probe "
+                       "builds its own synthetic instrument.",
         "schema": {"type": "object", "properties": {
-            "nki": {"type": "string", "description": "absolute path of the .nki"},
-            "probe": {"type": "string", "enum": ["ksp", "dump"]},
-            "timeout": {"type": "number"}},
-            "required": ["nki"]},
+            "nki": {"type": "string", "description": "absolute path of the .nki; omit for a "
+                                                     "probe that builds its own instrument"},
+            "probe": {"type": "string", "description": "'ksp', 'dump', or the path of a .lua probe"},
+            "timeout": {"type": "number"}}},
     },
     "oracle_mem": {
         "fn": tool_mem,
