@@ -225,6 +225,19 @@ fn place_effects(out: &mut [Option<ir::Effect>], place: Place, at: &str, notes: 
     }
 }
 
+/// Whether a slot's stored dry level is the module's own mix control, so the
+/// reader keeps it instead of applying the wet-only law.
+///
+/// The legacy Phaser (0x14) keeps its stored dry level like its siblings the
+/// Chorus and Flanger: Kinetic Metal's instrument insert slot 3 stores output 0
+/// and dry 1 (measured 2026-11-02, 23 patches), which is a slot passing its dry
+/// signal and no wet, not a mute. Reading that dry as 0 multiplied the whole
+/// instrument rack by nothing and made all 23 silent; with the slot at its
+/// stored values the same note peaks 0.0406.
+fn keeps_dry(id: u16) -> bool {
+    matches!(id, 0x10..=0x12 | 0x13 | 0x14 | 0x15 | 0x16 | 0x59 | 0x5a)
+}
+
 /// Whether a slot's kind has no Output control, so a stored 0 there is the
 /// absent control rather than silence.
 ///
@@ -516,7 +529,7 @@ fn slot_effect(
         }),
         bypass: params.bypass,
         output,
-        dry: if parallel || effect.id == 0x13 {
+        dry: if keeps_dry(effect.id) {
             params.dry_level
         } else {
             0.0
@@ -821,6 +834,27 @@ pub(crate) fn program(program: &Program, impulses: &mut Impulses, notes: &mut No
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A legacy Phaser slot keeps the dry level the file stores. Kinetic Metal's
+    /// instrument insert slot 3 stores output 0 and dry 1 (0x14, v0x50, 23
+    /// patches, measured 2026-11-02): that is a slot passing its dry signal and
+    /// no wet. Forcing the dry to 0 there muted the whole instrument rack.
+    #[test]
+    fn a_legacy_phaser_slot_keeps_its_stored_dry_level() {
+        assert!(
+            keeps_dry(0x14),
+            "the legacy Phaser's stored dry is a mix control"
+        );
+        assert!(keeps_dry(0x11), "its sibling the legacy Chorus keeps it");
+        assert!(
+            !keeps_dry(0x18),
+            "a filter's stored dry is not a mix control"
+        );
+        assert!(
+            !keeps_dry(0x1e),
+            "a distortion's stored dry is not a mix control"
+        );
+    }
 
     /// What a stored EQ output means: 0 is an absent control, anything else is
     /// a level. Pinned by Haunted Strings 2 (its Solid EQs are its layer mixer)

@@ -4,6 +4,44 @@ use kontra_behaviour::Step;
 use crate::*;
 
 impl Engine {
+    /// The first condition that stops `zone` from starting for this note, in
+    /// the order [`Engine::start_zones`] tests them; `None` when all hold.
+    ///
+    /// `accepted` is the caller's verdict on the zone's trigger, so the
+    /// trigger test stays where the release/legato decision is made.
+    fn refusal(&self, slot: usize, n: &Note, zone: &Zone, accepted: bool) -> Option<Reject> {
+        if !accepted {
+            return Some(Reject::Trigger);
+        }
+        if !self.masks.allows(slot, zone.group) {
+            return Some(Reject::GroupMask);
+        }
+        if self
+            .groups
+            .get(zone.group as usize)
+            .is_some_and(|g| g.purged)
+        {
+            return Some(Reject::Purged);
+        }
+        if !zone.keys.contains(&n.key) {
+            return Some(Reject::KeyRange);
+        }
+        if !zone.velocities.contains(&n.velocity_byte) {
+            return Some(Reject::Velocity);
+        }
+        if n.zone_slot >= 0 && n.zone_slot != i32::from(zone.slot) {
+            return Some(Reject::ZoneSlot);
+        }
+        if !self
+            .buses
+            .get(plan::bus(&self.groups, zone))
+            .is_some_and(|b| b.enabled)
+        {
+            return Some(Reject::BusDisabled);
+        }
+        None
+    }
+
     pub(crate) fn start_zones(
         &mut self,
         note: NoteRef,
@@ -22,24 +60,38 @@ impl Engine {
         let since = self.behaviour.rls_reset.get(key).map_or(n.at.0, |&r| r);
         let held_seconds = self.now.0.saturating_sub(since) as f32 / self.rate as f32;
         for (index, zone) in plan.zones.iter().enumerate() {
-            let selected = accept(zone.trigger)
-                && self.masks.allows(note.slot(), zone.group)
-                && self
-                    .groups
-                    .get(zone.group as usize)
-                    .is_none_or(|g| !g.purged)
-                && zone.keys.contains(&n.key)
-                && zone.velocities.contains(&n.velocity_byte)
-                && (n.zone_slot < 0 || n.zone_slot == i32::from(zone.slot))
-                && self
-                    .buses
-                    .get(plan::bus(&self.groups, zone))
-                    .is_some_and(|b| b.enabled);
-            if !selected
-                || !self
-                    .behaviour
-                    .starts(zone, n.host.channel, n.key, n.draw, step)
+            let refusal = self.refusal(note.slot(), &n, zone, accept(zone.trigger));
+            #[cfg(feature = "trace")]
+            if self.collecting_rejects
+                && let Some(reason) = refusal
             {
+                self.rejects.push(crate::reject::Record {
+                    zone: Some(index),
+                    key: n.key,
+                    velocity: n.velocity_byte,
+                    event: note.event_id(),
+                    attack,
+                    reason,
+                });
+            }
+            if refusal.is_some() {
+                continue;
+            }
+            if !self
+                .behaviour
+                .starts(zone, n.host.channel, n.key, n.draw, step)
+            {
+                #[cfg(feature = "trace")]
+                if self.collecting_rejects {
+                    self.rejects.push(crate::reject::Record {
+                        zone: Some(index),
+                        key: n.key,
+                        velocity: n.velocity_byte,
+                        event: note.event_id(),
+                        attack,
+                        reason: crate::reject::Reject::StartRule,
+                    });
+                }
                 continue;
             }
             self.choke_by(zone.group, note);

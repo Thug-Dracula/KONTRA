@@ -402,6 +402,22 @@ impl Engine {
             }
             n.started = true;
             if n.ignored || n.released {
+                #[cfg(feature = "trace")]
+                if self.collecting_rejects {
+                    let reason = if n.ignored {
+                        crate::reject::Reject::Ignored
+                    } else {
+                        crate::reject::Reject::Released
+                    };
+                    self.rejects.push(crate::reject::Record {
+                        zone: None,
+                        key: n.key,
+                        velocity: n.velocity_byte,
+                        event: note.event_id(),
+                        attack: true,
+                        reason,
+                    });
+                }
                 continue;
             }
             let held = self

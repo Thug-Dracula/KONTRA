@@ -26,6 +26,7 @@ mod params;
 mod pgs;
 mod racks;
 mod recall;
+mod reject;
 mod script_files;
 
 mod script;
@@ -70,6 +71,7 @@ pub use plan::{
     RrCounter, Trigger, Zone,
 };
 pub use queue::Timed;
+pub use reject::{Record as RejectRecord, Reject};
 pub use script::{Callbacks, CcLink, Controls, LookPars, ScriptPlan};
 #[cfg(feature = "trace")]
 pub use trace::{RouteUnit, RouteValue, TraceEvent, VoiceEvent};
@@ -134,6 +136,12 @@ struct Slot {
 pub struct Engine {
     #[cfg(feature = "trace")]
     trace: Option<trace::Trace>,
+    /// Why zones were refused while [`Engine::collect_rejects`] is on.
+    #[cfg(feature = "trace")]
+    rejects: Vec<reject::Record>,
+    /// Whether refusals are being recorded (offline diagnosis only).
+    #[cfg(feature = "trace")]
+    collecting_rejects: bool,
     now: SampleTime,
     rate: u32,
     /// When the script timer (`$KSP_TIMER`) was last zeroed: the CPU clock,
@@ -233,6 +241,27 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Start or stop recording why a note starts no voice in a zone. Offline
+    /// diagnosis only: a live engine never turns this on. Turning it on does
+    /// not clear what was recorded; use [`Engine::clear_rejects`] for that.
+    #[cfg(feature = "trace")]
+    pub fn collect_rejects(&mut self, on: bool) {
+        self.collecting_rejects = on;
+    }
+
+    /// Refusals recorded since [`Engine::collect_rejects`] or the last clear.
+    #[cfg(feature = "trace")]
+    #[must_use]
+    pub fn rejects(&self) -> &[reject::Record] {
+        &self.rejects
+    }
+
+    /// Forget recorded refusals without changing whether they are recorded.
+    #[cfg(feature = "trace")]
+    pub fn clear_rejects(&mut self) {
+        self.rejects.clear();
+    }
+
     /// Allocates every pool the plan asks for, plus a quarter more voices so
     /// stolen voices can fade. Not real-time.
     #[must_use]
@@ -309,6 +338,10 @@ impl Engine {
         let mut engine = Self {
             #[cfg(feature = "trace")]
             trace: _trace_capacity.map(trace::Trace::new),
+            #[cfg(feature = "trace")]
+            rejects: Vec::new(),
+            #[cfg(feature = "trace")]
+            collecting_rejects: false,
             now: SampleTime(0),
             rate: rate.max(1),
             ksp_timer: std::time::Instant::now(),

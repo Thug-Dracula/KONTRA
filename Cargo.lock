@@ -2428,6 +2428,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kontra-silence"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kontra-engine",
+ "kontra-host",
+ "kontra-stream",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kontra-stream"
 version = "0.0.0"
 dependencies = [
