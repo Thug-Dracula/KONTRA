@@ -706,6 +706,11 @@ fn render(plan: &Arc<Plan>, key: u8, args: &Args, store: &mut Store) -> Result<M
     engine.clear_rejects();
     engine.collect_rejects(true);
 
+    // Events are timed on the engine's own clock, which the pre-roll has
+    // already advanced: a note at `SampleTime(0)` would be 248 ms old when it
+    // arrives, and a script that stamps `$ENGINE_UPTIME` on its notes (the
+    // Evolution family does) then reads a stale one.
+    let start = engine.now().0;
     let hold = u64::from(RATE) * u64::from(args.hold_ms) / 1000;
     let stop = hold + u64::from(RATE) * u64::from(args.tail_ms) / 1000;
     let on = Event::NoteOn {
@@ -740,17 +745,17 @@ fn render(plan: &Arc<Plan>, key: u8, args: &Args, store: &mut Store) -> Result<M
             // Controllers first: a group's start criteria may read one, and the
             // note's own start is decided when it arrives.
             timed.extend(args.ccs.iter().map(|&(cc, value)| Timed {
-                at: SampleTime(0),
+                at: SampleTime(start),
                 body: Event::midi1(0xb0, cc, value),
             }));
             timed.push(Timed {
-                at: SampleTime(0),
+                at: SampleTime(start),
                 body: on,
             });
         }
         if hold >= at && hold < until {
             timed.push(Timed {
-                at: SampleTime(hold),
+                at: SampleTime(start + hold),
                 body: off,
             });
         }

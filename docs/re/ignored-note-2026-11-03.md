@@ -1,6 +1,8 @@
 # The note `ignore_event` ate: the quick-start pane never shut
 
-2026-11-03. `kontra-silence` reported 20-odd instruments across 13 products as
+2026-11-03. Measured on `feat/ignored-note` merged with `feat/integration` at
+`ada791149` (which answers `$EVENT_PAR_18`/`$EVENT_PAR_19`) — the merge changed
+none of these rows, and §6 says why it is a different cause. `kontra-silence` reported 20-odd instruments across 13 products as
 `note_ignored`: a script ignored the host note and no note of its own reached
 selection. Nearly all of them are NI's Session framework (Session Guitarist,
 Session Bassist, Session Ukulele, Session Horns), which is one script shape, so
@@ -121,8 +123,9 @@ find; neither is a KONTRA defect.
 The NI Session family is one framework (the same `on note`, the same
 `on persistence_changed`, the same `$welcome_state`) and `load_array(…, 1)`
 appears once per product: Session Guitarist ×5, Session Bassist ×4, Session
-Ukulele ×3, Session Horns ×2. Evolution and 8DIO ignore the note for their own
-reasons (below) and are **not** this bug.
+Ukulele ×3, Session Horns ×2. Evolution and 8DIO ignore the note too, but their
+ignores were **not** this bug — Evolution's silence was the measuring tool's own
+(§6b) and 8DIO is silent in Kontakt as well (§7).
 
 ## 4. The change
 
@@ -178,7 +181,7 @@ machine. Auto key, velocity 100, 500 ms hold:
 | Session Guitarist – Electric Vintage | Electric Vintage (Melody) | `note_ignored`, 0.000000 | **ok, 0.161369** (key 60) |
 | Session Bassist – Prime Bass | Prime Bass (Melody) | `note_ignored`, 0.000000 | **ok, 0.184202** (key 48) |
 | Session Bassist – Upright Bass | Upright Bass (Melody) | `note_ignored`, 0.000000 | **ok, 0.311228** (key 48) |
-| Session Ukulele | Soprano / Tenor / Charango (Melody) | `note_ignored` at every key | **ok** at 48–72: 0.084966 / 0.142469 / 0.226365 |
+| Session Ukulele | Soprano / Tenor / Charango (Melody) | `note_ignored` at every key | **ok** at 48–72: 0.085 / 0.143 / 0.131–0.226 |
 
 **6 products, 8 instruments.** The Ukulele rows only move off `--key auto`'s key
 36 because 36 is a *melody-articulation keyswitch* in the Melody framework
@@ -187,21 +190,69 @@ they play.
 
 **Nothing else moved.** All 32 rows of the run are field-for-field identical
 before and after except these five (`peak`, `broken`, `voices`, rejection counts,
-frames, gain). Session Horns keeps its 2 voices and 0.1738, Kinetic-era rows keep
-theirs, the Evolution and 8DIO rows keep theirs.
+frames, gain). Session Horns keeps its 2 voices and 0.1738, the Evolution and
+8DIO rows keep theirs.
 
-## 6. What is still silent, and the probe that would settle it
+## 6. Two corrections that the re-measurement forced
 
-| product | first broken link | probe |
-|---|---|---|
-| Session Bassist – Upright Bass (the **pattern** patch, `Upright Bass.nki`) | `note_ignored`; Kontakt plays **0.302181** at key 48, we 0.000000 | `on listener` **is** called (`SIG=3`, `$NI_SIGNAL_TIMER_MS`, `$ENGINE_UPTIME` 2000 ms — the script sets `set_listener($NI_SIGNAL_TIMER_MS, 2000000)`), but the tick's `$isWaitingForStartPlaybackAfterChordDetection` branch produced no `play_note`, even with the key held 3 s. Next: message inside `start_playback_after_chord_detection` and compare with Kontakt's `$ENGINE_UPTIME` at its first tick |
-| Session Guitarist – Electric Sunburst Deluxe | **matches Kontakt**: both silent (peak 0 through the oracle); its data folder is not where its registration points | none — Kontakt does not find it either |
-| Evolution ×6 (Steel Strings, Bluegrass Banjo, Django Jazz, Flatwound Bass, Jazz Archtop, Dracus) | velocity gating: Jazz Archtop has 11,820 prepared zones and **0** admit velocity 100 (single-value ranges 1..60 per zone). Flatwound Bass sounds at key 72 | the previous pass's probe, unchanged: compare one Evolution zone's raw low/high velocity with Cherry Electric Bass, whose zones band (1..31, 33..63, …) and which sounds at velocity 100 |
-| 8DIO Misfit ×3 | zones keyed **1..5** only (1,400 zones, 280 per key); at keys 1..5, 40 cover and the script still ignores | the script's own `ignore_event`/`play_note` on keys 1..5 |
-| Soundiron – Voices Of Rapture | `voice_gain_zero` (voices run, 47,872 frames, gain 0.0) | unchanged from `silent-products-2026-11-03.md` §6 |
-| Scene – Lotus | known gap (needs an uninstalled `.nka`); not chased | — |
+**(a) `feat/integration` now answers `$EVENT_PAR_18` and `$EVENT_PAR_19`, and it
+is not this bug.** The Evolution family (Electric Bass Rick, Steel Strings,
+Bluegrass Banjo, Django Jazz, Dracus, Jazz Archtop) does write those slots — each
+of its scripts declares six constants equal to 18 or 19 and makes 500–700
+`get_event_par` calls — and answering them 0 is what put `eeb-rick-bridge` 48
+semitones low (23.06 → 1.23 dB on the parity corpus). But the six instrument
+libraries below are silent for a different reason, and on the merged base all 32
+rows of this run are **byte-identical** to the pre-merge run: the arriving host
+note carries parameter 18 = 0 in Kontakt too ("a fresh event's parameter 18 → 0",
+`docs/re/kontakt-event-par-18-19-2026-11-03.md`), so nothing on this path changes.
+The family has two causes; 18/19 covers the *string-index* one (and it is fixed
+on the base), and this document covers the quick-start-pane one.
 
-## 7. Tests
+**(b) Six of the "still silent" rows were `kontra-silence`'s own bug, not
+KONTRA's.** `Timed<Event>::at` is an *absolute* engine sample time, and the tool
+scheduled its note at `SampleTime(0)` after a 248 ms pre-roll — a note 248 ms old
+when it arrived. Instruments that stamp `$ENGINE_UPTIME` on their notes read the
+stale one: the Evolution scripts do exactly that
+(`set_event_par($EVENT_ID, 3, $ENGINE_UPTIME)` in `on note`, compared later), so
+every Evolution row reported `note_ignored` with a child note that never reached
+selection. Fixed in `tools/silence/src/main.rs` (the note, its controllers and the
+key-up are now on `engine.now()`), and the six libraries play, matching
+`kontra-render` to three digits:
+
+| instrument | `kontra-silence` before | after | `kontra-render`, key 60 vel 100 |
+|---|---|---|---|
+| Evolution Steel Strings | 0.000000 | **0.8233** | 0.823260 |
+| Evolution Bluegrass Banjo | 0.000000 | **0.6625** | 0.662521 |
+| Evolution Django Jazz | 0.000000 | **1.1766** | 1.176572 |
+| Evolution Jazz Archtop | 0.000000 | **0.6396** | 0.639551 |
+| Evolution Dracus | 0.000000 | **0.6367** | 0.636719 |
+| Evolution Flatwound Bass | 0.000000 | **0.4922** | 0.492228 |
+
+The velocity-range figure this document first repeated (Jazz Archtop: 0 of
+11,820 zones admit velocity 100) is real — the instrument plays only at low
+velocity — but it was never why the row read silent: at 11,820/11,820 prepared
+zones the coverage counter is not the gate, and Kontakt plays 0.192361 at
+velocity 100 where our zones say nothing may. That remains an open reader
+question, in the same shape as `silent-products-2026-11-03.md` §5, and it is
+**not** a silence this lane fixed or explained.
+
+## 7. What is still silent, and the probe that would settle it
+
+Re-measured after the merge and with the harness fixed, `--all-keys` where a
+keyswitch key could hide the instrument:
+
+| product | status |
+|---|---|
+| Session Bassist – Upright Bass (the **pattern** patch, `Upright Bass.nki`) | **the one real divergence left in this list.** `note_ignored`, 12,713 prepared zones, 2 covering at key 48, 0 voices; Kontakt plays **0.302181** at key 48. `on listener` *is* called (`SIG=3`, `$NI_SIGNAL_TIMER_MS`, `$ENGINE_UPTIME` 2000 ms — the script sets `set_listener($NI_SIGNAL_TIMER_MS, 2000000)`), but the tick's `$isWaitingForStartPlaybackAfterChordDetection` branch produced no `play_note`, even with the key held 3 s. Next probe: a message inside `start_playback_after_chord_detection`, and Kontakt's `$ENGINE_UPTIME` at its first tick |
+| Session Guitarist – Electric Sunburst Deluxe | **matches Kontakt**: both silent (peak 0 through the oracle) at key 60; its registration points at a folder name no UserData dir has |
+| 8DIO Misfit ×3 | **matches Kontakt** at the key its zones use: `Stompbox.nki` at key 3, velocity 100 is silent in Kontakt too (peak 0). Zones are keyed 1..5 only; at those keys 40 cover and the script still ignores, in both |
+| Soundiron – Voices Of Rapture | **matches Kontakt** at key 67: Kontakt silent (peak 0), we report `voice_gain_zero` (2 voices, 47,872 frames, gain 0.0). The patch needs a trigger this probe does not send |
+| Scene – Lotus | known gap (needs an uninstalled `.nka`); not chased |
+
+Three of the four rows this lane could not fix are not divergences at all: the
+same note is silent in Kontakt. Only the pattern patch of Upright Bass is.
+
+## 8. Tests
 
 - `a_library_data_array_survives_the_saved_values_that_name_it`
   (`crates/app/host/tests/script.rs`): a mode-1 script over a two-cell array, one
@@ -215,7 +266,7 @@ theirs, the Evolution and 8DIO rows keep theirs.
   (`… Electric Sunburst Deluxe` reading from `… Electric Storm Deluxe`), the
   `.nicnt` fallback, the folder-beside-an-install rule.
 
-## 8. Reproducing
+## 9. Reproducing
 
 ```sh
 git -C /var/tmp/wt-int worktree add /var/tmp/wt-note -b feat/ignored-note feat/integration
@@ -238,6 +289,10 @@ python3 tools/oracle-mcp/client.py '{"tool":"oracle_load","arguments":{"nki":"�
 python3 tools/oracle-mcp/client.py '{"tool":"oracle_render","arguments":{"notes":[{"start_s":0.1,"length_s":0.8,"key":48,"velocity":100}],"seconds":2}}'
 python3 tools/oracle-mcp/client.py '{"tool":"oracle_down","arguments":{}}'
 ```
+
+The harness the numbers come from schedules its note on the engine's clock; a
+note at `SampleTime(0)` after the pre-roll is 248 ms old, which is what §6b is
+about.
 
 Gate: `tools/parity-corpus/run.py` **20/20**, every case `+0.00/+0.00`;
 `tools/verify.sh` **VERIFY PASSED**, fingerprint `f18acaab5b897588`.
