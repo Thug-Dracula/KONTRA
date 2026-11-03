@@ -337,3 +337,44 @@ fn a_spitfire_grid_stops_at_its_own_end_before_the_sample_does() {
         "a grid past its sample must read as no slices"
     );
 }
+
+#[test]
+fn a_groups_stored_start_criteria_are_kept_beside_the_rules_they_lower_to() {
+    let path = instrument(
+        "KONTRA_ACCORDIONS",
+        "Accordions 2 Library/Instruments/Steirisches Accordion.nki",
+    );
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return;
+    }
+    let i = kontra_format_kontakt::load(&path).unwrap();
+    // Accordions 2 stores a register number in the criterion's controller
+    // minimum and a family in its controller, then names groups by reading
+    // them back: `%yrudk[get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, g, 0, -1)] := g`.
+    let sus = i
+        .groups
+        .iter()
+        .find(|g| g.name == "SUS_VEL1_RR1")
+        .expect("the first sustain group");
+    assert_eq!(sus.criteria.len(), 1);
+    let c = sus.criteria[0];
+    assert_eq!((c.mode, c.controller, c.cc), (2, 2, (0, 64)));
+    assert_eq!(c.par(kontra_ir::StartPar::Controller), 2);
+    assert_eq!(c.par(kontra_ir::StartPar::CcMin), 0);
+    assert_eq!(c.par(kontra_ir::StartPar::CcMax), 64);
+    assert!(sus.start.iter().any(|(_, r)| *r
+        == kontra_ir::StartRule::Controller {
+            cc: 2,
+            range: 0..=64
+        }));
+    // The keyswitch group stores an empty range (11..=0), which lowers to no
+    // rule at all: the row is kept because the tag is what a script reads.
+    let ks = i
+        .groups
+        .iter()
+        .find(|g| g.name == "KS")
+        .expect("the keyswitch group");
+    assert_eq!(ks.criteria[0].cc, (11, 0));
+    assert!(ks.start.is_empty());
+}

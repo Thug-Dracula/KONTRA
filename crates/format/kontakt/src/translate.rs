@@ -92,7 +92,6 @@ pub(crate) fn instrument(
         .map_err(decode("sample table"))?
         .unwrap_or_default();
     let mut impulses = crate::impulse::Impulses::new(others, &mut resolver, path, resources);
-    let mut criteria = Vec::new();
     let mut slots = crate::effects::Slots::default();
     for (index, group) in groups.groups.iter().enumerate() {
         let t = translate_group(group, index, &base, &mut notes)
@@ -112,7 +111,6 @@ pub(crate) fn instrument(
             }
         }
         out.groups.push(g);
-        criteria.push(t.criteria);
     }
     let racks = crate::effects::program(&program, &mut impulses, &mut notes);
     let mut buses = racks.buses;
@@ -197,7 +195,7 @@ pub(crate) fn instrument(
             }
         }
     }
-    start_rules(&mut out.groups, &criteria, &mut notes);
+    start_rules(&mut out.groups, &mut notes);
     let limits = program
         .0
         .find_first(VOICE_GROUPS)
@@ -558,7 +556,6 @@ fn data_files(
 
 struct Translated {
     group: ir::Group,
-    criteria: Vec<StartCriteriaParams>,
     /// Insert slots whose cutoff a route not carried moves.
     modulated: Vec<u8>,
 }
@@ -703,22 +700,42 @@ fn translate_group(
         notes,
         &mut modulated,
     )?;
+    out.criteria = v
+        .start_criteria
+        .items
+        .iter()
+        .copied()
+        .map(criterion)
+        .collect();
     Ok(Translated {
         group: out,
-        criteria: v.start_criteria.items,
         modulated,
     })
 }
 
+/// A stored start criterion row as the IR carries it.
+fn criterion(c: StartCriteriaParams) -> ir::StartCriterion {
+    ir::StartCriterion {
+        mode: c.mode,
+        next: c.next_criteria,
+        key: (c.key_min, c.key_max),
+        controller: c.controller,
+        cc: (c.cc_min, c.cc_max),
+        cycle_class: c.cycle_class,
+        slice: (c.slice_zone_idx, c.slice_zone_slice_idx),
+        sequencer_only: c.sequencer_only,
+    }
+}
+
 /// Start options: key switches, controller ranges and round robins. Cycles count
 /// per instrument; their length is the largest stored position plus one.
-fn start_rules(groups: &mut [ir::Group], criteria: &[Vec<StartCriteriaParams>], notes: &mut Notes) {
+fn start_rules(groups: &mut [ir::Group], notes: &mut Notes) {
     const ON_KEY: i32 = 1;
     const ON_CONTROLLER: i32 = 2;
     const CYCLE: i32 = 3;
     const RANDOM: i32 = 4;
     let midi = |v: i16| u8::try_from(v).ok().filter(|v| *v < 128);
-    let rows = || criteria.iter().flatten();
+    let rows = || groups.iter().flat_map(|g| g.criteria.iter().copied());
     let cycle = rows()
         .filter(|c| c.mode == CYCLE)
         .map(|c| c.cycle_class + 1)
@@ -727,24 +744,31 @@ fn start_rules(groups: &mut [ir::Group], criteria: &[Vec<StartCriteriaParams>], 
     // One draw over every random row of the instrument (binary 0x140876bd0).
     let randoms = rows().filter(|c| c.mode == RANDOM).count();
     let mut random_position = 0;
-    for (group, rows) in groups.iter_mut().zip(criteria) {
+    for group in groups.iter_mut() {
         // A row's next_criteria joins it to the row after it. ponytail: joins
         // fold left to right; Kontakt's mixed AND/OR precedence is untraced.
         let mut join = ir::Join::And;
-        for c in rows {
+        // The rows stay on the group (a script reads them back), so copy each
+        // out before `start` grows.
+        for n in 0..group.criteria.len() {
+            let Some(c) = group.criteria.get(n).copied() else {
+                break;
+            };
+            let (key_min, key_max) = c.key;
+            let (cc_min, cc_max) = c.cc;
             let this = join;
-            join = match c.next_criteria {
+            join = match c.next {
                 1 => ir::Join::AndNot,
                 2 => ir::Join::Or,
                 _ => ir::Join::And,
             };
             let rule = match c.mode {
                 0 => continue,
-                ON_KEY => match (midi(c.key_min), midi(c.key_max)) {
+                ON_KEY => match (midi(key_min), midi(key_max)) {
                     (Some(lo), Some(hi)) if lo <= hi => ir::StartRule::Keyswitch { range: lo..=hi },
                     _ => continue,
                 },
-                ON_CONTROLLER => match (midi(c.controller), midi(c.cc_min), midi(c.cc_max)) {
+                ON_CONTROLLER => match (midi(c.controller), midi(cc_min), midi(cc_max)) {
                     (Some(cc), Some(lo), Some(hi)) if lo <= hi => {
                         ir::StartRule::Controller { cc, range: lo..=hi }
                     }
