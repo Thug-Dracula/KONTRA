@@ -54,6 +54,28 @@ impl Running {
         ui: 0,
     };
 
+    /// `$NI_CB_TYPE_PERSISTENCE_CHANGED`: the type number a script reads as
+    /// `$NI_CALLBACK_TYPE` in `on persistence_changed` (measured,
+    /// `crates/script/ksp/data/constants.tsv`).
+    pub const PERSISTENCE_CHANGED_TYPE: u8 = 14;
+
+    /// `on persistence_changed`: the saved values have landed and the slot
+    /// republishes its state.
+    ///
+    /// The kind stays [`Kind::Init`] — Kontakt lets this callback make the
+    /// calls `on init` makes — but the type number is Kontakt's own, not
+    /// `on init`'s 5. Scripts branch on it: `Stradivari Violin`'s
+    /// `mixer_fader_lbl_` runs `if($NI_CALLBACK_TYPE # $NI_CB_TYPE_PERSISTENCE_CHANGED)`
+    /// before a 500 ms `wait()`, so reporting 5 suspends this callback for
+    /// half a second and the first note arrives before the slot has published
+    /// its PGS state.
+    pub fn persistence_changed() -> Self {
+        Self {
+            callback_type: Self::PERSISTENCE_CHANGED_TYPE,
+            ..Self::new(Kind::Init, None)
+        }
+    }
+
     pub fn new(kind: Kind, event: Option<NoteRef>) -> Self {
         // The script's callback type numbers (measured, probes/callback_constants.lua).
         let callback_type = match kind {
