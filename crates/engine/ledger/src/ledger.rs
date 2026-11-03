@@ -6,6 +6,9 @@ use kontra_time::SampleTime;
 
 use kontra_behaviour::RrDraw;
 
+/// Event parameters 18..=19: how many further slots a note carries.
+pub const EXTRA_SLOTS: usize = 2;
+
 /// A note handle. Stale handles (the note ended) match nothing.
 /// Generations a slot cycles through: 13 bits, so a note's event ID (the
 /// generation above bit 16) never sets the sign or `event::BY_MARKS`.
@@ -106,6 +109,14 @@ pub struct Note {
     pub offset: u32,
     /// `EVENT_PAR_0..3`, free for the script.
     pub custom: [i32; 4],
+    /// Event parameters 18..=19: further free slots, a plain integer each,
+    /// default 0.
+    ///
+    /// The Evolution bass family writes the string a note is played on here in
+    /// one slot (`set_event_par($id, 18, string)`) and reads it in the next, so
+    /// a zero here selects a sample two octaves away. Measured on Kontakt
+    /// 8.14.1: `docs/re/kontakt-event-par-18-19-2026-11-03.md`.
+    pub extra: [i32; EXTRA_SLOTS],
     /// `$EVENT_PAR_CUSTOM`'s array: the further free slots a script carries on
     /// the event, by index.
     // ponytail: 32; no corpus script names a literal index above 15 (the whole
@@ -153,6 +164,7 @@ impl Note {
             script_pan: 0,
             offset: 0,
             custom: [0; 4],
+            extra: [0; EXTRA_SLOTS],
             custom_par: [0; 32],
             zone_slot: -1,
             mod_values: [None; 4],

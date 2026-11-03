@@ -461,13 +461,13 @@
           "take_drift_ms": 0.0
         }
       },
-      "why": "32,620 zones in the bass range: it proves the corpus is not a key-60 test, and its old parity delta was -4.2 dB.",
+      "why": "32,620 zones in the bass range: it proves the corpus is not a key-60 test, and its old parity delta was -4.2 dB. Was -3.91 / 23.06 dB: the Sample script picks its sample from the string slot 18 carries, and KONTRA answered 0 there, so every note landed 48 semitones below the block the script asked for (docs/re/kontakt-event-par-18-19-2026-11-03.md). What is left is a -3 dB gain stage, not a spectrum, and the note still sounds past key-up.",
       "baseline": {
-        "level_db": -3.91,
-        "band_rms_db": 23.06,
-        "align_ms": 40.0,
-        "measured": "2026-11-01",
-        "kontra_sha256": "5bb52d603b282f13e5568f99ceb45698eef39880c8f0ef7d545f5b9f044ea3b3"
+        "level_db": -3.22,
+        "band_rms_db": 1.23,
+        "align_ms": 38.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "8d0cdd96337170bb3739426a2642552735da98fd3d5072a14124e12c04a67f18"
       }
     },
     {

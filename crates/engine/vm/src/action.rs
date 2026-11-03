@@ -36,6 +36,13 @@ pub mod event {
     /// Before the note starts: only zones in this slot start; -1 (the
     /// default) starts any.
     pub const ZONE_SLOT: i32 = 15;
+    /// Further per-event slots, 18 and 19: a plain integer each, default 0, that
+    /// a note `play_note` creates carries into the slots after it. The Evolution
+    /// bass family writes the string a note is played on at 18 in one slot and
+    /// reads it in the next
+    /// (`docs/re/kontakt-event-par-18-19-2026-11-03.md`).
+    pub const EXTRA_FIRST: i32 = 18;
+    pub const EXTRA_LAST: i32 = 19;
 }
 
 macro_rules! actions {

@@ -1399,6 +1399,47 @@ fn a_script_sends_a_note_its_modulation_value() {
 }
 
 #[test]
+fn a_played_note_carries_the_slot_its_script_wrote_to_the_slot_after() {
+    // The Evolution bass family writes the string a note is played on with
+    // `set_event_par($id, 18, string)` in one slot and reads it in the next,
+    // then picks the sample from it: a zero there selects a sample two octaves
+    // away, which was the whole 23 dB band error on `eeb-rick-bridge`.
+    // 18 and 19 answer a plain integer, default 0, and a note `play_note`
+    // created carries it on (Kontakt 8.14.1, measured:
+    // `docs/re/kontakt-event-par-18-19-2026-11-03.md`).
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut plan = Plan::new(vec![zone(&mut store, 0.5, 0)], 16);
+    for g in &mut plan.groups {
+        g.mods.clear();
+    }
+    let slot = |source: &str| {
+        kontra_host::script::plan(&kontra_ksp::compile(source, &[]).unwrap(), &[], &[])
+    };
+    plan.scripts = vec![
+        slot(
+            "on init
+                declare $played
+            end on
+            on note
+                $played := play_note($EVENT_NOTE, $EVENT_VELOCITY, -1, -1)
+                set_event_par($played, 18, 4)
+            end on",
+        ),
+        slot(
+            "on note
+                if (get_event_par($EVENT_ID, $EVENT_PAR_SOURCE) = 0)
+                    message(get_event_par($EVENT_ID, 18) & \" \" & get_event_par($EVENT_ID, 19))
+                end if
+            end on",
+        ),
+    ];
+    let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
+    level(&mut e, &[on(60)]);
+    // The string slot 0 wrote, and the untouched neighbour's default.
+    assert_eq!(e.last_message(), "4 0");
+}
+
+#[test]
 fn a_note_played_in_one_slot_passes_the_slots_after_it() {
     let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
     let zones = vec![zone(&mut store, 0.25, 0), zone(&mut store, 0.5, 1)];
