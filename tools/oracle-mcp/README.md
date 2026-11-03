@@ -243,10 +243,13 @@ measured onset*, not to the wall clock: it starts 50 ms before the first sample 
 −60 dBFS and runs `seconds` (or the MIDI's own length) plus `tail`. `raw` is kept uncut, and
 `raw_onset_s` is the measured MIDI+sink+Kontakt latency on this machine (0.26–0.36 s).
 
-### `oracle_dump_script(nki, probe="ksp"|"dump", timeout=240)`
+### `oracle_dump_script(nki?, probe="ksp"|"dump"|<path.lua>, timeout=240)`
 Runs a Lua probe inside a **disposable** Kontakt on a second private display (your session
 stays up) using dump.py's contract — `ORACLE_INPUTS`/`ORACLE_OUT`, one JSON record per line,
-last line `{"done":true}`.
+last line `{"done":true}`. `probe` may also be the path of a `.lua` probe (repo-relative or
+absolute); such a probe needs no `.nki` when it builds its own synthetic instrument, so the
+`nki` argument is optional then. The probes `tools/kontakt-oracle/probes/*_law.lua` and
+`*_patch.lua` are written this way.
 
 `probe: "ksp"` (default) returns the KSP text per slot:
 

@@ -3939,19 +3939,31 @@ fn set_num_user_zones_is_reported_unanswered() {
 /// names the group with `$EVENT_PAR_CUSTOM`. Before these reads were carried the
 /// tags all answered 0 and the three products' group gates closed every group
 /// (22 silent instruments, `docs/re/silent-products-2026-11-03.md` §5).
+///
+/// The values are Kontakt's, measured with `tools/kontakt-oracle/probes/`
+/// (`start_criteria_law.lua`, `solid_geq_readback.lua`, `event_custom_law.lua`,
+/// 2026-11-03): a controller row 2 / 0..=64 answers mode 2 and those fields; a
+/// group with no stored row answers the record's defaults (mode 0, controller 1,
+/// cc 0..=64), not zero; a peak band answers 1 and a shelf 0; and the event's
+/// custom array round-trips at index 1, with `$EVENT_PAR_CUSTOM` equal to the
+/// literal 28.
 #[test]
 fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
     let mut sounding = zone(&mut store, 0.5, 0);
     sounding.keys = 60..=60;
-    let mut plan = Plan::new(vec![sounding], 16);
+    // A second group with no stored start criteria row: Kontakt answers its
+    // record's defaults there, not zero, and the script reads it below.
+    let mut empty = zone(&mut store, 0.0, 1);
+    empty.keys = 0..=0;
+    let mut plan = Plan::new(vec![sounding, empty], 16);
     for g in &mut plan.groups {
         g.mods.clear();
     }
     plan.groups[0].criteria = vec![ir::StartCriterion {
         mode: 2,
         controller: 2,
-        cc: (7, 64),
+        cc: (0, 64),
         ..ir::StartCriterion::default()
     }];
     let mut bands = [ir::Bell::FLAT; 4];
@@ -3965,8 +3977,9 @@ fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     })];
     let script = kontra_ksp::compile(
         "on note
-            set_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 42, 3)
-            message(get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_LF_BELL, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_HF_BELL, 0, 0, -1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 3))
+            set_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 4242, 1)
+            set_event_par_arr($EVENT_ID, 28, 7, 0)
+            message(get_engine_par($ENGINE_PAR_START_CRITERIA_MODE, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MAX, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_MODE, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MAX, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_LF_BELL, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_HF_BELL, 0, 0, -1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 1) & \",\" & get_event_par_arr($EVENT_ID, 28, 1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 2) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 0))
         end on",
         &[],
     )
@@ -3975,5 +3988,5 @@ fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
     let heard = level(&mut e, &[on(60)]);
     assert!((heard - 0.5).abs() < 1e-3, "{heard}");
-    assert_eq!(e.last_message(), "2,7,1,0,42");
+    assert_eq!(e.last_message(), "2,2,0,64,0,1,0,64,1,0,4242,4242,0,7");
 }

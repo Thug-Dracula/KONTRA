@@ -208,6 +208,124 @@ and compare with the script's expected tag; and read
 `get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 1)` for a note the script
 played. Both are already traced as actions; the values are not.
 
+### 4a. Measured in Kontakt 8.14.1, 2026-11-03
+
+The three reads above were measured through `tools/oracle-mcp` (one disposable
+Kontakt per load, `oracle_down` after) and compared with KONTRA's own answer on
+the same instrument. Probes:
+
+| probe | what it builds |
+|---|---|
+| `tools/kontakt-oracle/probes/start_criteria_law.lua` | a synthetic instrument whose four groups carry known start options, plus a group with none |
+| `tools/kontakt-oracle/probes/start_criteria_patch.lua` | a copy of `Steirisches Accordion.nki`, the named groups read in place |
+| `tools/kontakt-oracle/probes/solid_geq_readback.lua` | a synthetic instrument with the factory INIT Solid G-EQ, four script passes (read, write, read back, shelves) |
+| `tools/kontakt-oracle/probes/solid_geq_patch.lua` | `01. Solo Cornet.nki`, the first six groups' Solid G-EQ read in place |
+| `tools/kontakt-oracle/probes/event_custom_law.lua` | a synthetic instrument whose script answers one event-slot question per key, saved and rendered in the main session |
+
+**Start criteria — the synthetic law.** `get_engine_par($ENGINE_PAR_START_CRITERIA_*)`
+answers **row 0** of the group's record, field for field:
+
+| group | mode | next | key min..max | controller | cc min..max | zone / slice | seq |
+|---|---:|---:|---|---:|---|---|---:|
+| controller 2, cc 0..=64 (set) | 2 | 0 | 24..24 | 2 | 0..64 | -1 / -1 | 0 |
+| key 36..40 + controller 4, cc 10..=90 (set) | 1 | 0 | 36..40 | 1 | 0..64 | -1 / -1 | 0 |
+| key 48..48 (set) | 1 | 0 | 48..48 | 1 | 0..64 | -1 / -1 | 0 |
+| no rows at all | 0 | 0 | 24..24 | **1** | **0..64** | -1 / -1 | 0 |
+
+A row's unused fields hold the record's defaults, and so does a group with no
+stored row: **controller 1 and cc 0..=64, not zero**. KONTRA's reader produced
+the same rows for the saved file (all values identical), except that a group
+with no row answered all zeros — see the fix below.
+
+**Start criteria — the real patch.** `Steirisches Accordion.nki`, group names
+as Kontakt reports them; KONTRA's reader (same file) in the last column:
+
+| group | Kontakt mode | controller | cc min..max | KONTRA reader |
+|---|---:|---:|---|---|
+| `SUS_VEL1_RR1` | 2 | 2 | 0..64 | same |
+| `SUS_VEL2_RR1` | 2 | 2 | 4..64 | same |
+| `BUTTON_RR1` | 2 | 4 | 0..64 | same |
+| `RELEASE_RR1` | 2 | 3 | 0..64 | same |
+| `KS` | **2** | 1 | 11..0 | same |
+
+The handoff's "keyswitch and filler groups mode 1" is **wrong**: the keyswitch
+group `KS` stores mode 2 (a controller row whose range 11..=0 lowers to no
+rule). Kontakt and KONTRA both answer 2, so no code changes; the prose does.
+
+**Solid G-EQ — the synthetic law.** With the factory INIT preset in group 0's
+insert slot 0:
+
+| call | Kontakt answer |
+|---|---|
+| `SEQ_LF_BELL` / `SEQ_HF_BELL` on the INIT preset | 0 / 0 |
+| after `set_engine_par(SEQ_LF_BELL, 2)` and `(SEQ_HF_BELL, 1)` | 1 / 1 (a switch stores 1 for any value ≥ 1) |
+| after both set to 0 | 0 / 0 |
+| `SEQ_LF_GAIN` after setting 123456 | 123456 |
+| `SEQ_LMF_GAIN` after setting 700000 | 700000 |
+| `SEQ_LMF_Q` after setting 100000 | 100000 |
+| `SEQ_LMF_FREQ` after setting 300000 | 300000 |
+| `SEQ_HF_GAIN` after setting 654321 | 654321 |
+| `SEQ_HF_FREQ` after setting 250000 | 250000 |
+
+So `_GAIN` reads the band's **gain** field, not the Q (100000) or the Hz
+(300000) the gain's law also moves. A save/reload kept 654321 and 123456, and
+KONTRA reads those two fields at the same record offsets (33 and 0; v0x11's
+record is the v0x10 one plus ten bytes).
+
+**Solid G-EQ — the real patch.** `01. Solo Cornet.nki`, groups 0..5, the five
+calls in order `LF_GAIN, LMF_GAIN, HF_GAIN, LF_BELL, HF_BELL`:
+
+| group | Kontakt | KONTRA (same file, same calls) |
+|---|---|---|
+| 0 | 500000, 500000, 500000, 0, 0 | same |
+| 1 (`---CLOSE---`) | 500000, 500000, 500000, 0, 0 | same |
+| 2 (`---SHORT1---`) | 9, 500000, 500000, 0, 0 | same |
+| 3 (`CLOSEShort1RR1`) | 9, 1, 500000, 0, 1 | same |
+| 4 (`CLOSEShort1RR2`) | 9, 2, 500000, 0, 1 | same |
+| 5 (`CLOSEShort1RR3`) | 9, 3, 500000, 0, 1 | same |
+
+The tags the gate compares are exactly these: LF gain 9 (the dynamic layer), the
+LMF gain an RR index 1..3, and HF is a peak band (`HF_BELL` 1).
+
+**`$EVENT_PAR_CUSTOM` — the law.** A note event is the only place `$EVENT_ID` is
+legal, and a disposable probe Kontakt launched with a Lua script hears no MIDI,
+so the answers were made audible instead: a saved synthetic instrument sets the
+instrument's volume to unity when the condition holds and to silence when it
+does not. One render, five keys:
+
+| key | condition | window peak |
+|---:|---|---:|
+| 60 | `get(symbol, 1) = 4242` after `set(symbol, 4242, 1)` | 0.025094 |
+| 62 | `get(28, 1) = 4242` after the same set — `$EVENT_PAR_CUSTOM` is **28** | 0.025095 |
+| 64 | `get(symbol, 0) = 0` on a fresh event | 0.025090 |
+| 65 | `get(symbol, 0) = 7` after `set(28, 7, 0)` | 0.025096 |
+| 66 | **negative control**: `set(symbol, 4242, 1)` then ask `= 1234` | **0.000000** |
+
+The control is silent, so the four audible windows are the conditions holding,
+not the sample playing anyway.
+
+**The one divergence, and its fix.** A group with no stored start-criteria row
+answered all zeros in KONTRA where Kontakt answers the record's defaults
+(mode 0, key 24..=24, controller 1, cc 0..=64, zone and slice -1). The engine
+now answers that record (`NO_START_CRITERION` in
+`crates/engine/engine/src/params.rs`), and
+`a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots` reads a group
+with no row as well as one with a row: it fails before the change
+(`…,0,0,0,0,…`) and passes after (`…,0,1,0,64,…`). No product is affected —
+every group of every Accordions 2 instrument stores a row — so `tools/silence`
+reports the same figures:
+
+| product | instruments | voices | peak |
+|---|---:|---|---|
+| Accordions 2 (`--cc 2=64`) | 13/13 sound | 3..11 | 0.0249..0.3666 |
+| Brass Band Soloists | 5/5 sound | 3 | 0.0541..0.1165 |
+| Heavyocity Gravity 2 | 3/3 sound | 1..3 | 0.0107..0.2280 |
+
+Same on both sides of the change, so the measurement did not move the sound of
+anything that already played; what it moved is what the engine *answers*.
+
+
+
 ---
 
 ## 5. Cause C — key and velocity gating (9 instruments)
