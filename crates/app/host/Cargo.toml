@@ -30,7 +30,14 @@ kontra-align = { path = "../align", optional = true }
 
 [features]
 align = ["dep:kontra-align"]
+# The engine's voice/reject trace, for diagnostics that name what sounded
+# (`example: sounding_zones`); off for the host and the plugin.
+trace = ["kontra-engine/trace"]
 
 [[example]]
 name = "align"
 required-features = ["align"]
+
+[[example]]
+name = "sounding_zones"
+required-features = ["trace"]

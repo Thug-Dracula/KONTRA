@@ -378,3 +378,81 @@ fn a_groups_stored_start_criteria_are_kept_beside_the_rules_they_lower_to() {
     assert_eq!(ks.criteria[0].cc, (11, 0));
     assert!(ks.start.is_empty());
 }
+
+fn steel_strings() -> std::path::PathBuf {
+    instrument(
+        "KONTRA_STEEL_STRINGS",
+        "Evolution Steel Strings 1.2.5 [Orange Tree Samples]/Instruments/Evolution Steel Strings.nki",
+    )
+}
+
+/// Velocity selection is range membership and nothing else: a zone sounds only
+/// for the velocities between its own bounds, and a note no zone admits plays
+/// nothing — Kontakt does not fall back to the nearest layer, the lowest, or the
+/// highest.
+///
+/// Measured on Kontakt 8.14.1 on 2026-11-03 (`docs/re/velocity-selection-2026-11-03.md`):
+/// a real instrument's zones were re-ranged through Kontakt's own API so that
+/// two bands sat on one key, and rendering at velocities inside a band sounded
+/// only that band, while 64, 80 and 99 — one step outside the bands, and
+/// between them — produced silence (−107, −180 and −180 dBFS against −81 dBFS
+/// inside a band). Keys behave the same way: a key one semitone outside every
+/// zone played nothing.
+///
+/// The values below are Kontakt's own `get_zone_geometry` answers for this file,
+/// which the reader reproduces exactly: 10_706 zones both ways (not 11_820), 45
+/// of them admitting velocity 100 somewhere, and exactly one doing so at key 60.
+/// A nearest-layer rule would make this test fail twice over: it would find a
+/// second candidate at velocity 127 (the highest zone stops at 126) and no
+/// longer one at 100.
+#[test]
+fn velocity_100_on_key_60_reaches_one_zone_and_it_is_the_sympathetic_resonance() {
+    let path = steel_strings();
+    if !path.exists() {
+        eprintln!("skipped: no {} (set KONTRA_TEST_LIBRARY)", path.display());
+        return;
+    }
+    let i = kontra_format_kontakt::load(&path).unwrap();
+    let zones: Vec<&kontra_ir::Zone> = i.groups.iter().flat_map(|g| &g.zones).collect();
+    assert_eq!(zones.len(), 10_706, "Kontakt reports the same zone count");
+
+    let admits = |key: u8, velocity: u8| {
+        zones
+            .iter()
+            .filter(|z| z.keys.contains(&key) && z.velocities.contains(&velocity))
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        zones.iter().filter(|z| z.velocities.contains(&100)).count(),
+        45,
+        "45 zones admit velocity 100 somewhere, as Kontakt's geometry does"
+    );
+    let [zone] = admits(60, 100)[..] else {
+        panic!(
+            "expected exactly one zone at key 60 velocity 100, found {:?}",
+            admits(60, 100)
+                .iter()
+                .map(|z| i.samples[z.sample].name.as_str())
+                .collect::<Vec<_>>()
+        );
+    };
+    assert!(
+        i.samples[zone.sample]
+            .name
+            .ends_with("Sympathetic Resonance/sym-res-21.ncw"),
+        "Kontakt plays this zone's sample, not {}",
+        i.samples[zone.sample].name
+    );
+    assert_eq!(i.samples[zone.sample].frames, 271_860);
+    assert_eq!(zone.keys, 60..=60);
+    assert_eq!(zone.velocities, 1..=126, "the instrument's highest band");
+    assert_eq!(zone.root, 60);
+
+    // One step past the instrument's highest stored velocity: nothing answers,
+    // which is the boundary a fallback law would have smoothed over.
+    assert!(
+        admits(60, 127).is_empty(),
+        "no zone stores 127 here, so Kontakt plays nothing at key 60 velocity 127"
+    );
+}

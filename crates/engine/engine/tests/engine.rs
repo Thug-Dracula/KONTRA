@@ -404,3 +404,47 @@ fn a_group_chorus_insert_is_heard() {
     );
     assert_ne!(wet, dry, "the insert is heard, not passed through");
 }
+
+/// Selection is range membership and nothing else: a note no zone admits starts
+/// no voice. Kontakt 8.14.1 does the same — with two velocity bands on one key
+/// it played nothing at 64, 80 and 99 (−107, −180, −180 dBFS) and only the band
+/// it was inside (−81 dBFS) — so a nearest-layer or clamp-to-lowest rule here
+/// would be a law Kontakt does not have
+/// (`docs/re/velocity-selection-2026-11-03.md`).
+#[test]
+fn a_note_between_two_velocity_bands_starts_no_voice() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let low = region(&mut store, "low", 1000).unwrap();
+    let high = region(&mut store, "high", 1000).unwrap();
+    let mut a = zone(low, 0.0);
+    a.velocities = 1..=5;
+    let mut b = zone(high, 0.0);
+    b.velocities = 100..=127;
+    let mut engine = Engine::new(plan(vec![a, b], 4), store.client(), RATE);
+    let note = |velocity: f64| Timed {
+        at: SampleTime(0),
+        body: Event::NoteOn {
+            note: host(60),
+            velocity,
+            tune: 0.0,
+        },
+    };
+    // Inside the low band, inside the high band, and between them: only the
+    // first two sound.
+    for (velocity, sounds) in [
+        (2.0 / 127.0, true),
+        (120.0 / 127.0, true),
+        (6.0 / 127.0, false),
+        (64.0 / 127.0, false),
+        (99.0 / 127.0, false),
+    ] {
+        let out = render(&mut engine, &[note(velocity)], 256, 128);
+        assert_eq!(
+            first_sound(&out, 0).is_some(),
+            sounds,
+            "velocity {:.0} on a 1..=5 and a 100..=127 band",
+            velocity * 127.0
+        );
+        render(&mut engine, &[], 2048, 1024);
+    }
+}
