@@ -310,8 +310,9 @@ impl<'a> Compiler<'a> {
                 // the function it sits in inside a user function — a called
                 // function that ends with `exit` (Stradivari's `det_string`
                 // does) returns to its caller, it does not end the note.
-                // Measured: that instrument's `on note` calls `det_string` in
-                // every path and still plays (oracle render, peak 0.158).
+                // Measured: that instrument calls `det_string` on every note
+                // path and still sounds in Kontakt (key 60, velocity 100:
+                // peaks 0.328 and 0.154 on two takes of one oracle session).
                 if self.current.is_some() {
                     self.emit(Op::Ret);
                 } else {
