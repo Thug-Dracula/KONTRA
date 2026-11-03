@@ -76,30 +76,65 @@ not carry, so the symbol is bound (the two corpus slots compile) and the host
 reports the action unanswered. Its two users are Folds and Strands 2.0, and one
 of those uses is commented out.
 
-## 4. The cost, measured: the Spitfire framework now runs
+## 4. The cost, corrected: the gate that failed was `EFFECT_TYPE`
 
 Compiling these names does more than make slots pass: Spitfire's 15k-line
 framework (`slot 2`, "Instrument") was rejected by the compiler before, so KONTRA
-played those patches without it. It now runs, and **it silences them**:
+played those patches without it. It then ran, and **silenced them**:
 `b - Horns a4 - Decorative techniques` went from peak 0.170 to 0.000, and so did
 `a - Horn Solo` and `b - Horns a4`.
 
-The cause is measured, not the slices: the framework stores each group's
-articulation index in the **filter** engine parameters
-(`%3f0ck[group] := get_engine_par($ENGINE_PAR_FILTER_RESB, group, slot, -1) - 1`,
-`slot-2.ksp:3057`), then `disallow_group($ALL_GROUPS)` and re-allows only groups
-whose stored index matches the incoming note
-(`slot-2.ksp:14439-14470`). `$ENGINE_PAR_FILTER_*` is not in the engine-parameter
-model (`crates/format/kontakt/src/engine_pars.rs`, `FIXED`), so every index reads
-`-1` and no group is allowed: 100 `disallow_group` calls, 0 `allow_group`. That
-is an engine-parameter gap, not a slice one, and it belongs to that lane — the
-values it needs are Kontakt's raw filter-parameter units, which the model
-converts rather than stores.
+The earlier note here said `$ENGINE_PAR_FILTER_*` was "not in the
+engine-parameter model" and every read was `-1`. **That was wrong.** All eleven
+filter names are bound (`crates/format/kontakt/src/script_knobs.rs:346-398`) as
+`ir::SlotKnob` targets, `$ENGINE_PAR_CUTOFF`/`RESONANCE` as group knobs, and the
+getter answers the stored knob through the slot's laws. Measured by running a
+probe script in the instrument (appended through `KONTRA_SCRIPT_SOURCE`), group 0
+insert 7 of that patch reads back
 
-`tools/parity-corpus/run.py` therefore fails `spitfire-horns-a4` (silent);
-its baseline has **not** been moved. The gate's three cases in
-`tools/verify.sh` are unaffected (`VERIFY PASSED`), and Electric Mint's
-fingerprint is unchanged (`f18acaab5b897588`) — it calls none of these names.
+```
+type=0 sub=19 by=1 cut=60 res=41 ta=0 wa=0 sb=0 rb=0 rc=0
+```
+
+and every value but `type` is what Kontakt returns. The tags are real: the file
+stores group 0's slot 7 cutoff as the f32 `0.000060` (and group 1's as
+`0.000126`), so Kontakt's 0..1e6 readback is 60 and 126.
+
+The one wrong answer is `$ENGINE_PAR_EFFECT_TYPE`, which the engine left
+unanswered (0) for every slot. Spitfire's framework snapshots a group's tags only
+when the slot passes
+
+```ksp
+get_engine_par($ENGINE_PAR_EFFECT_TYPE, g, slot, -1) = $EFFECT_TYPE_FILTER
+```
+
+so with 0 the whole snapshot was skipped and every group stayed untagged:
+100 `disallow_group($ALL_GROUPS)`, 0 `allow_group`, silence.
+
+Kontakt 8.14.1 measured the answers directly (`tools/oracle-mcp`, 2026-11-02): a
+Versatile filter set into group 0 insert 7 through `set_engine_par` reads
+`EFFECT_TYPE` **7**, `EFFECT_SUBTYPE` **19**, `EFFECT_BYPASS` **1**, and
+`CUTOFF`/`RESONANCE`/`TYPEA`/`BYPA`/`SHIFTB`/`RESB`/`RESC` **exactly the values
+set** (41 000, 73 000, 100 000, 500 000, 200 000, 300 000, 400 000) — no law is
+applied on readback; the stored 0..1 knob × 10⁶ is the answer. The engine now
+answers `EFFECT_TYPE` from the slot's `ir::EffectKind` (every filter family —
+EQ bands, formant and clocked modules included — is `$EFFECT_TYPE_FILTER`), and
+leaves the module ids it cannot name unanswered rather than guessing.
+
+Result, with the baseline **not** consulted: `b - Horns a4 - Decorative
+techniques`, key 57, is again within **0.03 dB level / 0.13 dB band RMS** of
+Kontakt's reference. The old peak of 0.170 was *not* correct — it was the
+framework skipped, every zone playing, **+29.7 dB louder than Kontakt**. The
+corpus's recorded baseline (`level_db -29.72`) was that bug's fingerprint, so the
+case moves when it is fixed; `tools/parity-corpus/` records the new baseline as
+the documented `--record` promotion, not as a threshold change.
+
+The same read path is what Vocalise 3, Strands 2.0 and Folds needed to compile;
+none of them gates its groups this way, and all three sound after the change
+(key 60 peaks 0.076, 0.259 and 0.960) — their silence had no separate cause.
+
+The gate's three cases in `tools/verify.sh` are unaffected (`VERIFY PASSED`), and
+Electric Mint's fingerprint is unchanged (`f18acaab5b897588`).
 
 ## 5. Compile sweep
 

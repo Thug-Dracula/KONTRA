@@ -222,6 +222,9 @@ impl Engine {
         if par == EnginePar::EffectSubtype {
             return self.subtype(group, slot, generic);
         }
+        if par == EnginePar::EffectType {
+            return self.effect_type(group, slot, generic);
+        }
         if let Some(which) = effect_par(par) {
             let e = *self.effect_mut(group, slot, generic)?;
             return Some(which.get(&e)?.round().clamp(0.0, 1e6) as i32);

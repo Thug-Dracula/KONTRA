@@ -210,3 +210,107 @@ fn harpsichord_compiles_its_script_and_renders_audio() {
          overloaded when the host note is not ignored):\n{diagnostics}"
     );
 }
+
+/// The Spitfire framework tags each group with the filter in one insert slot:
+/// the cutoff holds a sound id, `$ENGINE_PAR_FILTER_RESC` an articulation
+/// index. It only reads them when the slot answers
+/// `$ENGINE_PAR_EFFECT_TYPE` = `$EFFECT_TYPE_FILTER` (7), so KONTRA answering
+/// 0 silenced every Spitfire patch whose framework compiled.
+///
+/// Measured in Kontakt 8.14.1 (2026-11-02): a Versatile filter set into group
+/// 0 insert 7 answers `EFFECT_TYPE` 7, `EFFECT_SUBTYPE` 19, `EFFECT_BYPASS` 1,
+/// and the seven stored knobs exactly as saved (× 1e6). This file stores group
+/// 0 slot 7 as cutoff 60, resonance 41, TYPEA 0, BYPA 0, SHIFTB 0, RESB 0,
+/// RESC 0; the probe each group's values through the engine (the way the
+/// framework reads them) and then runs its allow/disallow loop. Group 0 was
+/// silent before the fix because both the type and every tag read 0.
+#[test]
+#[ignore = "needs the installed Kontakt library; run with --ignored"]
+fn spitfire_filter_tags_answer_kontakt_and_reallow_their_groups() {
+    use std::sync::Arc;
+
+    use kontra_engine::{Engine, ir};
+    use kontra_stream::{Store, StoreConfig};
+
+    let instrument_path = instrument(
+        "KONTRA_SPITFIRE",
+        "Spitfire_Studio_Brass/Instruments/_Advanced_/Extended techniques/\
+         b - Horns a4 - Decorative techniques.nki",
+    );
+    assert!(
+        instrument_path.is_file(),
+        "{} is not installed; set KONTRA_TEST_LIBRARY or KONTRA_SPITFIRE",
+        instrument_path.display()
+    );
+    let mut store = Store::new(StoreConfig::DEFAULT).expect("store");
+    let mut read = kontra_host::instrument::read(&instrument_path).expect("read");
+    // The framework reads the saved tags and the layer selection in `on init`;
+    // this probe runs after it and reports the getters plus the gate's counts.
+    // Layer A's saved sound id in this patch is 42 (the render allows groups
+    // 20 and 21, both tagged 42); `RESC` 0 or 1 is the gate's articulation
+    // test with the round-robin counter at 0.
+    read.scripts.push(ir::Script {
+        name: "filter probe".into(),
+        slot: read.scripts.len(),
+        dialect: ir::Dialect::Ksp,
+        source: r#"
+on init
+  declare $g
+  declare $tag
+  declare $rc
+  declare $layer
+  declare $early
+  $layer := 0
+  $early := 0
+  $g := 0
+  while ($g < $NUM_GROUPS)
+    $tag := get_engine_par($ENGINE_PAR_CUTOFF,$g,7,-1)
+    $rc := get_engine_par($ENGINE_PAR_FILTER_RESC,$g,7,-1)
+    if (get_engine_par($ENGINE_PAR_EFFECT_TYPE,$g,7,-1) = $EFFECT_TYPE_FILTER and ($rc = 0 or $rc = 1))
+      if ($tag = 42)
+        inc($layer)
+      end if
+      if ($g = 20 or $g = 21)
+        inc($early)
+      end if
+    end if
+    inc($g)
+  end while
+  declare @s
+  @s := "type=" & get_engine_par($ENGINE_PAR_EFFECT_TYPE,0,7,-1)
+  @s := @s & " sub=" & get_engine_par($ENGINE_PAR_EFFECT_SUBTYPE,0,7,-1)
+  @s := @s & " by=" & get_engine_par($ENGINE_PAR_EFFECT_BYPASS,0,7,-1)
+  @s := @s & " cut=" & get_engine_par($ENGINE_PAR_CUTOFF,0,7,-1)
+  @s := @s & " res=" & get_engine_par($ENGINE_PAR_RESONANCE,0,7,-1)
+  @s := @s & " ta=" & get_engine_par($ENGINE_PAR_FILTER_TYPEA,0,7,-1)
+  @s := @s & " wa=" & get_engine_par($ENGINE_PAR_FILTER_BYPA,0,7,-1)
+  @s := @s & " sb=" & get_engine_par($ENGINE_PAR_FILTER_SHIFTB,0,7,-1)
+  @s := @s & " rb=" & get_engine_par($ENGINE_PAR_FILTER_RESB,0,7,-1)
+  @s := @s & " rc=" & get_engine_par($ENGINE_PAR_FILTER_RESC,0,7,-1)
+  @s := @s & " layer=" & $layer & " early=" & $early
+  message(@s)
+end on
+"#
+        .into(),
+        saved: Vec::new(),
+        data: Vec::new(),
+        links: Vec::new(),
+    });
+    let loaded = kontra_host::instrument::build(read, 48_000, &mut store);
+    let broken: Vec<_> = loaded
+        .diagnostics
+        .iter()
+        .filter(|d| d.impact == ir::Impact::Broken)
+        .map(|d| format!("{}: {}", d.feature, d.detail))
+        .collect();
+    assert!(
+        broken.is_empty(),
+        "the probe or the framework did not compile: {broken:?}"
+    );
+    let engine = Engine::new(Arc::new(loaded.plan), store.client(), 48_000);
+    assert_eq!(
+        engine.last_message(),
+        "type=7 sub=19 by=1 cut=60 res=41 ta=0 wa=0 sb=0 rb=0 rc=0 layer=14 early=2",
+        "the filter tags do not answer the values Kontakt returns"
+    );
+}

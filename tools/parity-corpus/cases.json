@@ -551,11 +551,11 @@
       },
       "why": "A genuinely quiet instrument (Kontakt peaks at 0.0035, -49 dBFS): level bugs that hide above -20 dBFS are visible here.",
       "baseline": {
-        "level_db": -29.72,
-        "band_rms_db": 15.07,
-        "align_ms": -1.0,
-        "measured": "2026-11-01",
-        "kontra_sha256": "78baed2c9f5381e107ac04c440ec78752aadea040efbd0a993aa8b9ad2c08c97"
+        "level_db": -0.03,
+        "band_rms_db": 0.13,
+        "align_ms": -2.0,
+        "measured": "2026-11-02",
+        "kontra_sha256": "c0371aaa48b764e171f5e32104842b155527078b29510f15c3c5f4bf7e9e5141"
       }
     },
     {

@@ -309,6 +309,14 @@ impl Engine {
         saved.map(|s| s.2)
     }
 
+    /// `get_engine_par($ENGINE_PAR_EFFECT_TYPE)`: the KSP module the slot holds,
+    /// `None` when the slot is empty or holds one this engine does not carry
+    /// ([`ir::EffectKind::Other`] keeps no module id).
+    pub(crate) fn effect_type(&mut self, group: i32, slot: i32, generic: i32) -> Option<i32> {
+        let kind = self.effect_mut(group, slot, generic)?.kind;
+        ksp_effect_type(&kind)
+    }
+
     fn mark_loaded(&mut self, at: ir::RackAt, slot: u8, ty: u16) {
         // A load replaces the unit a shape switch changed.
         if let Some(n) = crate::knobs::shape_slot(&self.plan, at, i32::from(slot))
@@ -336,11 +344,91 @@ impl Engine {
     }
 }
 
+/// The `$EFFECT_TYPE_*` id of a carried effect, or `None` for a module whose
+/// id this engine does not know. Ids are KSP's own: `crates/script/ksp/data/constants.tsv`.
+///
+/// Every filter shape — the EQ bands and the formant and clocked modules too —
+/// is a `$FILTER_TYPE_*` subtype of the filter effect, so it reads
+/// `$EFFECT_TYPE_FILTER`. Measured in Kontakt 8.14.1 on a Versatile filter set
+/// into group 0 insert 7 through `set_engine_par`: `EFFECT_TYPE` answered 7 and
+/// `EFFECT_SUBTYPE` 19.
+fn ksp_effect_type(kind: &ir::EffectKind) -> Option<i32> {
+    use ir::EffectKind as K;
+    Some(match kind {
+        K::Gain(_) => 20,
+        K::Invert { .. } => 4,
+        K::Stereo { .. } => 9,
+        K::Sends(_) => 11,
+        K::Eq(_) | K::Filter(_) | K::Formant(_) | K::Cascade(_) | K::Clocked(_) => 7,
+        K::Compressor(_) => 2,
+        K::Limiter(_) => 3,
+        K::Reverb(_) => 17,
+        K::Delay(_) => 18,
+        K::Chorus(_) => 16,
+        K::Phaser(_) => 14,
+        K::Crush(_) => 8,
+        K::Shaper(_) => 6,
+        K::Overdrive(_) | K::Clipper(_) => 10,
+        K::Transient(_) => 27,
+        // No single KSP module id: an amp model, a convolution or diffusion
+        // module, the channel matrix, and every effect the translator did not
+        // carry. A script reads 0 there, as it did before this answered at all.
+        K::Matrix(_)
+        | K::Amp(_)
+        | K::Diffusion(_)
+        | K::Convolution { .. }
+        | K::Other
+        | K::OtherWet => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn a_prepared_effect_crosses_threads() {
         fn send<T: Send>() {}
         send::<super::Prepared>();
+    }
+
+    /// A filter family slot reads `$EFFECT_TYPE_FILTER` (7): Spitfire's
+    /// framework only snapshots a group's tags when the slot it addresses
+    /// answers 7, and a Versatile filter measured 7 in Kontakt 8.14.1.
+    #[test]
+    fn every_filter_shape_reads_the_filter_effect_type() {
+        use super::ksp_effect_type;
+        use kontra_ir::{Cascade, CascadeStage, EffectKind, Filter, Pass};
+        let stage = CascadeStage {
+            q: 0.0,
+            limit: 0.0,
+            peak: 0.0,
+            morph: 0.0,
+            wet: 0.0,
+        };
+        let filters = [
+            EffectKind::Filter(Filter {
+                pass: Pass::Low,
+                hz: 1000.0,
+                stages: 1,
+                ladder: None,
+                damping: [2.0; 3],
+                gain: 1.0,
+                octaves: 0.0,
+                q_octaves: 0.0,
+            }),
+            EffectKind::Cascade(Cascade {
+                hz: 1000.0,
+                shifts: [0.0; 2],
+                stages: [stage; 3],
+                gain: 1.0,
+            }),
+            EffectKind::Eq([kontra_ir::Bell::FLAT; 4]),
+        ];
+        for kind in filters {
+            assert_eq!(ksp_effect_type(&kind), Some(7), "{kind:?}");
+        }
+        assert_eq!(ksp_effect_type(&EffectKind::Gain(0.5)), Some(20));
+        assert_eq!(ksp_effect_type(&EffectKind::Sends([0.0; 8])), Some(11));
+        // A module whose KSP id this engine does not know stays unanswered.
+        assert_eq!(ksp_effect_type(&EffectKind::Other), None);
     }
 }
