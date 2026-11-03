@@ -306,7 +306,17 @@ impl<'a> Compiler<'a> {
         };
         match b {
             Builtin::Exit => {
-                self.emit(Op::Exit);
+                // Kontakt: `exit` leaves the callback at its top level and only
+                // the function it sits in inside a user function — a called
+                // function that ends with `exit` (Stradivari's `det_string`
+                // does) returns to its caller, it does not end the note.
+                // Measured: that instrument's `on note` calls `det_string` in
+                // every path and still plays (oracle render, peak 0.158).
+                if self.current.is_some() {
+                    self.emit(Op::Ret);
+                } else {
+                    self.emit(Op::Exit);
+                }
                 return Ok(None);
             }
             Builtin::Continue => {

@@ -6,7 +6,7 @@ use kontra_vm::Text;
 
 use crate::Engine;
 use crate::queue::{EventQueue, Work};
-use crate::script::{Kind, Running};
+use crate::script::Running;
 
 impl Engine {
     /// What a recall does to this instrument's scripts, as `init` asked.
@@ -108,7 +108,7 @@ impl Engine {
     pub(crate) fn persistence_changed(&mut self, slot: u8) {
         let script = self.plan.scripts.get(usize::from(slot));
         if let Some(changed) = script.and_then(|s| s.callbacks.persistence_changed) {
-            self.run_callback(slot, changed, Running::new(Kind::Init, None));
+            self.run_callback(slot, changed, Running::persistence_changed());
         }
     }
 }

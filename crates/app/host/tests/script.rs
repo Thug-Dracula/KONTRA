@@ -3929,3 +3929,47 @@ fn set_num_user_zones_is_reported_unanswered() {
         [(kontra_engine::Action::SetNumUserZones, 1)]
     );
 }
+
+/// Two things Kontakt does that a loaded instrument measures directly, both of
+/// which `Stradivari Violin`'s own scripts rely on:
+///
+/// - `exit` inside a user function leaves the function, not the callback. Its
+///   note path calls `det_string`, which ends with `exit`, and must go on to
+///   play the note; an `exit` that ends the callback eats every note.
+/// - `on persistence_changed` reports its own `$NI_CALLBACK_TYPE`, not
+///   `on init`'s. Its `mixer_fader_lbl_` runs
+///   `if($NI_CALLBACK_TYPE # $NI_CB_TYPE_PERSISTENCE_CHANGED) wait(500000)`,
+///   so reporting `on init`'s 5 suspends the callback for half a second and the
+///   first note arrives before the slot has published its state.
+///
+/// The message reads `0 2` when both hold: the type difference is zero and
+/// `$after` is 2, set after the call that `exit` returned from. It read `-9 3`
+/// when neither did.
+#[test]
+fn a_function_that_exits_returns_and_persistence_changed_names_itself() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.5, 0)];
+    let e = engine(
+        &store,
+        zones,
+        "on init
+            declare $after
+            $after := 1
+            call leave
+            $after := 2
+        end on
+        function leave
+            $after := 3
+            exit
+            $after := 4
+        end function
+        on persistence_changed
+            message(($NI_CALLBACK_TYPE - $NI_CB_TYPE_PERSISTENCE_CHANGED) & \" \" & $after)
+        end on",
+    );
+    assert_eq!(
+        e.last_message(),
+        "0 2",
+        "exit left the callback (a type difference below 0) or never returned to it ($after 3)"
+    );
+}
