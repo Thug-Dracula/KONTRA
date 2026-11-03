@@ -80,16 +80,9 @@ fn fill(
     let Some(values) = values.filter(|v| !v.is_empty()) else {
         return false;
     };
-    // Only the cells the entry names. A saved payload was written for the
-    // array's declaration in the file that saved it; when a later build
-    // declares fewer cells, the ones it does not name keep what the script
-    // put there — which is how `%welcome_state` (saved as one value, read
-    // from the library's data file as two) stays 1 in its second cell, and
-    // why the Session player's quick-start pane does not re-open
-    // (`docs/re/ignored-note-2026-11-03.md`). Repeating the last value into
-    // them instead silenced every note in the pane's `on note`.
-    for (n, value) in values.iter().take(len as usize).enumerate() {
-        out.push((base + n as u32, *value));
+    let last = values.last().copied().unwrap_or(0);
+    for n in 0..len {
+        out.push((base + n, values.get(n as usize).copied().unwrap_or(last)));
     }
     true
 }

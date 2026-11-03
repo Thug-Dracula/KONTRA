@@ -177,6 +177,9 @@ struct Record {
     trace_dropped: u64,
     /// Mix peak with every zero-output slot set to unity (`--probe`).
     probe_peak: Option<f64>,
+    /// The last text a script asked to show (`message()`), which is how a
+    /// probe script reports the branch it took.
+    last_message: String,
     /// The first link with no evidence behind it.
     broken: String,
     /// The numbers behind `broken`.
@@ -221,6 +224,7 @@ impl Record {
             envelope_stages: Vec::new(),
             trace_dropped: 0,
             probe_peak: None,
+            last_message: String::new(),
             broken: "load_error".into(),
             detail: String::new(),
         }
@@ -430,8 +434,18 @@ fn line(r: &Record) -> String {
 
 /// Loads, plays and measures one instrument. One record per key asked for.
 fn probe(path: &Path, args: &Args) -> Result<Vec<Record>> {
-    let ir = kontra_host::instrument::read(path)
+    let mut ir = kontra_host::instrument::read(path)
         .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+    // KONTRA_SCRIPT_SOURCE=<dir>: script n's source is replaced by <dir>/n.ksp
+    // when that file exists, as `kontra-render` does, so a probe can add a
+    // `message()` and read it back from the same harness that measures the row.
+    if let Some(dir) = std::env::var_os("KONTRA_SCRIPT_SOURCE") {
+        for (n, script) in ir.scripts.iter_mut().enumerate() {
+            if let Ok(source) = std::fs::read_to_string(Path::new(&dir).join(format!("{n}.ksp"))) {
+                script.source = source;
+            }
+        }
+    }
     let name = ir.name.clone();
     let zones_translated = ir.groups.iter().map(|g| g.zones.len()).sum();
     let sample_count = ir.samples.len();
@@ -556,6 +570,7 @@ struct Measured {
     script_play_note: usize,
     script_ignore_event: usize,
     trace_dropped: u64,
+    last_message: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -636,6 +651,7 @@ fn one(
         envelope_stages: measured.stages.into_iter().collect(),
         trace_dropped: measured.trace_dropped,
         probe_peak: None,
+        last_message: measured.last_message.clone(),
         broken: String::new(),
         detail: String::new(),
     };
@@ -781,6 +797,7 @@ fn render(plan: &Arc<Plan>, key: u8, args: &Args, store: &mut Store) -> Result<M
         at = until;
     }
     measured.trace_dropped = engine.trace_dropped();
+    measured.last_message = engine.last_message().to_owned();
     for record in engine.rejects() {
         let map = if record.attack {
             &mut measured.rejections

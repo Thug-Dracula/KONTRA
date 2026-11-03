@@ -136,6 +136,8 @@ pub fn plan(script: &Script, saved: &[String], data: &[(String, Vec<u8>)]) -> Sc
             .iter()
             .filter_map(|(name, bytes)| text_data_array(script, name, bytes))
             .collect(),
+        after_restore: Vec::new(),
+        after_restore_texts: Vec::new(),
         restore: restore.ints,
         restore_texts: restore
             .texts
@@ -236,6 +238,28 @@ fn data_array(script: &Script, name: &str, bytes: &[u8]) -> Option<(u32, Vec<i64
     Some((base, values))
 }
 
+/// [`plan`], plus what the script loads from its library's data folder:
+/// `load_array(<array>, 1)` reads `folder`'s `<array>.nka` at once (KSP makes
+/// mode 1 synchronous in `on init`) and the file's cells are written again
+/// after the saved values ([`ScriptPlan::after_restore`]).
+#[must_use]
+pub fn plan_with_user_data(
+    script: &Script,
+    saved: &[String],
+    data: &[(String, Vec<u8>)],
+    source: &str,
+    folder: Option<&std::path::Path>,
+) -> ScriptPlan {
+    let files = user_data_files(source, folder);
+    let cells = user_data_cells(script, &files);
+    let mut merged = data.to_vec();
+    merged.extend(files);
+    let mut planned = plan(script, saved, &merged);
+    planned.after_restore = cells.numbers;
+    planned.after_restore_texts = cells.texts;
+    planned
+}
+
 /// The arrays a script loads from its library's data folder:
 /// `load_array(<array>, 1)`, by lowercase name without its sigil.
 ///
@@ -263,6 +287,34 @@ pub fn user_data_files(source: &str, folder: Option<&std::path::Path>) -> Vec<(S
         }
     }
     files
+}
+
+/// The cells a mode-1 load fills, from the `(name, bytes)` files
+/// [`user_data_files`] read: written once as the script loads them (a mode-1
+/// `load_array` in `on init` is synchronous) and again after the saved values
+/// ([`kontra_engine::ScriptPlan::after_restore`]).
+#[must_use]
+pub fn user_data_cells(script: &Script, files: &[(String, Vec<u8>)]) -> DataCells {
+    let mut cells = DataCells::default();
+    for (name, bytes) in files {
+        if let Some((base, values)) = data_array(script, name, bytes) {
+            for (n, value) in values.into_iter().enumerate() {
+                cells.numbers.push((base + n as u32, value));
+            }
+        } else if let Some((base, values)) = text_data_array(script, name, bytes) {
+            for (n, text) in values.into_iter().enumerate() {
+                cells.texts.push((base + n as u32, text));
+            }
+        }
+    }
+    cells
+}
+
+/// The cells a mode-1 `load_array` fills, by cell.
+#[derive(Debug, Default)]
+pub struct DataCells {
+    pub numbers: Vec<(u32, i64)>,
+    pub texts: Vec<(u32, Text)>,
 }
 
 /// A data file's bytes, up to the limit any resource a script loads has to
@@ -455,6 +507,8 @@ pub fn lua_plan(compiled: kontra_lua::Compiled) -> ScriptPlan {
         source_folder: None,
         library_folder: None,
         factory_folder: None,
+        after_restore: Vec::new(),
+        after_restore_texts: Vec::new(),
         restore: Vec::new(),
         restore_texts: Vec::new(),
         foreign: Some(std::sync::Arc::new(compiled)),

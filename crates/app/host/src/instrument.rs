@@ -110,7 +110,7 @@ pub fn build(instrument: ir::Instrument, rate: u32, store: &mut Store) -> Loaded
     let installs = kontra_library::kontakt::candidates();
     // The per-library folder a script's `load_array(<array>, 1)` reads, when a
     // Kontakt install on this machine names one for this library.
-    let user_data = crate::user_data::root(&installs).and_then(|root| {
+    let user_data_folder = crate::user_data::root(&installs).and_then(|root| {
         crate::user_data::library_folder(&root, instrument.library_path.as_deref())
     });
     for (n, script) in instrument.scripts.iter().enumerate() {
@@ -132,12 +132,13 @@ pub fn build(instrument: ir::Instrument, rate: u32, store: &mut Store) -> Loaded
         }
         match kontra_ksp::compile(&script.source, &[]) {
             Ok(compiled) => {
-                let mut data = script.data.clone();
-                data.extend(crate::script::user_data_files(
+                let mut planned = crate::script::plan_with_user_data(
+                    &compiled,
+                    &script.saved,
+                    &script.data,
                     &script.source,
-                    user_data.as_deref(),
-                ));
-                let mut planned = crate::script::plan(&compiled, &script.saved, &data);
+                    user_data_folder.as_deref(),
+                );
                 planned.source_folder =
                     crate::script::source_folder(instrument.source_path.as_deref());
                 planned.library_folder = crate::script::folder(instrument.library_path.as_deref());

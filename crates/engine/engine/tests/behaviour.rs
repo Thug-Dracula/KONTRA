@@ -2392,6 +2392,8 @@ fn script_controller_callback_links_indirect_route_evaluations() {
         factory_folder: None,
         restore: vec![],
         restore_texts: vec![],
+        after_restore: vec![],
+        after_restore_texts: vec![],
         controls: Controls::default(),
         engine_pars: EnginePars::default(),
         reverb_laws: std::array::from_fn(|_| ir::Law::Linear { lo: 0.0, hi: 1.0 }),

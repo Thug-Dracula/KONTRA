@@ -139,7 +139,7 @@ fn product_name(library: &Path) -> Option<String> {
     if found.len() != 1 {
         return None;
     }
-    kontra_library::product(&found[0]).map(|(name, _)| name)
+    kontra_library::product(found.first()?).map(|(name, _)| name)
 }
 
 /// The library sections of a `Settings.cfg`, as (section name, the last

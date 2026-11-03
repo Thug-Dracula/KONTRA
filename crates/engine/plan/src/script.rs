@@ -14,6 +14,23 @@ pub struct ScriptPlan {
     pub coroutines: usize,
     /// Library data arrays `load_array(%x, 1|2)` reads: (first cell, values).
     pub data: Vec<(u32, Vec<i64>)>,
+    /// The same cells for the arrays a `load_array(%x, 1)` in `on init`
+    /// filled from the library's own data folder, written again after the
+    /// saved values.
+    ///
+    /// KSP makes an array loaded in `on init` persistent, and the saved
+    /// values then overwrite the loaded ones at the end of the callback
+    /// ([load/save commands](https://docs.native-instruments.com/ni-tech-manuals/ksp-manual/en/load-save-commands)).
+    /// Kontakt's own instrument keeps the loaded values for a mode-1 array
+    /// all the same: `%welcome_state` is saved as one value and read from
+    /// `welcome_state.nka` as two, and Kontakt's page is the one a
+    /// `%welcome_state[1]` of 1 paints, not the quick-start pane a 0 paints
+    /// (`docs/re/ignored-note-2026-11-03.md`). Writing the file's cells last
+    /// reproduces that, and leaves every mode-2 array — which the saved
+    /// values do overwrite — exactly as it was.
+    pub after_restore: Vec<(u32, i64)>,
+    /// Text cells for [`ScriptPlan::after_restore`].
+    pub after_restore_texts: Vec<(u32, Text)>,
     /// Text array data prepared from library resources.
     pub text_data: Vec<(u32, Vec<Text>)>,
     /// Absolute folder of the instrument file, when known.
