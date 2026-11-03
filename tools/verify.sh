@@ -366,6 +366,25 @@ echo "== layer 0/1: the style the review checklist claims =="
 lint_fmt
 lint_clippy
 
+echo "== layer 0: the corpus's takes are the length their MIDI claims =="
+# The parity gate compares each take against a KONTRA render after cutting both
+# to their common length, so a take that stopped early would go on passing while
+# measuring less of the note than the case says it holds. This row reads
+# cases.json and the WAV headers: no sample library, no render, no Kontakt, so
+# it runs in both modes and a half-recorded case cannot be merged.
+if python3 "$REPO/tools/test_parity_corpus.py" >"$LOGS/verify-corpus-tests.log" 2>&1; then
+    CORPUSROWS=$(python3 - "$REPO/tools/parity-corpus/cases.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))["cases"]
+print(f"{len(rows)} cases, {sum(len(c['references']) for c in rows)} takes")
+PY
+)
+    ok "corpus takes" "${CORPUSROWS:-?}, every take as long as its MIDI captures"
+else
+    bad "corpus takes" "a take is missing or the wrong length; see $LOGS/verify-corpus-tests.log"
+    grep -E '^(FAIL|ERROR|AssertionError)' "$LOGS/verify-corpus-tests.log" | sed 's/^/      /' | head -6
+fi
+
 # Portable mode stops here. Everything below needs this machine's sample
 # library, and on a runner that has none the rows would print "skipped" -- a
 # word this project has learned to read as "passed". Named as not-run instead.
@@ -437,7 +456,7 @@ else
 fi
 
 echo "== layer 0: the parity corpus still sounds like Kontakt =="
-# Twenty cases hold the parity numbers to files instead of to an afternoon's memory: each is a
+# Twenty-six cases hold the parity numbers to files instead of to an afternoon's memory: each is a
 # note real Kontakt played, committed as a WAV with the MIDI that made it, captured twice so the
 # instrument's own take-to-take spread sets the threshold. This row runs the gate's three
 # (Glory Days Trumpet 1, Fredonia Grand Organ, Electric Mint) -- no Kontakt, no display, only the

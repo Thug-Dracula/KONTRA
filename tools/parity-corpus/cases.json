@@ -691,6 +691,277 @@
       }
     },
     {
+      "id": "accordions",
+      "name": "Accordions 2 - Steirisches Accordion",
+      "library": "Accordions 2 Library",
+      "instrument": "Accordions 2 Library/Instruments/Steirisches Accordion.nki",
+      "key": 68,
+      "key_note": "68 - the median of the 52..84 run this instrument sounds on at velocity 100 with CC 2 at 64 (33 of the 49 swept keys 36..84). The controller is part of the case, not the key: the stored start-criteria rows are controller 2 with one row at 4..=64.",
+      "velocity": 100,
+      "hold_s": 2.0,
+      "tail_s": 0.5,
+      "midi": {
+        "type": "note",
+        "notes": [
+          {
+            "start_s": 0.0,
+            "length_s": 2.0,
+            "key": 68,
+            "velocity": 100
+          }
+        ],
+        "ccs": [
+          {
+            "at_s": 0.0,
+            "cc": 2,
+            "value": 64
+          }
+        ]
+      },
+      "expect": "matches",
+      "references": [
+        "kontakt/accordions-a.wav",
+        "kontakt/accordions-b.wav"
+      ],
+      "threshold": {
+        "level_db": 0.5,
+        "band_rms_db": 1.0,
+        "from_spread": {
+          "level_db": 0.0,
+          "band_rms_db": 0.18,
+          "take_drift_ms": 0.0
+        }
+      },
+      "why": "The script builds its group mask from each group's saved start-criteria row (`$ENGINE_PAR_START_CRITERIA_CC_MIN`); a reader that drops those rows closes every group on every key, so no key alone would show it.",
+      "baseline": {
+        "level_db": -5.91,
+        "band_rms_db": 10.25,
+        "align_ms": 49.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "acf7bf7b645bb229c7fbfc835aec2ff298a7c24977468decf31bf8eff80efaec"
+      }
+    },
+    {
+      "id": "brass-band-soloists",
+      "name": "Brass Band Soloists - 01. Solo Cornet",
+      "library": "Brass Band Soloists [Fracture Sounds]",
+      "instrument": "Brass Band Soloists [Fracture Sounds]/Instruments/01. Solo Cornet.nki",
+      "key": 70,
+      "key_note": "70 - the median of the 55..84 run (30 of the 49 swept keys 36..84).",
+      "velocity": 100,
+      "hold_s": 2.0,
+      "tail_s": 0.5,
+      "midi": {
+        "type": "note",
+        "notes": [
+          {
+            "start_s": 0.0,
+            "length_s": 2.0,
+            "key": 70,
+            "velocity": 100
+          }
+        ]
+      },
+      "expect": "matches",
+      "references": [
+        "kontakt/brass-band-soloists-a.wav",
+        "kontakt/brass-band-soloists-b.wav"
+      ],
+      "threshold": {
+        "level_db": 0.5,
+        "band_rms_db": 1.0,
+        "from_spread": {
+          "level_db": 0.0,
+          "band_rms_db": 0.63,
+          "take_drift_ms": 0.0
+        }
+      },
+      "why": "The library uses the Solid G-EQ bands as tags - LF gain is the dynamic layer, LMF the round robin, HF the bell switch - so a `$ENGINE_PAR_SEQ_*` reader that answers the Q field or 0 closes every group.",
+      "baseline": {
+        "level_db": 4.34,
+        "band_rms_db": 3.93,
+        "align_ms": -95.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "c8025d4a35e9d3ba26ae64eb4237fdb0d35f1d5a2b337615f715990a918e5177"
+      }
+    },
+    {
+      "id": "gravity-2",
+      "name": "Heavyocity Gravity 2 - Gravity 2 Menu",
+      "library": "Heavyocity Gravity 2",
+      "instrument": "Heavyocity Gravity 2/Instruments/Gravity 2 Menu.nki",
+      "key": 54,
+      "key_note": "54 - the median of the 36..71 run (36 of the 49 swept keys 36..84; 72 and up are outside this patch's zones).",
+      "velocity": 100,
+      "hold_s": 2.0,
+      "tail_s": 0.5,
+      "midi": {
+        "type": "note",
+        "notes": [
+          {
+            "start_s": 0.0,
+            "length_s": 2.0,
+            "key": 54,
+            "velocity": 100
+          }
+        ]
+      },
+      "expect": "matches",
+      "references": [
+        "kontakt/gravity-2-a.wav",
+        "kontakt/gravity-2-b.wav"
+      ],
+      "threshold": {
+        "level_db": 0.5,
+        "band_rms_db": 1.0,
+        "from_spread": {
+          "level_db": 0.01,
+          "band_rms_db": 0.02,
+          "take_drift_ms": 0.0
+        }
+      },
+      "why": "The group is named by a custom event parameter (`get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 1)`), so an engine that answers that slot 0 allows group 0 and nothing else.",
+      "baseline": {
+        "level_db": 0.94,
+        "band_rms_db": 0.91,
+        "align_ms": -204.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "65609072f8ffa217d5365c4d681d882c20c9bc64691ba46b9309eb9fd9810fce"
+      }
+    },
+    {
+      "id": "kinetic-metal",
+      "name": "Kinetic Metal - Oil Barrel Drums",
+      "library": "Kinetic Metal",
+      "instrument": "Kinetic Metal/Kinetic Metal Library/Instruments/Oil Barrel Drums.nki",
+      "key": 60,
+      "key_note": "60 - the median of the 36..84 run (all 49 swept keys sound at velocity 100).",
+      "velocity": 100,
+      "hold_s": 2.0,
+      "tail_s": 0.5,
+      "midi": {
+        "type": "note",
+        "notes": [
+          {
+            "start_s": 0.0,
+            "length_s": 2.0,
+            "key": 60,
+            "velocity": 100
+          }
+        ]
+      },
+      "expect": "matches",
+      "references": [
+        "kontakt/kinetic-metal-a.wav",
+        "kontakt/kinetic-metal-b.wav"
+      ],
+      "threshold": {
+        "level_db": 0.5,
+        "band_rms_db": 1.0,
+        "from_spread": {
+          "level_db": 0.0,
+          "band_rms_db": 0.0,
+          "take_drift_ms": 0.0
+        }
+      },
+      "why": "A legacy Phaser slot stores output 0 with dry 1; read as a serial effect, with dry forced to 0, that one slot multiplies the instrument rack by nothing.",
+      "baseline": {
+        "level_db": -3.44,
+        "band_rms_db": 7.55,
+        "align_ms": 44.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "46b92966b70af702270ae9e4e5632804646b3266a5c4c703763b9364ac9d32fb"
+      }
+    },
+    {
+      "id": "stradivari",
+      "name": "Stradivari Violin",
+      "library": "Stradivari Violin 2.0.0 [Native Instruments]",
+      "instrument": "Stradivari Violin 2.0.0 [Native Instruments]/Instruments/Stradivari Violin.nki",
+      "key": 70,
+      "key_note": "70 - the median of the 55..84 run (30 of the 49 swept keys 36..84).",
+      "velocity": 100,
+      "hold_s": 2.0,
+      "tail_s": 0.5,
+      "midi": {
+        "type": "note",
+        "notes": [
+          {
+            "start_s": 0.0,
+            "length_s": 2.0,
+            "key": 70,
+            "velocity": 100
+          }
+        ]
+      },
+      "expect": "matches",
+      "references": [
+        "kontakt/stradivari-a.wav",
+        "kontakt/stradivari-b.wav"
+      ],
+      "threshold": {
+        "level_db": 0.5,
+        "band_rms_db": 1.0,
+        "from_spread": {
+          "level_db": 0.01,
+          "band_rms_db": 0.05,
+          "take_drift_ms": 0.0
+        }
+      },
+      "why": "`exit` inside a user function ended the coroutine instead of returning, and `$NI_CALLBACK_TYPE` read INIT inside `on persistence_changed`; both decisions are taken before any `play_note`, so either one eats the note.",
+      "baseline": {
+        "level_db": 16.63,
+        "band_rms_db": 14.67,
+        "align_ms": 47.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "faa38cc4a3988fa3aa47b8323b43719052b3fc5519d2e2e719352324217a96dd"
+      }
+    },
+    {
+      "id": "evolution-steel-strings",
+      "name": "Evolution Steel Strings",
+      "library": "Evolution Steel Strings 1.2.5 [Orange Tree Samples]",
+      "instrument": "Evolution Steel Strings 1.2.5 [Orange Tree Samples]/Instruments/Evolution Steel Strings.nki",
+      "key": 62,
+      "key_note": "62 - the median of the 40..84 run (45 of the 49 swept keys 36..84).",
+      "velocity": 100,
+      "hold_s": 2.0,
+      "tail_s": 0.5,
+      "midi": {
+        "type": "note",
+        "notes": [
+          {
+            "start_s": 0.0,
+            "length_s": 2.0,
+            "key": 62,
+            "velocity": 100
+          }
+        ]
+      },
+      "expect": "matches",
+      "references": [
+        "kontakt/evolution-steel-strings-a.wav",
+        "kontakt/evolution-steel-strings-b.wav"
+      ],
+      "threshold": {
+        "level_db": 0.5,
+        "band_rms_db": 1.0,
+        "from_spread": {
+          "level_db": 0.0,
+          "band_rms_db": 0.0,
+          "take_drift_ms": 0.0
+        }
+      },
+      "why": "`$EVENT_PAR_18` carries the string index the sample script plays from; answered 0 the note lands 48 semitones below the block the script asked for, on another string.",
+      "baseline": {
+        "level_db": -12.01,
+        "band_rms_db": 4.25,
+        "align_ms": 51.0,
+        "measured": "2026-11-03",
+        "kontra_sha256": "a7cae0c75fdfa32cbad5b4bbfb23be94e9ae4c6c3a7214cbff733e8f00d79804"
+      }
+    },
+    {
       "id": "lass-aleatoric-cellos",
       "name": "AudioBro LASS - Aleatoric Sustained Cellos",
       "library": "AudioBro LASS Bundles",
@@ -730,7 +1001,7 @@
       "library": "Garritan - Jazz & Big Band",
       "instrument": "Garritan - Jazz & Big Band/Instruments/01 Saxes and Woodwinds/Flutes/Flute 1.nki",
       "key": 60,
-      "key_note": "60 - KONTRA refuses it as legacy XML; 60 is the flute's written middle register and the note Kontakt's reference plays.",
+      "key_note": "60 - KONTRA refuses it (a protected Kontakt 2 preset body); 60 is the flute's written middle register and the note Kontakt's reference plays.",
       "velocity": 100,
       "hold_s": 2.0,
       "tail_s": 0.5,
@@ -759,8 +1030,8 @@
           "take_drift_ms": 0.0
         }
       },
-      "why": "KONTRA refuses it as a legacy XML preset while Kontakt loads it and it sounds (peak 0.056): the known asymmetry, pinned so it cannot be quietly forgotten.",
-      "refusal_reason": "legacy XML instruments are not read"
+      "why": "KONTRA refuses it because its Kontakt 2 (V2) preset body is protected and not decoded, while Kontakt loads it and it sounds (peak 0.056): the known asymmetry, pinned so it cannot be quietly forgotten.",
+      "refusal_reason": "Kontakt 2 (V2) preset body is not decoded"
     },
     {
       "id": "evolve-piano-glissandos-02",

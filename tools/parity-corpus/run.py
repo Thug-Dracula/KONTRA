@@ -330,8 +330,15 @@ def compare(ref_chans, kern_chans):
 # ----------------------------------------------------------------------- MIDI
 
 
-def write_midi(path: Path, notes, bpm=120.0):
-    """Standard MIDI file, one track, note on/off at 480 PPQ — the same writer shape the oracle uses."""
+def write_midi(path: Path, notes, ccs=(), bpm=120.0):
+    """Standard MIDI file, one track, note on/off at 480 PPQ — the same writer shape the oracle uses.
+
+    `ccs` is `[{at_s, cc, value, channel?}]`, written into the same track. A controller sorts
+    before a note that starts on its tick, because a patch whose group start criteria read a
+    controller decides the note at note-on: sending it after the note is the same as not
+    sending it (`accordions` needs CC 2 at 64, and its stored criteria range is 4..=64, so the
+    same note at CC 2 = 0 is a different, equally correct, silence).
+    """
     ppq = 480
     ticks_per_s = ppq * bpm / 60.0
     events = []
@@ -343,6 +350,12 @@ def write_midi(path: Path, notes, bpm=120.0):
         ch = int(n.get("channel", 1)) - 1
         events.append((on, 1, [0x90 | ch, key, vel]))
         events.append((off, 0, [0x80 | ch, key, 0]))
+    for c in ccs:
+        at = int(round(float(c.get("at_s", 0.0)) * ticks_per_s))
+        cc = int(c["cc"])
+        value = int(c["value"])
+        ch = int(c.get("channel", 1)) - 1
+        events.append((at, -1, [0xB0 | ch, cc, value]))
     events.sort(key=lambda e: (e[0], e[1]))
 
     def vlq(v):
@@ -388,6 +401,51 @@ def kontra_render(case, midi_path: Path, out_wav: Path, root: Path):
         except json.JSONDecodeError:
             summary = None
     return p.returncode, summary, (p.stderr or "").strip()
+
+
+def write_case_midi(case, path: Path):
+    """The case's own MIDI — notes and any controllers — as the one file both engines play."""
+    midi = case["midi"]
+    write_midi(path, midi["notes"], midi.get("ccs") or ())
+
+
+def capture_frames(case) -> int:
+    """Frames the case's reference and render must both hold: last key-up plus the tail.
+
+    A reference of a different length is a half-recorded case, not a short one: the
+    comparison truncates both sides to their common length, so a take that stopped early
+    would go on passing while measuring less of the note than it claims to.
+    """
+    midi = case["midi"]
+    end = max(float(n.get("start_s", 0.0)) + float(n["length_s"]) for n in midi["notes"])
+    return int(round((end + float(case.get("tail_s", 0.5))) * RATE))
+
+
+def check_references(case, row):
+    """Fail the case unless every take it lists is on disk and the length its MIDI implies.
+
+    Returns the first take's samples, or `None` after recording the failure in `row`.
+    """
+    refs = case.get("references") or []
+    want = capture_frames(case)
+    first = None
+    for name in refs:
+        path = REFS / Path(name).name
+        if not path.exists():
+            row.update(ok=False, status="reference missing",
+                       detail=f"{path} is not there: re-capture with --case {case['id']}")
+            return None
+        chans, _ = read_wav(path)
+        frames = len(chans[0]) if chans else 0
+        if frames != want:
+            row.update(ok=False, status="reference length wrong",
+                       detail=f"{path.name} holds {frames} frames ({frames / RATE:.3f} s), the "
+                              f"case's MIDI captures {want} ({want / RATE:.3f} s): re-capture "
+                              f"with --case {case['id']}")
+            return None
+        if first is None:
+            first = chans
+    return first
 
 
 # ----------------------------------------------------------------------- cases
@@ -440,7 +498,16 @@ def run_case(case, workdir: Path, root: Path):
     row = {"id": case["id"], "name": case["name"], "expect": case.get("expect", "matches"),
            "key": case.get("key"), "threshold": case.get("threshold")}
     midi_path = workdir / f"{case['id']}.mid"
-    write_midi(midi_path, case["midi"]["notes"])
+    write_case_midi(case, midi_path)
+    # A case's takes are checked before anything is rendered: a take that is absent or the
+    # wrong length is a half-recorded case, and it fails here rather than comparing less of
+    # the note than it claims to.
+    refs = case.get("references") or []
+    ref_chans = None
+    if refs:
+        ref_chans = check_references(case, row)
+        if ref_chans is None:
+            return row
     out_wav = workdir / f"{case['id']}-kontra.wav"
     rc, summary, err = kontra_render(case, midi_path, out_wav, root)
 
@@ -464,17 +531,20 @@ def run_case(case, workdir: Path, root: Path):
         row.update(ok=False, status="KONTRA failed to render", detail=(err.splitlines() or [""])[-1][-160:])
         return row
 
-    refs = case.get("references") or []
     if not refs:
         row.update(ok=False, status="no reference WAV for a case that should render")
         return row
-    ref_path = REFS / Path(refs[0]).name
-    if not ref_path.exists():
-        row.update(ok=False, status="reference missing",
-                   detail=f"{ref_path} is not there: re-capture with --case {case['id']}")
-        return row
-    ref_chans, _ = read_wav(ref_path)
     kern_chans, _ = read_wav(out_wav)
+    want_frames = capture_frames(case)
+    got_frames = len(kern_chans[0]) if kern_chans else 0
+    # A render stops on the block boundary after the case's last frame, so it holds a few
+    # more frames than the capture (120,320 for a 2.5 s case). Fewer is the failure: the
+    # comparison would then quietly measure less of the note than the reference holds.
+    if got_frames < want_frames:
+        row.update(ok=False, status="render shorter than the case",
+                   detail=f"KONTRA wrote {got_frames} frames ({got_frames / RATE:.3f} s) for a "
+                          f"case that holds {want_frames} ({want_frames / RATE:.3f} s)")
+        return row
     metrics = compare(ref_chans, kern_chans)
     row["metrics"] = metrics
 
@@ -559,13 +629,17 @@ def record(args, doc):
         if not refs:
             continue
         midi_path = workdir / f"{case['id']}.mid"
-        write_midi(midi_path, case["midi"]["notes"])
+        write_case_midi(case, midi_path)
         out_wav = workdir / f"{case['id']}-kontra.wav"
         rc, summary, err = kontra_render(case, midi_path, out_wav, root)
         if rc != 0:
             print(f"{case['id']}: KONTRA does not render it ({err.splitlines()[-1:]}) - no baseline")
             continue
-        ref_chans, _ = read_wav(REFS / Path(refs[0]).name)
+        checked = {"id": case["id"]}
+        ref_chans = check_references(case, checked)
+        if ref_chans is None:
+            print(f"{case['id']}: {checked['status']} - no baseline: {checked.get('detail', '')}")
+            continue
         kern_chans, _ = read_wav(out_wav)
         m = compare(ref_chans, kern_chans)
         case["baseline"] = {
@@ -607,7 +681,7 @@ def capture(args, doc):
     for case in select(doc, args):
         print(f"\n== {case['id']}  {case['name']}")
         midi_path = workdir / f"{case['id']}.mid"
-        write_midi(midi_path, case["midi"]["notes"])
+        write_case_midi(case, midi_path)
         outcomes = []
         for take in ("a", "b"):
             client = oc.Client(timeout=900)
@@ -635,10 +709,15 @@ def capture(args, doc):
                         # no sound, so the file is kept and the runner checks KONTRA for silence.
                         if r.get("wav") and Path(r["wav"]).exists():
                             # /tmp and /var/tmp are different filesystems here, so a rename is
-                            # EXDEV: copy, then drop the oracle's copy.
+                            # EXDEV: copy, then drop the oracle's copy. A capture left twelve of
+                            # them behind before this line existed, ~2 MB each on the session's
+                            # own work dir, and nothing reads one after its take is recorded.
                             import shutil
                             shutil.copyfile(r["wav"], wav_out)
                             rec["wav"] = str(wav_out)
+                            for stray in (r["wav"], str(Path(r["wav"]).with_name(
+                                    Path(r["wav"]).stem + "-raw.wav"))):
+                                Path(stray).unlink(missing_ok=True)
                         else:
                             rec["no_wav"] = True
                 else:
@@ -661,6 +740,18 @@ def capture(args, doc):
 
         # Thresholds and the alignment offset come from the two takes and a KONTRA render.
         if all(o.get("wav") for o in outcomes):
+            want = capture_frames(case)
+            for take, rec in zip(("a", "b"), outcomes):
+                if rec.get("peak_dbfs") is not None and rec["peak_dbfs"] <= SILENT_DB:
+                    raise SystemExit(f"{case['id']} take {take}: Kontakt made no sound "
+                                     f"({rec['peak_dbfs']} dBFS peak) - a silent reference is not a "
+                                     f"threshold; drop the instrument instead of recording it")
+            for take in ("a", "b"):
+                chans, _ = read_wav(REFS / f"{case['id']}-{take}.wav")
+                frames = len(chans[0]) if chans else 0
+                if frames != want:
+                    raise SystemExit(f"{case['id']} take {take}: {frames} frames, the case's MIDI "
+                                     f"captures {want} - the take is not the note it claims")
             a, _ = read_wav(REFS / f"{case['id']}-a.wav")
             b, _ = read_wav(REFS / f"{case['id']}-b.wav")
             spread = compare(a, b)

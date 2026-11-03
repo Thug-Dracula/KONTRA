@@ -1,6 +1,6 @@
-# Parity corpus — twenty short recordings KONTRA has to keep matching
+# Parity corpus — twenty-six short recordings KONTRA has to keep matching
 
-Twenty cases, each a 2.5-second note (or chord) rendered by **real Kontakt 8.14.1** and committed
+Twenty-six cases, each a 2.5-second note (or chord) rendered by **real Kontakt 8.14.1** and committed
 as a WAV beside the instrument path and the exact MIDI that produced it. `run.py` renders the same
 MIDI in KONTRA and fails when the audio drifts outside the case's own threshold. `tools/verify.sh`
 runs three of them (Glory Days Trumpet 1, Fredonia Grand Organ, Electric Mint) on every build.
@@ -11,8 +11,8 @@ change makes it false. The corpus turns those claims into files that fail a buil
 
 ```
 tools/parity-corpus/
-  cases.json          the twenty cases: instrument (relative to `library_root`), key, MIDI,
-                      expectation, references, threshold, why
+  cases.json          the twenty-six cases: instrument (relative to `library_root`), key, MIDI
+                      (notes and any controllers), expectation, references, threshold, why
   kontakt/*.wav       the references, two takes per case, captured from real Kontakt
   run.py              the gate: render in KONTRA, align, compare, exit non-zero on drift
   README.md           this file
@@ -30,6 +30,7 @@ reference — never to check one. `--capture` exists for that and is not for CI.
 |---|---|
 | format | stereo, 32-bit float, 48 kHz, raw and unnormalised — absolute level is the measurement |
 | note | velocity 100 held **2.0 s**, plus a **0.5 s** tail |
+| controllers | none, except where the patch's own start criteria read one: `accordions` sends CC 2 = 64 in the same track, before the note-on. Kontakt plays that note at CC 2 = 0, 64 and 127 alike (peaks −21.11 / −21.19 / −21.11 dBFS); KONTRA plays it only at 64, so the case records the value both engines sound at, and that difference is a finding of its own rather than something this case hides |
 | key | **derived per case**, not assumed: the median of the longest run of keys the instrument's own zones sound on at velocity 100 (see `key_note`) |
 | alignment | the onset difference between the two captures centres a 1 ms-frame envelope cross-correlation, searched ±10 ms and applied before any comparison; the found lag must be within **1 ms** of the case's recorded offset |
 | level | integrated RMS difference, Kontakt − KONTRA, in dB |
@@ -64,7 +65,7 @@ threshold. When a fix moves a case, the baseline is re-recorded deliberately (`-
 in the diff) and the finding count is expected to fall.
 
 The alternative — passing only when absolute agreement is inside the floor — was rejected because
-it fails on the first day for ten of twenty cases and would be switched off within a week, which is
+it fails on the first day for fourteen of twenty-six cases and would be switched off within a week, which is
 exactly how the hand-measured numbers this replaces came to be stale.
 
 ## Why the thresholds are what they are
@@ -86,6 +87,13 @@ fit that: `vintage-organs-c3-jazz` (0.52 dB level, 4.30 dB band) and `session-ho
 (1.04 dB band) pick a different sample between sessions, so their thresholds are wider, and
 honestly so. `electric-mint-melody`'s takes differ by 3 ms in onset, which is why the alignment
 floor is what it is.
+
+The six cases added on 2026-11-03 for the instruments that were silent on 2026-11-02 (accordions,
+brass-band-soloists, gravity-2, kinetic-metal, stradivari, evolution-steel-strings) were captured
+twice each the same way, and all six agree take-to-take inside the floor: 0.00–0.01 dB level and
+0.00–0.63 dB band, so each threshold is the 0.5 dB / 1.0 dB floor and not an invented number. All
+six are **findings** — the fixes that made them sound did not make them match Kontakt, which is
+what the table above records.
 
 Kontakt's take-to-take spread is recorded per case under `threshold.from_spread` so a wide threshold
 can always be traced to the instrument rather than hidden in the runner.
@@ -109,6 +117,12 @@ can always be traced to the instrument rather than hidden in the runner.
 | studio-drummer-stadium | 54 | +2.24 dB | 0.98 dB | finding |
 | vintage-organs-c3-jazz | 66 | −2.04 dB | 13.97 dB | finding |
 | unity-nostalgic-synth | 72 | −0.16 dB | 1.99 dB | finding |
+| accordions | 68 | −5.91 dB | 10.25 dB | finding: Kontakt's layers 80–320 Hz sit 12–18 dB above ours |
+| brass-band-soloists | 70 | +4.34 dB | 3.93 dB | finding: ours is up to 10 dB dark above 1 kHz |
+| gravity-2 | 54 | +0.94 dB | 0.91 dB | finding: under 1 dB everywhere, the closest of the six |
+| kinetic-metal | 60 | −3.44 dB | 7.55 dB | finding: ours has 13–20 dB less above 1 kHz |
+| stradivari | 70 | **+16.63 dB** | **14.67 dB** | finding: same pitch and harmonics, but Kontakt's note is 17 dB louder and carries the 468 Hz fundamental we do not |
+| evolution-steel-strings | 62 | −12.01 dB | 4.25 dB | finding: ours is a flat 12 dB quiet |
 | lass-aleatoric-cellos | 60 | — | — | refused by both engines |
 | garritan-flute1 | 60 | — | — | refused by KONTRA, sounds in Kontakt |
 | evolve-piano-glissandos-02 | 60 | — | — | refused by KONTRA, silent in Kontakt |
@@ -138,11 +152,15 @@ key-dependence on one instrument is itself the kind of thing this corpus exists 
    **relative to `library_root`** (`Glory Days - Big Band Horns/Instruments/…nki`), never as an
    absolute path: a case that hardcodes one machine's library runs on that machine only.
 4. `python3 tools/parity-corpus/run.py --capture --case <id>` — two oracle sessions, writes
-   `kontakt/<id>-a.wav`, `-b.wav`, the measured threshold and the alignment offset.
+   `kontakt/<id>-a.wav`, `-b.wav`, the measured threshold and the alignment offset. It refuses
+   a take Kontakt itself rendered silent (a silent reference is not a threshold — drop the
+   instrument) and a take that is not the length the case's MIDI implies. A patch that decides
+   its note at note-on from a controller needs `midi.ccs` (`[{at_s, cc, value}]`): the writer
+   puts a controller before a note that starts on its tick, so both engines see it first.
 5. Run it: `python3 tools/parity-corpus/run.py --case <id>`. If it drifts, that is a finding: say
    so in the commit message rather than widening the threshold.
 
-Adding a case is also how the corpus grows past twenty without anyone re-measuring by hand: the
+Adding a case is also how the corpus grows past twenty-six without anyone re-measuring by hand: the
 capture is the measurement, and it is two commands.
 
 ## Re-capturing one case
@@ -182,11 +200,18 @@ pointing at a file that does not exist.
 
 ## Size
 
-`kontakt/` holds 38 references at 960,044 bytes each (2.5 s × 48 kHz × 2 channels × 4 bytes) —
-**36.5 MB, committed on purpose**. That is the price of raw float stereo with a real tail, and it
+`kontakt/` holds 50 references at 960,044 bytes each (2.5 s × 48 kHz × 2 channels × 4 bytes) —
+**48.0 MB, committed on purpose** (the six cases added on 2026-11-03 cost 11.5 MB of that). That is the price of raw float stereo with a real tail, and it
 is the corpus's whole point: the files are the measurement. If that ever needs to come down, drop
 the tail to 0.25 s (17 MB) rather than quantising to 16-bit, which would change the thing being
 measured. `lass-aleatoric-cellos` has no reference at all because both engines refuse it.
+
+Every take is checked before anything is compared: it must exist and be exactly the length
+its MIDI implies (2.5 s → 120,000 frames), and the KONTRA render must cover at least that.
+`compare` cuts both sides to their common length, so without that check a take that stopped
+early would go on passing while measuring less of the note than it claims to.
+`tools/test_parity_corpus.py` runs the same check over the committed corpus and needs no
+sample library, which is what lets it run on a machine that cannot run the gate.
 
 ## Cost
 
@@ -195,10 +220,10 @@ Measured 2026-11-01 on this machine:
 | | |
 |---|---|
 | capture, whole corpus | **~21 minutes** of one Kontakt consumer for 40 sessions (20 cases × 2 takes), ~31 s per session (launch 5 s, load 20 s on average, render 6 s, down 0.4 s) |
-| capture, one case | ~62 s |
+| capture, one case | ~62 s (six cases: ~6 min) |
 | refusals | the slowest: Kontakt spends its 60 s paint timeout refusing LASS |
 | gate subset (3 cases) | **6.2 s**, no Kontakt, no display |
-| whole corpus | ~29 s, no Kontakt, no display |
+| whole corpus | 69 s for the 26 cases, no Kontakt, no display |
 
 ## Reading a failure
 
