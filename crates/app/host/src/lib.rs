@@ -13,4 +13,5 @@ pub mod script;
 pub mod sound;
 pub mod state;
 pub mod ui;
+pub mod user_data;
 pub mod view;

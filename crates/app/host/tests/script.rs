@@ -4075,3 +4075,46 @@ fn a_function_that_exits_returns_and_persistence_changed_names_itself() {
         "exit left the callback (a type difference below 0) or never returned to it ($after 3)"
     );
 }
+
+/// A mode-1 `load_array` reads the library's own data folder, and what it read
+/// is still there when `on persistence_changed` runs.
+///
+/// `%welcome_state` in the Session libraries is saved as one value and its
+/// file holds two; the saved value must not put a 0 back into the second cell
+/// after `on init` loaded 1 there — that cell is what keeps the quick-start
+/// pane shut, and the pane's `on note` swallows every note while it is open
+/// (`docs/re/ignored-note-2026-11-03.md`).
+#[test]
+fn a_library_data_array_survives_the_saved_values_that_name_it() {
+    let dir = std::env::temp_dir().join(format!("kontra-user-data-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("welcome_state.nka"), "%welcome_state\n0\n1\n").unwrap();
+    let source = "on init
+            declare %welcome_state[2]
+            declare $at_init
+            load_array(%welcome_state, 1)
+            $at_init := %welcome_state[1]
+        end on
+        on persistence_changed
+            message($at_init & \" \" & %welcome_state[1])
+        end on";
+    let script = kontra_ksp::compile(source, &[]).unwrap();
+    let store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut plan = Plan::new(Vec::new(), 16);
+    let saved = ["%welcome_state 0".into()];
+    plan.scripts = vec![kontra_host::script::plan_with_user_data(
+        &script,
+        &saved,
+        &[],
+        source,
+        Some(&dir),
+    )];
+    let e = Engine::new(Arc::new(plan), store.client(), RATE);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        e.last_message(),
+        "1 1",
+        "`at init` is 0 when the file was not read, and the second cell is 0 when the saved \
+         value overwrote what the file put there"
+    );
+}

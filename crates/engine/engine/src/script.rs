@@ -786,13 +786,32 @@ impl HostApi for Engine {
                     HostValue::Nothing
                 }
             }
-            // Mode 0 asks for a file in a dialog KONTRA does not show yet,
-            // taken as cancelled; mode 1 is the user's Data folder, which
-            // KONTRA never holds. The array stays as it is and `on
-            // async_complete` reports failure (KSP manual).
-            Action::LoadArray | Action::SaveArray if int(2) <= 1 => {
+            // Mode 1 is the library's own data folder, which the host reads
+            // before the script runs (`load_array(%x, 1)` in `on init` is
+            // synchronous, KSP manual); mode 0 is a file dialog KONTRA does
+            // not show, taken as cancelled. An array nothing prepared keeps
+            // the failure answer, and `on async_complete` hears it (KSP
+            // manual).
+            Action::LoadArray if int(2) == 1 => {
+                let (base, len) = (int(0) as u32, int(1) as usize);
+                let loaded = self.script().is_some_and(|s| {
+                    let numbers = s.load_number_data(base, len, call.cells);
+                    let texts = s.load_text_data(base, len, call.text_cells);
+                    numbers || texts
+                });
+                if loaded {
+                    HostValue::Int(0)
+                } else {
+                    HostValue::Int(self.start_async(Exit::Failed))
+                }
+            }
+            Action::LoadArray | Action::SaveArray if int(2) == 0 => {
                 HostValue::Int(self.start_async(Exit::Failed))
             }
+            // A save into the library's data folder would write into the
+            // installed library's user folder, beside files Kontakt itself
+            // wrote; KONTRA reports the failure rather than overwrite one.
+            Action::SaveArray if int(2) == 1 => HostValue::Int(self.start_async(Exit::Failed)),
             Action::LoadArray if int(2) == 2 && int(3) != 2 => {
                 if let Some(s) = self.script() {
                     s.load_number_data(int(0) as u32, int(1) as usize, call.cells);

@@ -413,6 +413,10 @@ impl Engine {
                 engine.run_callback(slot, init, Running::new(Kind::Init, None));
             }
             engine.write_saved(slot, &script.restore, &script.restore_texts);
+            // The library's own data folder is read again last: its values
+            // are what Kontakt keeps over the saved ones (see
+            // [`ScriptPlan::after_restore`]).
+            engine.write_saved(slot, &script.after_restore, &script.after_restore_texts);
             engine.persistence_changed(slot);
         }
         engine.building = false;

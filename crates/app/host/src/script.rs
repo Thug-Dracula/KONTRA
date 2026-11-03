@@ -136,6 +136,8 @@ pub fn plan(script: &Script, saved: &[String], data: &[(String, Vec<u8>)]) -> Sc
             .iter()
             .filter_map(|(name, bytes)| text_data_array(script, name, bytes))
             .collect(),
+        after_restore: Vec::new(),
+        after_restore_texts: Vec::new(),
         restore: restore.ints,
         restore_texts: restore
             .texts
@@ -234,6 +236,102 @@ fn data_array(script: &Script, name: &str, bytes: &[u8]) -> Option<(u32, Vec<i64
         })
         .collect();
     Some((base, values))
+}
+
+/// [`plan`], plus what the script loads from its library's data folder:
+/// `load_array(<array>, 1)` reads `folder`'s `<array>.nka` at once (KSP makes
+/// mode 1 synchronous in `on init`) and the file's cells are written again
+/// after the saved values ([`ScriptPlan::after_restore`]).
+#[must_use]
+pub fn plan_with_user_data(
+    script: &Script,
+    saved: &[String],
+    data: &[(String, Vec<u8>)],
+    source: &str,
+    folder: Option<&std::path::Path>,
+) -> ScriptPlan {
+    let files = user_data_files(source, folder);
+    let cells = user_data_cells(script, &files);
+    let mut merged = data.to_vec();
+    merged.extend(files);
+    let mut planned = plan(script, saved, &merged);
+    planned.after_restore = cells.numbers;
+    planned.after_restore_texts = cells.texts;
+    planned
+}
+
+/// The arrays a script loads from its library's data folder:
+/// `load_array(<array>, 1)`, by lowercase name without its sigil.
+///
+/// The bytes are read at load, from the folder
+/// [`crate::user_data::library_folder`] resolves, and fill the cells exactly
+/// as a resource's do ([`data_array`], [`text_data_array`]). A script that
+/// reads such an array in `on init` gets it at once, as KSP documents for
+/// mode 1.
+#[must_use]
+pub fn user_data_files(source: &str, folder: Option<&std::path::Path>) -> Vec<(String, Vec<u8>)> {
+    let Some(folder) = folder else {
+        return Vec::new();
+    };
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for call in source.split("load_array(").skip(1) {
+        let Some((array, mode)) = call.split_once(')').and_then(|(a, _)| a.split_once(',')) else {
+            continue;
+        };
+        let stem = array.trim().get(1..).unwrap_or_default().to_lowercase();
+        if mode.trim() != "1" || stem.is_empty() || files.iter().any(|(s, _)| *s == stem) {
+            continue;
+        }
+        if let Some(bytes) = read_bounded(&folder.join(format!("{stem}.nka"))) {
+            files.push((stem, bytes));
+        }
+    }
+    files
+}
+
+/// The cells a mode-1 load fills, from the `(name, bytes)` files
+/// [`user_data_files`] read: written once as the script loads them (a mode-1
+/// `load_array` in `on init` is synchronous) and again after the saved values
+/// ([`kontra_engine::ScriptPlan::after_restore`]).
+#[must_use]
+pub fn user_data_cells(script: &Script, files: &[(String, Vec<u8>)]) -> DataCells {
+    let mut cells = DataCells::default();
+    for (name, bytes) in files {
+        if let Some((base, values)) = data_array(script, name, bytes) {
+            for (n, value) in values.into_iter().enumerate() {
+                cells.numbers.push((base + n as u32, value));
+            }
+        } else if let Some((base, values)) = text_data_array(script, name, bytes) {
+            for (n, text) in values.into_iter().enumerate() {
+                cells.texts.push((base + n as u32, text));
+            }
+        }
+    }
+    cells
+}
+
+/// The cells a mode-1 `load_array` fills, by cell.
+#[derive(Debug, Default)]
+pub struct DataCells {
+    pub numbers: Vec<(u32, i64)>,
+    pub texts: Vec<(u32, Text)>,
+}
+
+/// A data file's bytes, up to the limit any resource a script loads has to
+/// stay under; nothing for a larger file or a device.
+fn read_bounded(path: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    const LIMIT: u64 = kontra_format_kontakt::RESOURCE_LIMIT;
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= LIMIT).then_some(bytes)
 }
 
 /// A resource NKA's string values, prepared before script execution.
@@ -409,6 +507,8 @@ pub fn lua_plan(compiled: kontra_lua::Compiled) -> ScriptPlan {
         source_folder: None,
         library_folder: None,
         factory_folder: None,
+        after_restore: Vec::new(),
+        after_restore_texts: Vec::new(),
         restore: Vec::new(),
         restore_texts: Vec::new(),
         foreign: Some(std::sync::Arc::new(compiled)),

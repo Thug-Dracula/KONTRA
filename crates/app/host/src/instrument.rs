@@ -107,6 +107,12 @@ pub fn build(instrument: ir::Instrument, rate: u32, store: &mut Store) -> Loaded
     // it move up one ($EVENT_PAR_SOURCE then counts from the gap).
     // Discovery walks the disk, so only a KSP script triggers it, and once.
     let mut factory_folder = None;
+    let installs = kontra_library::kontakt::candidates();
+    // The per-library folder a script's `load_array(<array>, 1)` reads, when a
+    // Kontakt install on this machine names one for this library.
+    let user_data_folder = crate::user_data::root(&installs).and_then(|root| {
+        crate::user_data::library_folder(&root, instrument.library_path.as_deref())
+    });
     for (n, script) in instrument.scripts.iter().enumerate() {
         if script.dialect == ir::Dialect::Lua {
             match kontra_lua::compile(&script.source, &lua_modules(script), &script.saved) {
@@ -126,14 +132,19 @@ pub fn build(instrument: ir::Instrument, rate: u32, store: &mut Store) -> Loaded
         }
         match kontra_ksp::compile(&script.source, &[]) {
             Ok(compiled) => {
-                let mut planned = crate::script::plan(&compiled, &script.saved, &script.data);
+                let mut planned = crate::script::plan_with_user_data(
+                    &compiled,
+                    &script.saved,
+                    &script.data,
+                    &script.source,
+                    user_data_folder.as_deref(),
+                );
                 planned.source_folder =
                     crate::script::source_folder(instrument.source_path.as_deref());
                 planned.library_folder = crate::script::folder(instrument.library_path.as_deref());
                 planned.files = Some(std::sync::Arc::new(crate::rack::DiskFiles::default()));
-                planned.factory_folder = *factory_folder.get_or_insert_with(|| {
-                    factory_folder_of(kontra_library::kontakt::candidates())
-                });
+                planned.factory_folder =
+                    *factory_folder.get_or_insert_with(|| factory_folder_of(installs.clone()));
                 planned.links = crate::script::links(&compiled, &script.links);
                 if planned.links.len() < script.links.len() {
                     diagnostics.push(ir::Diagnostic {
