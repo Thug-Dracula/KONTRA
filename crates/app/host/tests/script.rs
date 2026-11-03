@@ -3976,6 +3976,8 @@ fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     let heard = level(&mut e, &[on(60)]);
     assert!((heard - 0.5).abs() < 1e-3, "{heard}");
     assert_eq!(e.last_message(), "2,7,1,0,42");
+}
+
 /// Two things Kontakt does that a loaded instrument measures directly, both of
 /// which `Stradivari Violin`'s own scripts rely on:
 ///
