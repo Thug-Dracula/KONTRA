@@ -1399,6 +1399,47 @@ fn a_script_sends_a_note_its_modulation_value() {
 }
 
 #[test]
+fn a_played_note_carries_the_slot_its_script_wrote_to_the_slot_after() {
+    // The Evolution bass family writes the string a note is played on with
+    // `set_event_par($id, 18, string)` in one slot and reads it in the next,
+    // then picks the sample from it: a zero there selects a sample two octaves
+    // away, which was the whole 23 dB band error on `eeb-rick-bridge`.
+    // 18 and 19 answer a plain integer, default 0, and a note `play_note`
+    // created carries it on (Kontakt 8.14.1, measured:
+    // `docs/re/kontakt-event-par-18-19-2026-11-03.md`).
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut plan = Plan::new(vec![zone(&mut store, 0.5, 0)], 16);
+    for g in &mut plan.groups {
+        g.mods.clear();
+    }
+    let slot = |source: &str| {
+        kontra_host::script::plan(&kontra_ksp::compile(source, &[]).unwrap(), &[], &[])
+    };
+    plan.scripts = vec![
+        slot(
+            "on init
+                declare $played
+            end on
+            on note
+                $played := play_note($EVENT_NOTE, $EVENT_VELOCITY, -1, -1)
+                set_event_par($played, 18, 4)
+            end on",
+        ),
+        slot(
+            "on note
+                if (get_event_par($EVENT_ID, $EVENT_PAR_SOURCE) = 0)
+                    message(get_event_par($EVENT_ID, 18) & \" \" & get_event_par($EVENT_ID, 19))
+                end if
+            end on",
+        ),
+    ];
+    let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
+    level(&mut e, &[on(60)]);
+    // The string slot 0 wrote, and the untouched neighbour's default.
+    assert_eq!(e.last_message(), "4 0");
+}
+
+#[test]
 fn a_note_played_in_one_slot_passes_the_slots_after_it() {
     let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
     let zones = vec![zone(&mut store, 0.25, 0), zone(&mut store, 0.5, 1)];
@@ -3939,19 +3980,31 @@ fn set_num_user_zones_is_reported_unanswered() {
 /// names the group with `$EVENT_PAR_CUSTOM`. Before these reads were carried the
 /// tags all answered 0 and the three products' group gates closed every group
 /// (22 silent instruments, `docs/re/silent-products-2026-11-03.md` §5).
+///
+/// The values are Kontakt's, measured with `tools/kontakt-oracle/probes/`
+/// (`start_criteria_law.lua`, `solid_geq_readback.lua`, `event_custom_law.lua`,
+/// 2026-11-03): a controller row 2 / 0..=64 answers mode 2 and those fields; a
+/// group with no stored row answers the record's defaults (mode 0, controller 1,
+/// cc 0..=64), not zero; a peak band answers 1 and a shelf 0; and the event's
+/// custom array round-trips at index 1, with `$EVENT_PAR_CUSTOM` equal to the
+/// literal 28.
 #[test]
 fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
     let mut sounding = zone(&mut store, 0.5, 0);
     sounding.keys = 60..=60;
-    let mut plan = Plan::new(vec![sounding], 16);
+    // A second group with no stored start criteria row: Kontakt answers its
+    // record's defaults there, not zero, and the script reads it below.
+    let mut empty = zone(&mut store, 0.0, 1);
+    empty.keys = 0..=0;
+    let mut plan = Plan::new(vec![sounding, empty], 16);
     for g in &mut plan.groups {
         g.mods.clear();
     }
     plan.groups[0].criteria = vec![ir::StartCriterion {
         mode: 2,
         controller: 2,
-        cc: (7, 64),
+        cc: (0, 64),
         ..ir::StartCriterion::default()
     }];
     let mut bands = [ir::Bell::FLAT; 4];
@@ -3965,8 +4018,9 @@ fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     })];
     let script = kontra_ksp::compile(
         "on note
-            set_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 42, 3)
-            message(get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_LF_BELL, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_HF_BELL, 0, 0, -1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 3))
+            set_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 4242, 1)
+            set_event_par_arr($EVENT_ID, 28, 7, 0)
+            message(get_engine_par($ENGINE_PAR_START_CRITERIA_MODE, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MAX, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_MODE, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CONTROLLER, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MIN, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_START_CRITERIA_CC_MAX, 1, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_LF_BELL, 0, 0, -1) & \",\" & get_engine_par($ENGINE_PAR_SEQ_HF_BELL, 0, 0, -1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 1) & \",\" & get_event_par_arr($EVENT_ID, 28, 1) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 2) & \",\" & get_event_par_arr($EVENT_ID, $EVENT_PAR_CUSTOM, 0))
         end on",
         &[],
     )
@@ -3975,7 +4029,7 @@ fn a_script_reads_a_groups_start_criteria_eq_bell_and_event_slots() {
     let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
     let heard = level(&mut e, &[on(60)]);
     assert!((heard - 0.5).abs() < 1e-3, "{heard}");
-    assert_eq!(e.last_message(), "2,7,1,0,42");
+    assert_eq!(e.last_message(), "2,2,0,64,0,1,0,64,1,0,4242,4242,0,7");
 }
 
 /// Two things Kontakt does that a loaded instrument measures directly, both of

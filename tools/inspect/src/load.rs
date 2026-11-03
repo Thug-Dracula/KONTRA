@@ -42,6 +42,16 @@ pub fn run(path: &Path) -> Result<(Value, String)> {
             json!({
                 "id": id, "name": g.name, "trigger": format!("{:?}", g.trigger),
                 "start_rules": format!("{:?}", g.start), "purged": g.purged,
+                // The stored rows `$ENGINE_PAR_START_CRITERIA_*` answers from,
+                // in the order `criteria[0]` is the one every name reads.
+                "criteria": g.criteria.iter().map(|c| json!({
+                    "mode": c.mode, "next": c.next,
+                    "key_min": c.key.0, "key_max": c.key.1,
+                    "controller": c.controller, "cc_min": c.cc.0, "cc_max": c.cc.1,
+                    "cycle_class": c.cycle_class,
+                    "zone_idx": c.slice.0, "slice_idx": c.slice.1,
+                    "sequencer_only": c.sequencer_only,
+                })).collect::<Vec<_>>(),
                 "stream": format!("{:?}", g.stream), "envelope": format!("{:?}", g.envelope),
                 "zones": g.zones.iter().map(|z| json!({
                     "sample": z.sample, "keys": [z.keys.start(), z.keys.end()],

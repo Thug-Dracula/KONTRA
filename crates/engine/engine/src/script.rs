@@ -35,6 +35,20 @@ fn micros(frame: u64, rate: u32) -> i32 {
     i32::try_from(us).unwrap_or(i32::MAX)
 }
 
+/// Where event parameter `par` lives in a note's [`Note::extra`] slots, or
+/// `None` when it is not one of them.
+///
+/// 18 and 19 are Kontakt's further per-event parameters: a plain integer each,
+/// default 0, which a note `play_note` creates carries into the slots after it
+/// (`docs/re/kontakt-event-par-18-19-2026-11-03.md`). Nothing else in the number
+/// space is claimed: 0..=3 are `$EVENT_PAR_0..3`, 4..=11 the named parameters,
+/// and 15 KONTRA's own zone slot ([`event::ZONE_SLOT`]).
+fn extra_slot(par: i32) -> Option<usize> {
+    usize::try_from(par - event::EXTRA_FIRST)
+        .ok()
+        .filter(|_| (event::EXTRA_FIRST..=event::EXTRA_LAST).contains(&par))
+}
+
 impl Engine {
     /// The plan's zone for a KSP zone id; see the `get_zone_id` arm.
     fn zone(&self, id: i32) -> Option<&kontra_plan::Zone> {
@@ -181,6 +195,9 @@ impl Engine {
         let Some(n) = NoteRef::from_event_id(id).and_then(|r| self.notes.get(r)) else {
             return 0;
         };
+        if let Some(slot) = extra_slot(par) {
+            return n.extra.get(slot).copied().unwrap_or(0);
+        }
         match par {
             0..=event::CUSTOM_LAST => n.custom.get(par as usize).copied().unwrap_or(0),
             event::VOLUME => n.script_volume,
@@ -198,22 +215,30 @@ impl Engine {
     }
 
     fn set_event_par(&mut self, id: i32, par: i32, value: i32) {
-        self.each(id, |n| match par {
-            0..=event::CUSTOM_LAST => {
-                if let Some(c) = n.custom.get_mut(par as usize) {
-                    *c = value;
+        self.each(id, |n| {
+            if let Some(slot) = extra_slot(par) {
+                if let Some(slot) = n.extra.get_mut(slot) {
+                    *slot = value;
                 }
+                return;
             }
-            event::VOLUME => n.script_volume = value,
-            event::TUNE => n.script_tune = value,
-            event::PAN => n.script_pan = value.clamp(-1000, 1000),
-            event::NOTE if !n.started => n.key = value.clamp(0, 127) as u8,
-            event::ZONE_SLOT if !n.started => n.zone_slot = value,
-            event::VELOCITY if !n.started => {
-                n.velocity_byte = value.clamp(1, 127) as u8;
-                n.velocity = f64::from(n.velocity_byte) / 127.0;
+            match par {
+                0..=event::CUSTOM_LAST => {
+                    if let Some(c) = n.custom.get_mut(par as usize) {
+                        *c = value;
+                    }
+                }
+                event::VOLUME => n.script_volume = value,
+                event::TUNE => n.script_tune = value,
+                event::PAN => n.script_pan = value.clamp(-1000, 1000),
+                event::NOTE if !n.started => n.key = value.clamp(0, 127) as u8,
+                event::ZONE_SLOT if !n.started => n.zone_slot = value,
+                event::VELOCITY if !n.started => {
+                    n.velocity_byte = value.clamp(1, 127) as u8;
+                    n.velocity = f64::from(n.velocity_byte) / 127.0;
+                }
+                _ => {}
             }
-            _ => {}
         });
     }
 
