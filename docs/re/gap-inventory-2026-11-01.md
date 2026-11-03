@@ -1,5 +1,15 @@
 # Gap inventory — 2026-11-01
 
+> **Superseded in part, 2026-11-03.** The 180 "silent at every key" below is a
+> snapshot, and 83 of it is not a KONTRA defect: Arabian Ethnic Orchestra was
+> deleted from this machine later on 2026-11-01, so those instruments no longer
+> exist to render at all, and 15 more sound on today's build. Each remaining
+> silent instrument now has a named first broken link in
+> `silent-products-2026-11-03.md` (23 were a legacy Phaser's stored dry level
+> and are fixed; 22 are a script group gate; 23 are a script consuming the note;
+> 11 key/velocity or gain). Read that document for the state of silence, and
+> this one for the script-symbol ranking it was written to produce.
+
 The user asked whether it would be worth scanning every instrument and listing
 what needs to be added. It is worth it, and this is the list. Nothing here
 changes engine or UI behaviour: this is a survey, and every number was produced
