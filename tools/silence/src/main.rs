@@ -50,6 +50,14 @@
 //! down, own the silence. The probe never changes what the engine does with the
 //! file; it builds a second plan for one measurement.
 //!
+//! # Script probe
+//!
+//! `KONTRA_SCRIPT_SOURCE=<dir>` replaces script slot `n`'s source with
+//! `<dir>/n.ksp` when that file exists, as `kontra-render` does, so a `message()`
+//! can be added to a branch and read back from the same harness that measures
+//! the row: `last_message` in the JSON is the last text the script showed. That
+//! is how the deciding branch of a `note_ignored` row was named.
+//!
 //! # Limitations (read these before trusting a row)
 //!
 //! - **One note, one point in time.** Velocity is fixed (default 100), the hold
