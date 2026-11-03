@@ -48,30 +48,41 @@ Before → after, per gap:
 ## 1. `mf_get_note_length` — and the interface it was holding shut
 
 The KSP reference does not list the function. Checked in the 7.10 manual: the
-MIDI object chapter documents `$EVENT_PAR_NOTE_LENGTH` through
+MIDI object chapter documents `$EVENT_PAR_NOTE_LENGTH` only through
 `mf_get_event_par()`, and the version history's list of the MIDI file commands
-(`mf_get_first`, `mf_get_next`, `mf_get_pos`, …) does not include it. What it is
-therefore comes from the corpus, which is unusually clear:
+(`mf_get_first`, `mf_get_next`, `mf_get_pos`, …) does not include it.
 
-| call site | shape |
+**The unit is ticks, and it is the corpus's own arithmetic that says so — not a
+manual lookup.** The instruments convert the value before use, with the same
+command they apply to the other MIDI-object positions:
+
+| where | the line |
 |---|---|
-| Garage Kit - Full / Lite, Session Kit - Full / Lite, Stadium Kit - Full / Lite (NI Studio Drummer 1.4.1) | `$mf_note_length := ticks_to_ms(mf_get_note_length())`, then `play_note(…, $mf_note_length)` |
-| Mike Mangini (Mixwave) | `%_midi_len[$_i10] := mf_get_note_length()`, later `mf_set_event_par($id, $EVENT_PAR_NOTE_LENGTH, %_midi_len[…])` |
+| Garage Kit - Full, `slot-0.ksp:1277` (and its five Studio Drummer siblings) | `$mf_note_length := ticks_to_ms(mf_get_note_length())`, then `if ($mf_note_length < $MIN_NOTE_LENGTH) …` and `play_note(…, $mf_note_length)` |
+| Session Guitarist, `slot-0.ksp:29` | `ticks_to_ms(mf_get_pos()-$mf__start_of_beat) - (…)` |
+| 36 instruments | `ticks_to_ms($NI_SONG_POSITION)` with the comment `{$NI_SONG_POSITION = 960 ticks per quarter note}` |
+| Mike Mangini, `slot-0.ksp:3806` | `%_midi_len[$_i10] := mf_get_note_length()` in the same loop as `mf_get_command()`, `mf_get_byte_one()`, `mf_get_byte_two()`, later `mf_set_event_par($id, $EVENT_PAR_NOTE_LENGTH, %_midi_len[…])` |
 
-Six sites pass it to `ticks_to_ms()`, whose manual entry is "converts a
-tempo-dependent MIDI ticks value into a value in microseconds"; the seventh
-stores it into `$EVENT_PAR_NOTE_LENGTH`, the parameter `mf_get_event_par()`
-reads. Both say the same unit: **ticks**. It takes no arguments at any of the
-seven.
+`ticks_to_ms()` is Kontakt's tick-to-millisecond conversion — a script that
+wanted milliseconds would not call it — and 1,917 corpus calls to it are applied
+to tick-valued inputs of exactly this kind. So the function answers the note
+length in **ticks of the event under the position marker**, the event
+`mf_get_command()` and `mf_get_byte_one()` read, and this engine answers it in
+the unit `mf_get_pos()` and `mf_get_length()` already use (ticks) rather than
+converting at the binding: the caller converts.
 
-What it does is read the event the position marker sits on — the same event
-`mf_get_command()`, `mf_get_byte_one()` and `mf_get_byte_two()` read — and
-answer that event's note length. **Kontakt's answer for an event that is not a
-note is neither documented nor measured here.** This answers the 0
-`$EVENT_PAR_NOTE_LENGTH` already carries for a non-note in our model, rather than
-inventing a second convention. The probe that would settle it is one script in
-the oracle: insert a MIDI file with a note, a CC and a note with no Note Off,
-walk it with `mf_get_next()` and `message()` the three values.
+
+**Still open: what it answers for a note that does not exist or has no length.**
+Garage Kit clamps with `if ($mf_note_length < $MIN_NOTE_LENGTH)`, which is only
+*suggestive* of 0; Mike Mangini guards its stored value with
+`if (%_midi_len[$_i10] # -1)`, which is suggestive of −1. The two do not agree,
+and neither is decisive — in Mike Mangini the guard cannot be observed either
+way, because the cell is already −1 from the reset loop and both 0 and −1 take
+the same branch downstream. The reference says nothing. So this answers the 0
+`$EVENT_PAR_NOTE_LENGTH` already carries for a non-note in our model (an
+existing convention, not a new one), and the probe that settles it is one oracle
+script: insert a MIDI file holding a note, a CC and a note with no Note Off,
+walk it with `mf_get_next()`, and `message()` the three values.
 
 The acceptance case, `Mixwave - Mike Mangini/Instruments/Mike Mangini.nki`
 (18,052 lines, 1,249 UI declarations):

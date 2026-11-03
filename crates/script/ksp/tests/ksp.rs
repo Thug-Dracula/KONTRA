@@ -751,13 +751,16 @@ fn num_elements_folds_in_a_declaration() {
 
 /// `mf_get_note_length()` is what Kontakt's folder accepts but the reference
 /// never lists (7.10's MIDI object chapter documents `$EVENT_PAR_NOTE_LENGTH`
-/// through `mf_get_event_par()` and its history lists the MIDI file commands,
-/// without this one). Its unit comes from its callers: six of the seven corpus
-/// call sites are `ticks_to_ms(mf_get_note_length())` — and `ticks_to_ms()` is
-/// documented as converting "a tempo-dependent MIDI ticks value into a value in
-/// microseconds" — while the seventh stores the result into
-/// `$EVENT_PAR_NOTE_LENGTH` through `mf_set_event_par()`. The front end's part
-/// is the zero-argument call; the engine answers it (`Action::MfGetNoteLength`).
+/// only through `mf_get_event_par()`, and its history lists the MIDI file
+/// commands without this one). Its unit is established by the corpus's own
+/// arithmetic, not by a manual lookup: the call is wrapped in `ticks_to_ms()`,
+/// the same conversion the corpus applies to `mf_get_pos()` and to
+/// `$NI_SONG_POSITION` — 36 instruments comment that one
+/// `{$NI_SONG_POSITION = 960 ticks per quarter note}` — and the one call site
+/// that does not convert stores the value into `$EVENT_PAR_NOTE_LENGTH`. The
+/// front end's part is the zero-argument call; the engine answers it in ticks,
+/// the unit `mf_get_pos()` and `mf_get_length()` answer in
+/// (`Action::MfGetNoteLength`).
 #[test]
 fn mf_get_note_length_is_a_zero_argument_function() {
     let r = Run::new(

@@ -777,14 +777,17 @@ impl HostApi for Engine {
             ),
             // `mf_get_note_length`: the length in ticks of the note the
             // position marker reads, which `mf_get_command()` and
-            // `mf_get_byte_one()` read at the same event. The corpus says the
-            // unit twice over: six of the seven call sites wrap the result in
-            // `ticks_to_ms()` ("converts a tempo-dependent MIDI ticks value
-            // into microseconds"), and the seventh hands it to
-            // `mf_set_event_par($EVENT_PAR_NOTE_LENGTH)`. Kontakt's answer for
-            // an event that is not a note is neither documented nor measured;
+            // `mf_get_byte_one()` read at the same event. Ticks is the unit the
+            // corpus establishes by its own arithmetic: it wraps the value in
+            // `ticks_to_ms()`, the same conversion it applies to
+            // `mf_get_pos()` and to `$NI_SONG_POSITION` ("960 ticks per
+            // quarter note" in 36 instruments' own comments), and Mike
+            // Mangini stores it into `$EVENT_PAR_NOTE_LENGTH`, ticks by the
+            // same argument. That is the unit `mf_get_pos` and `mf_get_length`
+            // answer in above, so nothing is converted here. Kontakt's answer
+            // for an event that has no length is undocumented and unmeasured;
             // this answers the 0 `$EVENT_PAR_NOTE_LENGTH` already carries for
-            // one, rather than inventing a second convention.
+            // a non-note rather than inventing a second convention.
             Action::MfGetNoteLength => HostValue::Int(
                 self.midi
                     .get(self.midi_current)

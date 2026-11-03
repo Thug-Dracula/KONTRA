@@ -215,17 +215,23 @@ builtins! {
         MfSetChannel "mf_set_channel" [I] 0 Void;
         MfGetPos "mf_get_pos" [] 0 Int;
         MfSetPos "mf_set_pos" [I] 0 Void;
-        // `mf_get_note_length` is not in the KSP reference (checked in the 7.10
-        // manual: the MIDI object chapter documents `mf_get_event_par()` with
-        // `$EVENT_PAR_NOTE_LENGTH`, and its version history's list of MIDI file
-        // commands has no `mf_get_note_length`). It is what Kontakt's compiler
-        // accepts, and 7 corpus slots in 2 products call it: 6 of them pass it
-        // straight to `ticks_to_ms()`, whose manual entry is "converts a
-        // tempo-dependent MIDI ticks value into a value in microseconds", and
-        // the seventh stores it into `$EVENT_PAR_NOTE_LENGTH` of an inserted
-        // event, which is the same parameter `mf_get_event_par()` reads. So the
-        // value is the note length in ticks of the event under the position
-        // marker, the one `mf_get_command()`/`mf_get_byte_one()` read.
+        // `mf_get_note_length` is not in the KSP reference (the 7.10 MIDI
+        // object chapter documents `$EVENT_PAR_NOTE_LENGTH` only through
+        // `mf_get_event_par()`, and the version history's list of MIDI file
+        // commands has no such name). Its unit comes from the corpus's own
+        // arithmetic, not from a manual lookup: Garage Kit - Full writes
+        // `$mf_note_length := ticks_to_ms(mf_get_note_length())` and hands the
+        // result to `play_note()`'s duration, and `ticks_to_ms()` is what the
+        // corpus applies to the other MIDI-object positions — `ticks_to_ms(
+        // mf_get_pos() - …)` in the Session Guitarist family, and
+        // `ticks_to_ms($NI_SONG_POSITION)` in 36 instruments that comment it
+        // `{$NI_SONG_POSITION = 960 ticks per quarter note}`. Mike Mangini
+        // stores the value into `$EVENT_PAR_NOTE_LENGTH` in the same loop that
+        // reads `mf_get_command()`, `mf_get_byte_one()` and `mf_get_byte_two()`.
+        // So: ticks, the unit `mf_get_pos()` and `mf_get_length()` already
+        // answer in here, and nothing is converted at this end — the caller
+        // converts. Kontakt's answer for an event that is not a note is open
+        // (see the engine's arm).
         MfGetNoteLength "mf_get_note_length" [] 0 Int;
         MfGetLength "mf_get_length" [] 0 Int;
         MfSetLength "mf_set_length" [I] 0 Void;
