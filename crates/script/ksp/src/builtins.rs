@@ -215,6 +215,18 @@ builtins! {
         MfSetChannel "mf_set_channel" [I] 0 Void;
         MfGetPos "mf_get_pos" [] 0 Int;
         MfSetPos "mf_set_pos" [I] 0 Void;
+        // `mf_get_note_length` is not in the KSP reference (checked in the 7.10
+        // manual: the MIDI object chapter documents `mf_get_event_par()` with
+        // `$EVENT_PAR_NOTE_LENGTH`, and its version history's list of MIDI file
+        // commands has no `mf_get_note_length`). It is what Kontakt's compiler
+        // accepts, and 7 corpus slots in 2 products call it: 6 of them pass it
+        // straight to `ticks_to_ms()`, whose manual entry is "converts a
+        // tempo-dependent MIDI ticks value into a value in microseconds", and
+        // the seventh stores it into `$EVENT_PAR_NOTE_LENGTH` of an inserted
+        // event, which is the same parameter `mf_get_event_par()` reads. So the
+        // value is the note length in ticks of the event under the position
+        // marker, the one `mf_get_command()`/`mf_get_byte_one()` read.
+        MfGetNoteLength "mf_get_note_length" [] 0 Int;
         MfGetLength "mf_get_length" [] 0 Int;
         MfSetLength "mf_set_length" [I] 0 Void;
         MfGetTrackIdx "mf_get_track_idx" [] 0 Int;
@@ -246,6 +258,27 @@ builtins! {
         GetSampleLength "get_sample_length" [I] 0 Int;
         GetZonePar "get_zone_par" [I I] 0 Int;
         SetZonePar "set_zone_par" [I I I] 0 Int;
+        // `set_num_user_zones(<value>)`: "Creates empty user zones. ... the
+        // number of user zones to be created. %NI_USER_ZONE_IDS is the array of
+        // size <value> with all the user zone IDs" (KSP reference, Zone
+        // Commands). The array is what the command is for, and a script-sized
+        // system array is not something this front end can declare, so the
+        // binding stops at the call: it compiles and reaches the host, which
+        // has no user-zone model and reports it unanswered. That is the whole
+        // of the gap for the 4 corpus slots that name it (FOLDS, Strands 2.0,
+        // Haunted Spaces) only in the sense that it is their *first* error:
+        // they then call `set_sample()` and index `%NI_USER_ZONE_IDS`, so none
+        // of them compiles either way (measured with `kspcheck`).
+        SetNumUserZones "set_num_user_zones" [I] 0 Void;
+        // `dont_use_machine_mode(<id-number>)`: "Play the specified event in
+        // Sampler mode (only makes sense when the groups allowed for playback
+        // are in one of Machine modes)" (KSP reference, Zone Commands — the
+        // manual's only entry for it; it has no detailed page). No group in a
+        // KONTRA plan has a machine mode, so the request is already the state
+        // of the world: the call is answered and does nothing. 25 corpus slots
+        // report it as their first compile error, all of them passing an event
+        // id (`$EVENT_ID`, `$new_note`, …), never a bare call.
+        DontUseMachineMode "dont_use_machine_mode" [I] 0 Void;
         PurgeGroup "purge_group" [I I] 0 Int;
         GetPurgeState "get_purge_state" [I] 0 Int;
         FindMod "find_mod" [I S] 0 Int;

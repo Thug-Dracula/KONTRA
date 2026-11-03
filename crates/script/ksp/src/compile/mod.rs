@@ -294,7 +294,16 @@ fn callback_kind(name: &str) -> Option<CallbackKind> {
         "ui_controls" => CallbackKind::UiControls,
         "ui_update" => CallbackKind::UiUpdate,
         "listener" => CallbackKind::Listener,
-        "pgs_changed" => CallbackKind::PgsChanged,
+        // `_pgs_changed`: Kontakt 2 spelled this callback with the leading
+        // underscore, as it spelled `_read_persistent_var`, `_create_key`,
+        // `_get_key_val` and `_set_key_val` — and the corpus's 36 users write
+        // all of those, which [`Builtin::from_name`] already accepts by
+        // stripping the prefix. The manual (Callbacks) documents the callback
+        // as `on pgs_changed`, "executed whenever any pgs_set_key_val() command
+        // is executed in any script slot"; the underscore names the same
+        // callback for the same instruments, so it lowers to the same
+        // `CallbackKind` and needs nothing else.
+        "pgs_changed" | "_pgs_changed" => CallbackKind::PgsChanged,
         "persistence_changed" => CallbackKind::PersistenceChanged,
         "async_complete" => CallbackKind::AsyncComplete,
         "rpn" => CallbackKind::Rpn,

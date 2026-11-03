@@ -775,6 +775,21 @@ impl HostApi for Engine {
                     .get(self.midi_current)
                     .map_or(0, |f| f.length() as i32),
             ),
+            // `mf_get_note_length`: the length in ticks of the note the
+            // position marker reads, which `mf_get_command()` and
+            // `mf_get_byte_one()` read at the same event. The corpus says the
+            // unit twice over: six of the seven call sites wrap the result in
+            // `ticks_to_ms()` ("converts a tempo-dependent MIDI ticks value
+            // into microseconds"), and the seventh hands it to
+            // `mf_set_event_par($EVENT_PAR_NOTE_LENGTH)`. Kontakt's answer for
+            // an event that is not a note is neither documented nor measured;
+            // this answers the 0 `$EVENT_PAR_NOTE_LENGTH` already carries for
+            // one, rather than inventing a second convention.
+            Action::MfGetNoteLength => HostValue::Int(
+                self.midi
+                    .get(self.midi_current)
+                    .map_or(0, |f| f.note_length()),
+            ),
             Action::MfGetPos => HostValue::Int(
                 self.midi
                     .get(self.midi_current)
@@ -923,6 +938,16 @@ impl HostApi for Engine {
             // just nothing (KSP manual has no entry for it; the corpus's 188
             // callers are what it is implemented for).
             Action::HideInstIcon => HostValue::Nothing,
+            // `dont_use_machine_mode(<id-number>)`: nothing to do. The manual
+            // (Zone Commands) documents it as "play the specified event in
+            // Sampler mode", which "only makes sense when the groups allowed
+            // for playback are in one of Machine modes". Nothing in a plan
+            // carries a machine mode — every group here plays in sampler mode —
+            // so the event already plays the way the call asks for. Answered
+            // rather than left unanswered: the command is carried out, its
+            // result is just nothing. 25 corpus slots call it, in the shapes
+            // `dont_use_machine_mode($EVENT_ID)` and `…($new_note)`.
+            Action::DontUseMachineMode => HostValue::Nothing,
             other => {
                 self.count_unhandled(other);
                 HostValue::Nothing

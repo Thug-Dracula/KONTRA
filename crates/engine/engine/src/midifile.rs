@@ -234,6 +234,14 @@ impl MidiFile {
         self.under_cursor().map_or(self.length, |e| e.tick)
     }
 
+    /// `mf_get_note_length`: the length, in ticks, of the note under the
+    /// cursor — the value `$EVENT_PAR_NOTE_LENGTH` carries for the event the
+    /// cursor reads. Zero for an event that is not a note, and past the end,
+    /// which is the value [`Self::event_par`] already gives a non-note.
+    pub fn note_length(&self) -> i32 {
+        self.under_cursor().map_or(0, |e| e.len as i32)
+    }
+
     /// The event the cursor reads.
     fn under_cursor(&self) -> Option<&Event> {
         let id = *self.order.get(self.cursor)?;

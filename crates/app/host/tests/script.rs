@@ -3729,3 +3729,150 @@ fn a_declaration_in_another_case_does_not_hide_the_event_from_the_script() {
         "group 1 alone: peak {peak} (0.75 is the ignored host note too)"
     );
 }
+
+/// One track with a note (960 ticks), a controller inside it, and a note no
+/// Note Off ever ends: the shapes `mf_get_note_length` must tell apart.
+fn midi_bytes_with_a_controller() -> Vec<u8> {
+    let track: Vec<u8> = vec![
+        0x00, 0x90, 0x3c, 0x46, // +0    note on 60
+        0x83, 0x60, 0xb0, 0x01, 0x40, // +480  CC 1 = 64
+        0x83, 0x60, 0x80, 0x3c, 0x40, // +480 (960) note off 60
+        0x87, 0x40, 0x90, 0x40, 0x46, // +960 (1920) note on 64, never ended
+        0x00, 0xff, 0x2f, 0x00, // end of track
+    ];
+    let mut file = b"MThd".to_vec();
+    file.extend_from_slice(&6u32.to_be_bytes());
+    file.extend_from_slice(&0u16.to_be_bytes());
+    file.extend_from_slice(&1u16.to_be_bytes());
+    file.extend_from_slice(&960u16.to_be_bytes());
+    file.extend_from_slice(b"MTrk");
+    file.extend_from_slice(&(track.len() as u32).to_be_bytes());
+    file.extend_from_slice(&track);
+    file
+}
+
+/// `mf_get_note_length` is the note length in ticks of the event the position
+/// marker reads: 960 for the first note, and 0 for the controller at 480 and
+/// for the note on 64 that no Note Off ends. The unit is the corpus's: Studio
+/// Drummer passes the value to `ticks_to_ms()` before `play_note()`, and Mike
+/// Mangini stores it into `$EVENT_PAR_NOTE_LENGTH`.
+#[test]
+fn mf_get_note_length_is_the_length_of_the_note_under_the_cursor() {
+    let path = std::env::temp_dir().join(format!("kontra-mf-{}-length.mid", std::process::id()));
+    std::fs::write(&path, midi_bytes_with_a_controller()).unwrap();
+    let p = path.display();
+    let source = format!(
+        "on init
+            declare @s
+            mf_insert_file(\"{p}\", 0, 0, 0)
+            mf_get_first(0)
+            while (mf_get_command() # 0)
+                @s := @s & mf_get_note_length() & \" \"
+                mf_get_next(0)
+            end while
+            message(@s)
+        end on"
+    );
+    let store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let mut e = engine(&store, Vec::new(), &source);
+    level(&mut e, &[on(60)]);
+    assert_eq!(e.last_message(), "960 0 0 ");
+    assert!(
+        e.unhandled_actions().is_empty(),
+        "{:?}",
+        e.unhandled_actions()
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+/// `on _pgs_changed` is the `on pgs_changed` callback: it runs on a
+/// `pgs_set_key_val()` write in another slot, a sample later, and two writes in
+/// one callback coalesce into one run — the queueing the manual's "executed
+/// whenever any pgs_set_key_val() command is executed in any script slot" needs
+/// to stay off the block that made the write.
+#[test]
+fn an_underscore_pgs_changed_callback_runs_once_per_write_batch() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.25, 0), zone(&mut store, 0.5, 1)];
+    let mut plan = Plan::new(zones, 16);
+    for g in &mut plan.groups {
+        g.mods.clear();
+    }
+    let slot = |source: &str| {
+        kontra_host::script::plan(&kontra_ksp::compile(source, &[]).unwrap(), &[], &[])
+    };
+    plan.scripts = vec![
+        slot(
+            "on init
+                pgs_create_key(GROUP, 1)
+                pgs_set_key_val(GROUP, 0, 1)
+                pgs_set_key_val(GROUP, 0, 1)
+            end on",
+        ),
+        slot(
+            "on init
+                declare @runs
+                declare $group
+            end on
+            on _pgs_changed
+                @runs := @runs & \"x\"
+                $group := pgs_get_key_val(GROUP, 0)
+            end on
+            on note
+                disallow_group($ALL_GROUPS)
+                allow_group($group)
+                message(@runs)
+            end on",
+        ),
+    ];
+    let mut e = Engine::new(Arc::new(plan), store.client(), RATE);
+    // The run was queued for the sample after the write, not run inside it.
+    level(&mut e, &[]);
+    assert!((level(&mut e, &[on(60)]) - 0.5).abs() < 1e-3);
+    assert_eq!(e.last_message(), "x", "two writes, one queued run");
+}
+
+/// `dont_use_machine_mode(<id-number>)` asks that the event play in Sampler
+/// mode. No group here has a machine mode, so the host answers the call and the
+/// note plays exactly as it would without it: the command is carried out, not
+/// counted as an unanswered action.
+#[test]
+fn dont_use_machine_mode_is_answered_and_the_note_still_plays() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.5, 0)];
+    let mut e = engine(
+        &store,
+        zones,
+        "on note
+            dont_use_machine_mode($EVENT_ID)
+            allow_group(0)
+        end on",
+    );
+    assert!((level(&mut e, &[on(60)]) - 0.5).abs() < 1e-3);
+    assert!(
+        e.unhandled_actions().is_empty(),
+        "{:?}",
+        e.unhandled_actions()
+    );
+}
+
+/// `set_num_user_zones(3)` compiles and reaches the host, and the engine says
+/// it did not carry it out: there is no user-zone model here, and a script that
+/// needs one must not read as though the zones existed.
+#[test]
+fn set_num_user_zones_is_reported_unanswered() {
+    let mut store = Store::new(StoreConfig::DEFAULT).unwrap();
+    let zones = vec![zone(&mut store, 0.5, 0)];
+    let mut e = engine(
+        &store,
+        zones,
+        "on init
+            set_num_user_zones(3)
+        end on",
+    );
+    level(&mut e, &[on(60)]);
+    assert_eq!(
+        e.unhandled_actions(),
+        [(kontra_engine::Action::SetNumUserZones, 1)]
+    );
+}

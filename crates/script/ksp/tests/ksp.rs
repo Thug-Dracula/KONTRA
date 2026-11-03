@@ -746,3 +746,105 @@ fn num_elements_folds_in_a_declaration() {
         "expected a constant"
     );
 }
+
+// ---- The rest of the binding family: `docs/re/gap-inventory-2026-11-01.md` §5 ----
+
+/// `mf_get_note_length()` is what Kontakt's folder accepts but the reference
+/// never lists (7.10's MIDI object chapter documents `$EVENT_PAR_NOTE_LENGTH`
+/// through `mf_get_event_par()` and its history lists the MIDI file commands,
+/// without this one). Its unit comes from its callers: six of the seven corpus
+/// call sites are `ticks_to_ms(mf_get_note_length())` — and `ticks_to_ms()` is
+/// documented as converting "a tempo-dependent MIDI ticks value into a value in
+/// microseconds" — while the seventh stores the result into
+/// `$EVENT_PAR_NOTE_LENGTH` through `mf_set_event_par()`. The front end's part
+/// is the zero-argument call; the engine answers it (`Action::MfGetNoteLength`).
+#[test]
+fn mf_get_note_length_is_a_zero_argument_function() {
+    let r = Run::new(
+        "on init
+            declare $len
+            $len := mf_get_note_length()
+        end on",
+    );
+    assert_eq!(r.host.calls, [(Action::MfGetNoteLength, vec![])]);
+    // No call site passes an argument; a call that does is not this function.
+    assert!(
+        compile("on init mf_get_note_length(0) end on", &[]).is_err(),
+        "mf_get_note_length takes no arguments"
+    );
+}
+
+/// `dont_use_machine_mode(<id-number>)` is the Zone Commands entry the manual
+/// gives as "play the specified event in Sampler mode (only makes sense when
+/// the groups allowed for playback are in one of Machine modes)" — the only
+/// place the manual mentions it. Nothing in a plan carries a machine mode, so
+/// the binding reaches the host and asks for the state that already holds; the
+/// 25 corpus slots call it with an event id, never bare.
+#[test]
+fn dont_use_machine_mode_is_a_command_that_takes_an_event_id() {
+    let mut r = Run::new(
+        "on note
+            dont_use_machine_mode($EVENT_ID)
+        end on",
+    );
+    assert_eq!(r.callback(CallbackKind::Note, None), Step::Done);
+    assert_eq!(r.host.calls, [(Action::DontUseMachineMode, vec![1000])]);
+    assert!(
+        compile("on init dont_use_machine_mode() end on", &[]).is_err(),
+        "dont_use_machine_mode names the event it plays, as all 25 call sites do"
+    );
+}
+
+/// `on _pgs_changed` is Kontakt 2's spelling of `on pgs_changed`, in the same
+/// family as the `_read_persistent_var`, `_create_key`, `_get_key_val` and
+/// `_set_key_val` that the 36 corpus users also write (and that
+/// [`Builtin::from_name`] accepts by dropping the prefix). The manual's entry
+/// for the callback is the one both spellings mean: "executed whenever any
+/// pgs_set_key_val() command is executed in any script slot".
+#[test]
+fn underscore_pgs_changed_is_the_pgs_changed_callback() {
+    let source = "on init
+        end on
+        on _pgs_changed
+            message(\"changed\")
+        end on";
+    let script = compile(source, &[]).unwrap();
+    assert!(
+        script.callback(CallbackKind::PgsChanged, None).is_some(),
+        "the underscore spelling is the pgs_changed callback"
+    );
+    // The alias is the documented callback's, not a rule that any underscore
+    // name is a callback: `on _note` is still nothing Kontakt documents.
+    assert_eq!(
+        compile("on _note end on", &[]).unwrap_err().message,
+        "unknown callback _note"
+    );
+}
+
+/// `set_num_user_zones(<value>)` is a command (manual, Zone Commands: "creates
+/// empty user zones" and "[`%NI_USER_ZONE_IDS`] is the array of size <value>").
+/// The command reaches the host; the array it is for is not modelled, and a
+/// script that indexes it is still refused rather than handed a made-up length
+/// or made-up ids.
+#[test]
+fn set_num_user_zones_is_a_command() {
+    let r = Run::new(
+        "on init
+            set_num_user_zones(3)
+        end on",
+    );
+    assert_eq!(r.host.calls, [(Action::SetNumUserZones, vec![3])]);
+    assert_eq!(
+        compile(
+            "on init
+                set_num_user_zones(3)
+                set_zone_par(%NI_USER_ZONE_IDS[0], $ZONE_PAR_GROUP, 0)
+            end on",
+            &[]
+        )
+        .unwrap_err()
+        .message,
+        "%NI_USER_ZONE_IDS is not an array",
+        "the user-zone array is not modelled, so nothing reads a wrong size"
+    );
+}

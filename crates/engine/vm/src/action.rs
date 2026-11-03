@@ -378,4 +378,18 @@ actions! {
     // instrument icon, so the engine answers it and does nothing (see the arm
     // in the engine's script host).
     HideInstIcon,
+    // `mf_get_note_length`: the note length in ticks of the event under the
+    // MIDI object's position marker — `$EVENT_PAR_NOTE_LENGTH` for
+    // `mf_get_id()`'s event. Not in the KSP reference; see the binding's note
+    // in `kontra-ksp`'s builtins and the arm in the engine's script host.
+    MfGetNoteLength,
+    // `dont_use_machine_mode(<id-number>)`: ask that this event play in
+    // Sampler mode. The plan has no machine mode to leave, so the engine
+    // answers it and does nothing (see the arm in the engine's script host).
+    DontUseMachineMode,
+    // `set_num_user_zones(<value>)`: create that many empty user zones and put
+    // their ids in `%NI_USER_ZONE_IDS`. The engine has no user-zone model and
+    // no arm for this, so the call is counted as unanswered rather than
+    // silently dropped.
+    SetNumUserZones,
 }
