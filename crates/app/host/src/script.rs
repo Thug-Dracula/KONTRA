@@ -236,6 +236,52 @@ fn data_array(script: &Script, name: &str, bytes: &[u8]) -> Option<(u32, Vec<i64
     Some((base, values))
 }
 
+/// The arrays a script loads from its library's data folder:
+/// `load_array(<array>, 1)`, by lowercase name without its sigil.
+///
+/// The bytes are read at load, from the folder
+/// [`crate::user_data::library_folder`] resolves, and fill the cells exactly
+/// as a resource's do ([`data_array`], [`text_data_array`]). A script that
+/// reads such an array in `on init` gets it at once, as KSP documents for
+/// mode 1.
+#[must_use]
+pub fn user_data_files(source: &str, folder: Option<&std::path::Path>) -> Vec<(String, Vec<u8>)> {
+    let Some(folder) = folder else {
+        return Vec::new();
+    };
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for call in source.split("load_array(").skip(1) {
+        let Some((array, mode)) = call.split_once(')').and_then(|(a, _)| a.split_once(',')) else {
+            continue;
+        };
+        let stem = array.trim().get(1..).unwrap_or_default().to_lowercase();
+        if mode.trim() != "1" || stem.is_empty() || files.iter().any(|(s, _)| *s == stem) {
+            continue;
+        }
+        if let Some(bytes) = read_bounded(&folder.join(format!("{stem}.nka"))) {
+            files.push((stem, bytes));
+        }
+    }
+    files
+}
+
+/// A data file's bytes, up to the limit any resource a script loads has to
+/// stay under; nothing for a larger file or a device.
+fn read_bounded(path: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    const LIMIT: u64 = kontra_format_kontakt::RESOURCE_LIMIT;
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= LIMIT).then_some(bytes)
+}
+
 /// A resource NKA's string values, prepared before script execution.
 fn text_data_array(script: &Script, name: &str, bytes: &[u8]) -> Option<(u32, Vec<Text>)> {
     let var = script.variables.iter().find(|v| {

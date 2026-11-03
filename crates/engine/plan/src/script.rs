@@ -12,7 +12,7 @@ pub struct ScriptPlan {
     pub callbacks: Callbacks,
     /// Callbacks that may run or wait at once.
     pub coroutines: usize,
-    /// Library data arrays `load_array(%x, 2)` reads: (first cell, values).
+    /// Library data arrays `load_array(%x, 1|2)` reads: (first cell, values).
     pub data: Vec<(u32, Vec<i64>)>,
     /// Text array data prepared from library resources.
     pub text_data: Vec<(u32, Vec<Text>)>,
@@ -65,14 +65,18 @@ impl ScriptPlan {
         }
     }
 
-    /// Copies a prepared numeric array into its cells.
-    pub fn load_number_data(&self, base: u32, len: usize, cells: &mut [i64]) {
-        if let Some((_, values)) = self.data.iter().find(|(b, _)| *b == base) {
-            let cells = cells.get_mut(base as usize..).unwrap_or_default();
-            for (cell, value) in cells.iter_mut().zip(values).take(len) {
-                *cell = *value;
-            }
+    /// Copies a prepared numeric array into its cells, and says whether it
+    /// had one: a script's `load_array(<array>, 1)` and `(…, 2)` both read
+    /// files the host prepared before the script ran.
+    pub fn load_number_data(&self, base: u32, len: usize, cells: &mut [i64]) -> bool {
+        let Some((_, values)) = self.data.iter().find(|(b, _)| *b == base) else {
+            return false;
+        };
+        let cells = cells.get_mut(base as usize..).unwrap_or_default();
+        for (cell, value) in cells.iter_mut().zip(values).take(len) {
+            *cell = *value;
         }
+        true
     }
 
     /// What `par` lives on, so the engine can tell a target the
